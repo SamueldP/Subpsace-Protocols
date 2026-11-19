@@ -1,0 +1,231 @@
+{
+  "main": {
+    "id": "0c51b6d45aa8eb13",
+    "type": "split",
+    "children": [
+      {
+        "id": "f739fa902da9917e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4760ced9d18b1e42",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "01_World_Bible/Factions/Galactic_Union.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Galactic_Union"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "b0d21b6d63862fe3",
+    "type": "split",
+    "children": [
+      {
+        "id": "3fc4db7f6e73a86e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ce4552cd4ef374e2",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "f551818488f3aae1",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "0f9df11f3c0534c5",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "8515d0664a09551b",
+    "type": "split",
+    "children": [
+      {
+        "id": "d3947483fa202295",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e27c45b1389547f7",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Scratchpad.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "ec433e0a17864d95",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Scratchpad.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "c5d102a5cb0c33a8",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "c2db583440b27b31",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "a66a3a94d43a2c81",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Scratchpad.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "4760ced9d18b1e42",
+  "lastOpenFiles": [
+    "02_Locations/World_Locations/Void_Gate_3.md",
+    "03_Gameplay_Rules/Documents_and_Data/Data_Slate_and_Telemetry.md",
+    "01_World_Bible/Factions/Commercial_Organizations.md",
+    "_Inbox_Sources/Subspace Protocols - Game Design & Lore Document_2.pdf",
+    "_Inbox_Sources/gemini-code-1795085727104.md",
+    "_Conflicts_and_Plot_Holes.md",
+    "Scratchpad.md",
+    "01_World_Bible/Factions/The_Concord.md",
+    "08_Physical_Look/Procedural_Art_Bible_and_Asset_Spec.md",
+    "_Inbox_Sources/subspace_protocols_art_bible_procedural_asset_spec.md",
+    "01_World_Bible/Factions/Galactic_Union.md",
+    "01_World_Bible/Factions/Independent_and_Minor_Species.md",
+    "01_World_Bible/Factions/Helani.md",
+    "04_Characters/Scripted_NPCs/Scripted_Queue_Characters.md",
+    "08_Physical_Look/Visual_Direction_and_UI_Layout.md",
+    "Untitled.canvas",
+    "00_System_Index/_Project_Overview.md",
+    "_Inbox_Sources/Subspace Protocols - Game Design & Lore Document.pdf",
+    "_Inbox_Sources/Subpsace protocols info.pdf",
+    "_Inbox_Sources/Chat_Additions.txt",
+    "_Inbox_Sources",
+    "04_Characters/Main_Character.md",
+    "04_Characters/Untitled.md",
+    "04_Characters/Scripted_NPCs",
+    "03_Gameplay_Rules/Quarters_Management.md",
+    "03_Gameplay_Rules/Rule_Progression",
+    "03_Gameplay_Rules/Documents_and_Data",
+    "03_Gameplay_Rules/Core_Loop_Mechanics.md",
+    "01_World_Bible/Timeline",
+    "01_World_Bible/Setting_and_History",
+    "00_System_Index/_State_Variables.md",
+    "rules.md",
+    "05_Main_Story/Endings/Double Agent.md",
+    "02_Locations/Playable/Quarters.md",
+    "02_Locations/Playable/Desk.md",
+    "01_World_Bible/Factions/Kordani.md",
+    "02_Locations/Playable/Shop.md"
+  ]
+}

@@ -1,0 +1,33 @@
+SUBSPACE PROTOCOLS – SUPPLEMENTAL NOTES (CHAT ADDITIONS)
+
+THEME & VISUAL DIRECTION
+- Aesthetic reference: Star Trek-themed presentation paired with a Papers, Please bureaucratic gameplay structure.
+
+PLAYABLE LOCATIONS (ADDITION)
+- Shop: Accessible location (alongside the Desk and Quarters) where the player can purchase food rations, desk trinkets, and scanner upgrades.
+
+STORY STRUCTURE & LOOP INTEGRATION
+- Multiple Endings: The game features multiple endings, with escaping the station as the primary baseline path.
+- Scripted Loop Interruptions: Main story beats and side quests inject specific scripted characters directly into the daily shift queue alongside standard procedurally generated ships.
+
+GAMEPLAY RULES & PROGRESSION
+- Daily Rule Escalation: Inspection requirements start simple on Day 1 (basic checks) and progressively introduce new rules, documents, and mechanics on later days (for example, Day 4).
+- Slow Warp Residue Printer: The physical warp field residue printout prints slowly, acting as a time-management constraint during a shift.
+- Manual vs. Automated Shield Scanning: Checking whether an approaching ship's shields are down is a manual job by default. Players can buy an upgrade from the Shop to automate shield scanning.
+- Ship Registry Prefixes: Ships carry inspectable Registry Prefixes (example: prefix 442).
+- Kordani Audits: Kordani officials can audit the player's desk/work performance.
+
+QUARTERS: FOOD TIERS & HULL SCANNER SWAY
+- Hunger Mechanic: The player's food intake in quarters determines hand steadiness when operating the Hull Scanner during the next shift.
+- Hull Scanner States (3 Tiers):
+  1. Low (Starvation / Unfed): Scanner sways heavily ("all over the place").
+  2. Medium (Default / Nutrient Paste): Slight, manageable sway. Nutrient Paste is cheap and keeps the player alive with no extra perk.
+  3. High (High-Tier Rations): Grants a next-day perk where the scanner has zero sway for a few seconds.
+
+DESK TRINKETS & REPUTATION MODIFIERS
+- Faction Desk Items: Placing a physical item associated with a specific faction on the work desk where a hailing captain can see it on the viewscreen makes captains from that faction more lenient.
+- Kordani Military Insignia: Can be purchased from the Shop and placed on the desk. Grants an extra payout if a Kordani audits the player, and modifies a hidden stat. [TODO: Define which hidden stat is affected and by how much]
+
+POTENTIAL SIDE QUESTS (DRAFT CONCEPTS)
+- Helani Courier Warp Signature: During the shift, log the warp signature of a Helani courier ship, copy it onto a blank Data Pad/slate, and transmit it via the quarters terminal to [TODO: Specify recipient/faction].
+- Orun Freighter 442: Clear an Orun freighter with Registry prefix 442 to dock even if its inspection details are invalid.
