@@ -14,6 +14,8 @@ public static class AssetManager
     private static readonly Dictionary<string, Texture2D> LoadedTextures = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> MissingPaths = new(StringComparer.OrdinalIgnoreCase);
 
+    public static int ActiveTextureCount => LoadedTextures.Count;
+
     public static string GetImagesRootDirectory() =>
         Path.Combine(AppContext.BaseDirectory, "assets", "images");
 

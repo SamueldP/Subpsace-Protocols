@@ -9,6 +9,9 @@ namespace SubspaceProtocols.Core;
 /// </summary>
 public static class Palette
 {
+    // Must be declared FIRST before any static Color fields that call FromHex() during static initialization
+    private static readonly Dictionary<string, Color> HexCache = new(StringComparer.OrdinalIgnoreCase);
+
     // =========================================================================
     // 1. Core Station & UI Color Palette (Section 2)
     // =========================================================================
@@ -178,33 +181,50 @@ public static class Palette
 
     /// <summary>
     /// Converts a CSS-style hex color string (e.g. "#ffb84d" or "#080b10") into a Raylib Color.
+    /// Uses an in-memory lookup table for zero-overhead repeated conversions.
     /// </summary>
     public static Color FromHex(string hex)
     {
         if (string.IsNullOrWhiteSpace(hex))
             return Color.Blank;
 
+        if (HexCache != null && HexCache.TryGetValue(hex, out Color cached))
+            return cached;
+
         ReadOnlySpan<char> span = hex.AsSpan().Trim();
         if (span.StartsWith("#"))
             span = span[1..];
 
+        Color parsed = Color.Magenta;
         if (span.Length == 6 &&
             byte.TryParse(span[0..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte r) &&
             byte.TryParse(span[2..4], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte g) &&
             byte.TryParse(span[4..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte b))
         {
-            return new Color(r, g, b, (byte)255);
+            parsed = new Color(r, g, b, (byte)255);
         }
-
-        if (span.Length == 8 &&
+        else if (span.Length == 8 &&
             byte.TryParse(span[0..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte r8) &&
             byte.TryParse(span[2..4], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte g8) &&
             byte.TryParse(span[4..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte b8) &&
             byte.TryParse(span[6..8], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte a8))
         {
-            return new Color(r8, g8, b8, a8);
+            parsed = new Color(r8, g8, b8, a8);
         }
 
-        return Color.Magenta;
+        if (HexCache != null)
+        {
+            HexCache[hex] = parsed;
+        }
+        return parsed;
     }
+
+    public static string ToHex(Color c) =>
+        $"#{c.R:x2}{c.G:x2}{c.B:x2}";
+
+    public static float GetLuminance(Color c) =>
+        (0.299f * c.R + 0.587f * c.G + 0.114f * c.B) / 255.0f;
+
+    public static float GetLuminance(string hex) =>
+        GetLuminance(FromHex(hex));
 }

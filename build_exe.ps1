@@ -34,7 +34,8 @@ $TargetAssetsDir = Join-Path $ReleaseFolder "assets"
 if (Test-Path $TargetDataDir) { Remove-Item $TargetDataDir -Recurse -Force }
 if (Test-Path $TargetAssetsDir) { Remove-Item $TargetAssetsDir -Recurse -Force }
 
-Copy-Item -Path (Join-Path $ProjectRoot "data") -Destination $TargetDataDir -Recurse -Force
+New-Item -ItemType Directory -Path $TargetDataDir -Force | Out-Null
+Copy-Item -Path (Join-Path $ProjectRoot "data\*.json") -Destination $TargetDataDir -Force
 Copy-Item -Path (Join-Path $ProjectRoot "assets") -Destination $TargetAssetsDir -Recurse -Force
 
 $ExePath = Join-Path $ReleaseFolder "SubspaceProtocols.exe"

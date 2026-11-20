@@ -6,7 +6,7 @@ namespace SubspaceProtocols.Procedural;
 /// </summary>
 public static class Dither
 {
-    private static readonly int[,] Bayer4x4 =
+    public static readonly int[,] Bayer4x4 =
     {
         {  0,  8,  2, 10 },
         { 12,  4, 14,  6 },
@@ -14,6 +14,9 @@ public static class Dither
         { 15,  7, 13,  5 }
     };
 
+    /// <summary>
+    /// Exact 4x4 Bayer ordered dithering threshold evaluation.
+    /// </summary>
     public static string BayerDither(int x, int y, string colorDark, string colorLight, float ratio = 0.5f)
     {
         int bx = ((x % 4) + 4) % 4;
@@ -23,7 +26,8 @@ public static class Dither
     }
 
     /// <summary>
-    /// Maps normalized light intensity t in [0..1] across a 4-color ramp [shadow, mid, base, highlight].
+    /// Maps normalized light intensity t in [0..1] across a 4-color ramp [shadow, mid, base, highlight]
+    /// using 4x4 Bayer ordered dithering between adjacent steps.
     /// </summary>
     public static string SampleRamp(int x, int y, ReadOnlySpan<string> ramp, float t)
     {
@@ -41,5 +45,17 @@ public static class Dither
             return ramp[^1];
 
         return BayerDither(x, y, ramp[idx], ramp[idx + 1], frac);
+    }
+
+    /// <summary>
+    /// Flattened non-dithered ramp sampler used by crudeCrayon forged ID rendering.
+    /// </summary>
+    public static string SampleFlatRamp(ReadOnlySpan<string> ramp, float t)
+    {
+        if (ramp.IsEmpty)
+            return "#ff00ff";
+        float clamped = Math.Clamp(t, 0.0f, 0.999f);
+        int idx = (int)MathF.Round(clamped * (ramp.Length - 1));
+        return ramp[Math.Clamp(idx, 0, ramp.Length - 1)];
     }
 }
