@@ -18,9 +18,24 @@ public static class Constants
     public const int ShipWidth = 120;
     public const int ShipHeight = 56;
 
-    // Shift Timing
+    // Shift Timing & Station Cycle Calendar (CYC YYYY.MM)
     public const float ShiftDurationSeconds = 270.0f; // 4m 30s diegetic Brown Dwarf arc
     public const int ExpectedShipsPerDay = 10;
+    public const int BaseStationCycleYear = 2409;
+    public const int BaseStationCycleMonth = 4;
+
+    public static (int Year, int Month) GetStationCycle(int day)
+    {
+        int monthOffset = Math.Max(0, day - 1) / 30;
+        int totalMonths = BaseStationCycleYear * 12 + (BaseStationCycleMonth - 1) + monthOffset;
+        return (totalMonths / 12, (totalMonths % 12) + 1);
+    }
+
+    public static string FormatStationCycle(int year, int month) =>
+        $"{year:D4}.{month:D2}";
+
+    public static int CompareCycle(int yearA, int monthA, int yearB, int monthB) =>
+        (yearA * 12 + monthA).CompareTo(yearB * 12 + monthB);
 
     // Economy & Penalties (00_System_Index/_State_Variables.md & 03_Gameplay_Rules)
     public const int BasePayPerShipScrip = 15;

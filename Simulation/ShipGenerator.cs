@@ -235,6 +235,11 @@ public sealed class ShipGenerator
         string captainName = GenerateCaptainName(captainSpecies, rng.Fork("capt_name"));
         int tonnage = GetBaselineTonnage(declaredClass, rng.Fork("tonnage"));
         (string purpose, string cargo) = PickPurposeAndCargo(declaredPrefix, declaredClass, rng.Fork("cargo"));
+        string declaredFactionName = GetFactionFullName(declaredPrefix);
+
+        (int curYear, int curMonth) = Constants.GetStationCycle(state.Day);
+        int validFutureMonths = rng.Fork("exp_valid").NextInt(2, 29);
+        (int expiryYear, int expiryMonth) = OffsetStationCycle(curYear, curMonth, validFutureMonths);
 
         int factionRep = state.GetRep(declaredPrefix);
 
@@ -250,22 +255,45 @@ public sealed class ShipGenerator
         ShipClass actualShipClass = declaredClass;
         bool initialShieldsUp = rng.Fork("init_shields").NextFloat() < 0.34f;
         bool initialWeaponsHot = rng.Fork("init_weapons").NextFloat() < 0.22f;
+        bool actualCargoPowerDraw = false;
         bool willRefuseShields = false;
         bool willRefuseWeapons = false;
         bool hasSpoofedWeapons = false;
+        PacketTamperField tamperedField = PacketTamperField.None;
+        string untamperedExpectedValue = string.Empty;
+
+        bool isRimOrOuterPrefix = declaredPrefix is "FTV-" or "FTC-" or "MNG-" or "PRJ-" or "HBR-" or "TLV-";
+        float interferenceChance = isRimOrOuterPrefix ? 0.22f : 0.08f;
+        RelayPingStatus relayStatus = rng.Fork("relay_interference").NextFloat() < interferenceChance
+            ? RelayPingStatus.NoResponseInterference
+            : RelayPingStatus.ActiveClear;
+
         List<ShipInfraction> infractions = [];
 
         if (!isValidShip)
         {
             // Build eligible infraction pool strictly adhering to Daily Rule Escalation:
-            // - Day 1-2: Prefix/Hull Silhouette Mismatch, Spoofed Weapons Hot on SPS, and (if non-expected) UNR- Prefix
+            // - Day 1-2: Expired Registration, Prefix/Org Mismatch, Prefix/Species Mismatch (restricted prefixes),
+            //            Packet Tampering (misspelled Org/Origin), Hull Silhouette Mismatch, Spoofed Weapons Hot,
+            //            Unexplained Violet Cargo Power, Relay Registry Alert (Stolen / Decommissioned),
+            //            and (if non-expected) UNR- Prefix
             // - Day 3+:  Also adds Falsified Origin Warp Waveform
             // - Day 14+ & rep_score <= -9 ONLY: Adds Outright Shield/Weapon Compliance Refusal
             List<ShipInfractionType> eligibleInfractions =
             [
+                ShipInfractionType.ExpiredRegistration,
+                ShipInfractionType.PrefixOrganizationMismatch,
+                ShipInfractionType.PacketTamperingMisspelling,
                 ShipInfractionType.PrefixHullSilhouetteMismatch,
-                ShipInfractionType.SpoofedWeaponsHot
+                ShipInfractionType.SpoofedWeaponsHot,
+                ShipInfractionType.UnexplainedCargoPowerDraw,
+                ShipInfractionType.RelayRegistryAlert
             ];
+
+            if (IsSpeciesRestrictedPrefix(declaredPrefix))
+            {
+                eligibleInfractions.Add(ShipInfractionType.PrefixSpeciesMismatch);
+            }
 
             if (expectedEntry == null)
             {
@@ -286,6 +314,77 @@ public sealed class ShipGenerator
 
             switch (chosenInfraction)
             {
+                case ShipInfractionType.ExpiredRegistration:
+                {
+                    int pastMonths = rng.Fork("exp_past").NextInt(1, 19);
+                    (expiryYear, expiryMonth) = OffsetStationCycle(curYear, curMonth, -pastMonths);
+                    string expFmt = Constants.FormatStationCycle(expiryYear, expiryMonth);
+                    string curFmt = Constants.FormatStationCycle(curYear, curMonth);
+                    infractions.Add(new ShipInfraction
+                    {
+                        Type = ShipInfractionType.ExpiredRegistration,
+                        Code = "PROTO-01D",
+                        CitationReason = $"REGISTRATION EXPIRED (CYC {expFmt} < CYC {curFmt})"
+                    });
+                    break;
+                }
+
+                case ShipInfractionType.PrefixOrganizationMismatch:
+                {
+                    string mismatchedPrefix = PickDifferentTrackedPrefix(declaredPrefix, rng.Fork("org_mismatch"));
+                    declaredFactionName = GetFactionFullName(mismatchedPrefix);
+                    infractions.Add(new ShipInfraction
+                    {
+                        Type = ShipInfractionType.PrefixOrganizationMismatch,
+                        Code = "PROTO-01E",
+                        CitationReason = $"PREFIX '{declaredPrefix}' DID NOT MATCH ORG '{declaredFactionName}'"
+                    });
+                    break;
+                }
+
+                case ShipInfractionType.PrefixSpeciesMismatch:
+                {
+                    captainSpecies = PickInvalidSpeciesForPrefix(declaredPrefix, rng.Fork("species_mismatch"));
+                    captainName = GenerateCaptainName(captainSpecies, rng.Fork("species_mismatch_name"));
+                    infractions.Add(new ShipInfraction
+                    {
+                        Type = ShipInfractionType.PrefixSpeciesMismatch,
+                        Code = "PROTO-01F",
+                        CitationReason = $"RESTRICTED PREFIX '{declaredPrefix}' PROHIBITS {captainSpecies.ToString().ToUpperInvariant()} CAPTAIN"
+                    });
+                    break;
+                }
+
+                case ShipInfractionType.PacketTamperingMisspelling:
+                {
+                    bool tamperOrg = rng.Fork("tamper_field").NextBool(0.50f);
+                    if (tamperOrg)
+                    {
+                        tamperedField = PacketTamperField.Organization;
+                        untamperedExpectedValue = declaredFactionName;
+                        declaredFactionName = MisspellOrganizationName(declaredPrefix, declaredFactionName);
+                        infractions.Add(new ShipInfraction
+                        {
+                            Type = ShipInfractionType.PacketTamperingMisspelling,
+                            Code = "PROTO-01G",
+                            CitationReason = $"SPOOFED PACKET -- MISSPELLED ORG '{declaredFactionName}'"
+                        });
+                    }
+                    else
+                    {
+                        tamperedField = PacketTamperField.Origin;
+                        untamperedExpectedValue = originSystem;
+                        originSystem = MisspellOriginSystem(originSystem);
+                        infractions.Add(new ShipInfraction
+                        {
+                            Type = ShipInfractionType.PacketTamperingMisspelling,
+                            Code = "PROTO-01G",
+                            CitationReason = $"SPOOFED PACKET -- MISSPELLED ORIGIN '{originSystem.ToUpperInvariant()}'"
+                        });
+                    }
+                    break;
+                }
+
                 case ShipInfractionType.PrefixHullSilhouetteMismatch:
                 {
                     actualVisualFaction = PickMismatchedVisualFaction(declaredVisualFaction, rng.Fork("mismatch_hull"));
@@ -314,10 +413,45 @@ public sealed class ShipGenerator
                     break;
                 }
 
+                case ShipInfractionType.UnexplainedCargoPowerDraw:
+                {
+                    actualCargoPowerDraw = true;
+                    purpose = "DEADHEAD REPOSITIONING";
+                    cargo = "EMPTY CARGO HOLD (UNPOWERED)";
+                    infractions.Add(new ShipInfraction
+                    {
+                        Type = ShipInfractionType.UnexplainedCargoPowerDraw,
+                        Code = "PROTO-01H",
+                        CitationReason = "UNEXPLAINED VIOLET CARGO POWER DRAW IN DECLARED EMPTY HOLD"
+                    });
+                    break;
+                }
+
+                case ShipInfractionType.RelayRegistryAlert:
+                {
+                    // Spotless Data Slate, but Faction Relay flags vessel as STOLEN or DECOMMISSIONED
+                    bool reportedStolen = rng.Fork("relay_alert_kind").NextBool(0.50f);
+                    relayStatus = reportedStolen
+                        ? RelayPingStatus.AlertReportedStolen
+                        : RelayPingStatus.AlertHullDecommissioned;
+                    string reason = reportedStolen
+                        ? "FACTION RELAY ALERT -- VESSEL REPORTED STOLEN"
+                        : "FACTION RELAY ALERT -- HULL DECOMMISSIONED 6 MO AGO";
+                    infractions.Add(new ShipInfraction
+                    {
+                        Type = ShipInfractionType.RelayRegistryAlert,
+                        Code = "PROTO-01R",
+                        CitationReason = reason
+                    });
+                    break;
+                }
+
                 case ShipInfractionType.UnregisteredPrefix:
                 {
                     declaredPrefix = Constants.UnregisteredPrefix;
+                    declaredFactionName = GetFactionFullName(Constants.UnregisteredPrefix);
                     regCode = GenerateUniqueNonExpectedRegistration(Constants.UnregisteredPrefix, rng.Fork("unr_reg"));
+                    relayStatus = RelayPingStatus.NoResponseInterference;
                     infractions.Add(new ShipInfraction
                     {
                         Type = ShipInfractionType.UnregisteredPrefix,
@@ -371,7 +505,8 @@ public sealed class ShipGenerator
         bool isDecomm = ShipRenderer.IsDecommissionedEffective(
             actualVisualFaction,
             actualShipClass,
-            actualVisualFaction == ShipFaction.GalacticUnion && rng.Fork("decomm").NextBool(0.55f),
+            actualVisualFaction == ShipFaction.GalacticUnion &&
+            (relayStatus == RelayPingStatus.AlertHullDecommissioned || rng.Fork("decomm").NextBool(0.55f)),
             false);
 
         TrafficPowerState mngState = WorldSim.EvaluateTrafficPowerState("MNG-", state.GetPower("MNG-"));
@@ -394,7 +529,9 @@ public sealed class ShipGenerator
             ShipName = shipName,
             RegistrationCode = regCode,
             DeclaredPrefix = declaredPrefix,
-            DeclaredFactionName = GetFactionFullName(declaredPrefix),
+            DeclaredFactionName = declaredFactionName,
+            RegistrationExpiryYear = expiryYear,
+            RegistrationExpiryMonth = expiryMonth,
             DeclaredVisualFaction = declaredVisualFaction,
             DeclaredShipClass = declaredClass,
             DeclaredCaptainName = captainName,
@@ -418,7 +555,7 @@ public sealed class ShipGenerator
             ActualShieldsUp = initialShieldsUp,
             ActualWeaponsHot = initialWeaponsHot,
             ActualWarpPrimed = true,
-            ActualCargoPowerDraw = false,
+            ActualCargoPowerDraw = actualCargoPowerDraw,
             ActualCommsPowered = !staticCamera,
             ActualVisualFaction = actualVisualFaction,
             ActualShipClass = actualShipClass,
@@ -434,6 +571,9 @@ public sealed class ShipGenerator
             ActualCaptainSpecies = captainSpecies,
             ActualOriginSystem = actualOriginSystem,
             IsDay2GhostRouteSuspect = false,
+            RelayStatus = relayStatus,
+            TamperedField = tamperedField,
+            UntamperedExpectedValue = untamperedExpectedValue,
             ActiveInfractions = infractions
         };
 
@@ -494,12 +634,17 @@ public sealed class ShipGenerator
         state.QuestFlags["Day2_GhostRouteEncountered"] = true;
         state.SaveToDisk();
 
+        (int curYear, int curMonth) = Constants.GetStationCycle(state.Day);
+        (int expYear, int expMonth) = OffsetStationCycle(curYear, curMonth, 14);
+
         DataSlateModel slate = new()
         {
             ShipName = shipName,
             RegistrationCode = regCode,
             DeclaredPrefix = declaredPrefix,
             DeclaredFactionName = GetFactionFullName(declaredPrefix),
+            RegistrationExpiryYear = expYear,
+            RegistrationExpiryMonth = expMonth,
             DeclaredVisualFaction = visualFaction,
             DeclaredShipClass = shipClass,
             DeclaredCaptainName = captainName,
@@ -539,6 +684,9 @@ public sealed class ShipGenerator
             ActualCaptainSpecies = captainSpecies,
             ActualOriginSystem = "The Ashen Rift",
             IsDay2GhostRouteSuspect = true,
+            RelayStatus = RelayPingStatus.ActiveClear,
+            TamperedField = PacketTamperField.None,
+            UntamperedExpectedValue = string.Empty,
             ActiveInfractions = []
         };
 
@@ -704,9 +852,136 @@ public sealed class ShipGenerator
         spec.ConfrontationGuiltyExcuseOrigin =
             $"Your salvaged spectrometer coil is drifting! Our logbook says {spec.Slate.OriginSystem} -- ignore that waveform strip!";
 
+        spec.ConfrontationGuiltyExcuseExpired =
+            $"Our renewal fee was wired to the port factor last month! {spec.Slate.RegistrationExpiryDisplay} is just a clerical lag -- cut us a break!";
+
+        spec.ConfrontationGuiltyExcuseOrgMismatch =
+            $"Charter lease paperwork changed hands mid-run! {prefix} and {spec.Slate.DeclaredFactionName} share the same holding broker -- mostly!";
+
+        spec.ConfrontationGuiltyExcuseSpeciesMismatch =
+            $"The regular captain came down with drift-fever before departure! I am only filling in on the {prefix} bridge for one jump!";
+
+        spec.ConfrontationGuiltyExcusePacketTamper =
+            "That spelling glitch? Just Brown Dwarf static corrupting our subspace ASCII packet! Nothing is forged on this transponder!";
+
+        spec.ConfrontationGuiltyExcuseRelayAlert = spec.GroundTruth.RelayStatus == RelayPingStatus.AlertReportedStolen
+            ? $"Stolen?! That relay bulletin is a bureaucratic mistake -- we settled the salvage lien on {reg} weeks ago!"
+            : $"Decommissioned?! We pulled {reg} out of the scrapyard and welded it spaceworthy ourselves -- ignore that stale relay flag!";
+
+        spec.ConfrontationGuiltyExcuseCargoPower =
+            "Violet draw in an empty hold? Just... deck heaters! Keep your scanner off our cargo bay and clear the berth!";
+
         spec.ConfrontationInnocentProtest =
             $"Check your Reference Manual again, Officer! Vessel {reg} is 100% regulation and compliant -- detaining us will cost you!";
     }
+
+    public static (int Year, int Month) OffsetStationCycle(int year, int month, int monthDelta)
+    {
+        int totalMonths = year * 12 + (month - 1) + monthDelta;
+        int outYear = totalMonths / 12;
+        int outMonth = (totalMonths % 12) + 1;
+        return (outYear, outMonth);
+    }
+
+    public static bool IsSpeciesRestrictedPrefix(string prefix) =>
+        prefix.ToUpperInvariant() is "GUV-" or "KDF-" or "BMC-" or "KRW-" or "ORN-" or "TLV-" or "PRJ-" or "HBR-";
+
+    public static bool IsSpeciesValidForPrefix(string prefix, PortraitSpecies species) =>
+        prefix.ToUpperInvariant() switch
+        {
+            "KDF-" => species == PortraitSpecies.Kordani,
+            "BMC-" => species == PortraitSpecies.Brengop,
+            "KRW-" => species == PortraitSpecies.Krushvak,
+            "ORN-" => species == PortraitSpecies.Orun,
+            "TLV-" => species == PortraitSpecies.Tolvak,
+            "PRJ-" => species == PortraitSpecies.Prunjun,
+            "HBR-" => species == PortraitSpecies.HunBorian,
+            "GUV-" => species is PortraitSpecies.Human or PortraitSpecies.Helani or PortraitSpecies.Klaasari
+                or PortraitSpecies.Thane or PortraitSpecies.Veldor,
+            _ => true // FTV-, FTC-, MNG-, ZNI-, UNR- are multi-species
+        };
+
+    public static string GetAllowedCrewSummary(ShipFaction faction) =>
+        faction switch
+        {
+            ShipFaction.GalacticUnion => "CREW: GU (HUM/HEL/KLA/THN/VEL)",
+            ShipFaction.Kordani => "CREW: KORDANI ONLY",
+            ShipFaction.Brengop => "CREW: BRENGOP ONLY",
+            ShipFaction.Krushvak => "CREW: KRUSHVAK ONLY",
+            ShipFaction.Orun => "CREW: ORUN ONLY",
+            ShipFaction.Tolvak => "CREW: TOLVAK ONLY",
+            ShipFaction.Prunjun => "CREW: PRUNJUN ONLY",
+            ShipFaction.FreeTraders => "CREW: FTV=MULTI / HBR=HUN-BORIAN",
+            ShipFaction.FarLineTransit => "CREW: MULTI-SPECIES",
+            ShipFaction.MiningGuild => "CREW: MULTI-SPECIES",
+            ShipFaction.ZenithInterstellar => "CREW: MULTI-SPECIES",
+            _ => "CREW: MULTI-SPECIES"
+        };
+
+    public static string GetRelayFactionTag(string prefix) =>
+        prefix.ToUpperInvariant() switch
+        {
+            "GUV-" => "GUV",
+            "KDF-" => "KDF",
+            "BMC-" => "BMC",
+            "KRW-" => "KRW",
+            "ORN-" => "ORN",
+            "TLV-" => "TLV",
+            "PRJ-" => "PRJ",
+            "FTV-" => "FTV",
+            "HBR-" => "HBR",
+            "FTC-" => "FTC",
+            "MNG-" => "MNG",
+            "ZNI-" => "ZNI",
+            _ => "UNR"
+        };
+
+    private static string PickDifferentTrackedPrefix(string currentPrefix, DeterministicRng rng)
+    {
+        List<string> candidates = Constants.AllTrackedPrefixes
+            .Where(p => !p.Equals(currentPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return rng.Pick(candidates);
+    }
+
+    private static PortraitSpecies PickInvalidSpeciesForPrefix(string prefix, DeterministicRng rng)
+    {
+        List<PortraitSpecies> candidates = PortraitRenderer.AllActiveSpecies
+            .Where(s => !IsSpeciesValidForPrefix(prefix, s))
+            .ToList();
+        return candidates.Count > 0 ? rng.Pick(candidates) : PortraitSpecies.Human;
+    }
+
+    private static string MisspellOrganizationName(string prefix, string canonical) =>
+        prefix.ToUpperInvariant() switch
+        {
+            "GUV-" => "GALATIC UNION",
+            "KDF-" => "KORDANY DEFENSE FLEET",
+            "BMC-" => "BRENGOP CONZORTIUM",
+            "KRW-" => "KRUSHVAC WAR-FLEET",
+            "ORN-" => "ORUN REGISTERY NETWORK",
+            "TLV-" => "TOLVAC TRANSIT LINE",
+            "PRJ-" => "PRUNJAN SALVAGE REG.",
+            "FTV-" => "INDEPENDANT FREE TRADERS",
+            "HBR-" => "HUN-BORAIN FREE VESSEL",
+            "FTC-" => "FAR-LINE TRANSET CORP",
+            "MNG-" => "MINING GULD SYNDICATE",
+            "ZNI-" => "ZENITH INTERSTELAR",
+            _ => canonical + "X"
+        };
+
+    private static string MisspellOriginSystem(string canonical) =>
+        canonical.ToLowerInvariant() switch
+        {
+            "veridia" => "Veridai",
+            "korr-vath" => "Korr-Vaht",
+            "dul-krag" => "Dul-Karg",
+            "gharok" => "Gahrok",
+            "oruun-4" => "Orun-4",
+            "caldera rim" => "Calderra Rim",
+            "solvane" => "Solvaine",
+            _ => canonical + "a"
+        };
 
     public static string GetHullFactionReadableName(ShipFaction faction) =>
         faction switch

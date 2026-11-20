@@ -28,6 +28,14 @@ public sealed class DataSlateModel
     public string DeclaredFactionName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Registration expiry cycle year (e.g., 2409) and month (1..12).
+    /// Must not be earlier than the current station cycle (e.g., 2409.04).
+    /// </summary>
+    public int RegistrationExpiryYear { get; set; } = 2410;
+    public int RegistrationExpiryMonth { get; set; } = 6;
+    public string RegistrationExpiryDisplay => $"CYC {RegistrationExpiryYear:D4}.{RegistrationExpiryMonth:D2}";
+
+    /// <summary>
     /// Expected hull visual faction schematic associated with DeclaredPrefix
     /// (Note: HBR- canonically maps to ShipFaction.FreeTraders / FTV- schematic).
     /// </summary>

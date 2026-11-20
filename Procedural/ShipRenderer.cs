@@ -248,7 +248,14 @@ public static class ShipRenderer
     /// <summary>
     /// Main entry point rendering a 120x56 left-facing starship buffer across Live, Manual, and SPS modes.
     /// </summary>
-    public static PixelBuffer RenderBuffer(ShipRenderOptions options)
+    public static PixelBuffer RenderBuffer(ShipRenderOptions options) =>
+        RenderBuffer(options, out _);
+
+    /// <summary>
+    /// Main entry point rendering a 120x56 left-facing starship buffer and returning the dynamic
+    /// ShipHardpointLayout in 120x56 ship-local coordinates for exact SPS reticle hardpoint locking.
+    /// </summary>
+    public static PixelBuffer RenderBuffer(ShipRenderOptions options, out ShipHardpointLayout hardpoints)
     {
         DeterministicRng rng = new(options.SeedId);
         ShipClass effectiveClass = NormalizeShipClass(options.Faction, options.RequestedClass);
@@ -260,7 +267,7 @@ public static class ShipRenderer
 
         // 1. Build isolated transparent 120x56 ship silhouette buffer + dynamic hardpoint metadata
         PixelBuffer shipBuf = new(Constants.ShipWidth, Constants.ShipHeight);
-        ShipHardpointLayout hardpoints = new();
+        hardpoints = new();
 
         BuildShipHullGeometry(
             shipBuf,

@@ -27,7 +27,8 @@ public sealed class DeskScreen : IScreen
         PreClearanceHailing = 2,
         DownloadingProtocols = 3,
         InspectingSlateAndShip = 4,
-        ResolvingDecision = 5
+        UploadingClearance = 5,
+        ResolvingDecision = 6
     }
 
     private enum PreShiftStage
@@ -46,6 +47,28 @@ public sealed class DeskScreen : IScreen
         TornOffFreeDocument = 4
     }
 
+    private enum RelayQueryPhase
+    {
+        Idle = 0,
+        TypingQuery = 1,
+        Completed = 2
+    }
+
+    private enum SpsAnomalyKind
+    {
+        None = 0,
+        HotWeaponMount = 1,
+        VioletCargoPower = 2
+    }
+
+    private sealed class SpsAnomalyEntry
+    {
+        public SpsAnomalyKind Kind { get; init; }
+        public string Label { get; init; } = string.Empty;
+        public Color AccentColor { get; init; }
+        public bool WasConfronted { get; set; }
+    }
+
     private enum DeskItemId
     {
         ExpectedList = 0,
@@ -60,9 +83,15 @@ public sealed class DeskScreen : IScreen
         DataSlatePrefix = 1,
         DataSlateWeapons = 2,
         DataSlateOrigin = 3,
-        ViewportShipHull = 4,
-        SpsLensConduit = 5,
-        WarpStripPaper = 6
+        DataSlateOrg = 4,
+        DataSlateExpiry = 5,
+        DataSlateSpecies = 6,
+        DataSlateCargo = 7,
+        TopHeaderCycle = 8,
+        ViewportShipHull = 9,
+        SpsLensConduit = 10,
+        WarpStripPaper = 11,
+        RelayAlertLog = 12
     }
 
     private sealed class DraggableDeskItem
@@ -131,31 +160,64 @@ public sealed class DeskScreen : IScreen
     private const int StripFullHeight = 76;
     private const float TearOffThresholdPx = 16.0f;
 
-    // Right Hardware Column: USB Clearance Dock & Detain Switch (Right edge: 800 + 144 = 944 -> 16px margin)
+    // Top Console Header Station Cycle Panel (Clickable in Protocol Review for Expiry Checks)
+    private const int TopCycleX = 650;
+    private const int TopCycleY = 3;
+    private const int TopCycleW = 108;
+    private const int TopCycleH = 18;
+
+    // Right Hardware Column: SPS Anomaly Mini-Screen (directly below SPS button), USB Clearance Dock & Detain Switch
+    private const int SpsMiniX = 800;
+    private const int SpsMiniY = 288;
+    private const int SpsMiniW = 144;
+    private const int SpsMiniH = 50;
+
     private const int DockPanelX = 800;
-    private const int DockPanelY = 292;
+    private const int DockPanelY = 342;
     private const int DockPanelW = 144;
-    private const int DockPanelH = 136;
+    private const int DockPanelH = 102;
 
     private const int DetainSwitchX = 800;
-    private const int DetainSwitchY = 434;
+    private const int DetainSwitchY = 448;
     private const int DetainSwitchW = 144;
-    private const int DetainSwitchH = 56;
+    private const int DetainSwitchH = 48;
 
     private const int DestroySwitchX = 800;
-    private const int DestroySwitchY = 496;
+    private const int DestroySwitchY = 500;
     private const int DestroySwitchW = 144;
-    private const int DestroySwitchH = 30;
+    private const int DestroySwitchH = 26;
 
-    // SPS Scissor Inspection Lens Dimensions
+    // SPS Scissor Inspection Lens Dimensions & Hold-to-Lock Threshold
     private const int SpsLensW = 74;
     private const int SpsLensH = 52;
+    private const float SpsLockDurationSeconds = 0.50f;
+    private const float SpsLockRadiusPx = 24.0f;
 
     // Pacing Durations
     private const float ShipApproachDurationSeconds = 3.5f;
     private const float ProtocolDownloadDurationSeconds = 1.85f;
+    private const float ClearanceUploadDurationSeconds = 1.35f;
+    private const float ShipDepartureDurationSeconds = 1.35f;
+    private const float RelayTypingDurationSeconds = 1.50f;
     private const float WarpScanDurationSeconds = 2.8f;
     private const float WarpPrintDurationSeconds = 4.0f;
+
+    // Canonical 12-prefix directory for Manual Tab 0 (exact match to ShipGenerator.GetFactionFullName)
+    private static readonly (string Prefix, string OrgName, ShipFaction VisualFaction)[] ManualPrefixDirectory =
+    [
+        ("GUV-", "GALACTIC UNION", ShipFaction.GalacticUnion),
+        ("KDF-", "KORDANI DEFENSE FLEET", ShipFaction.Kordani),
+        ("BMC-", "BRENGOP CONSORTIUM", ShipFaction.Brengop),
+        ("KRW-", "KRUSHVAK WAR-FLEET", ShipFaction.Krushvak),
+        ("ORN-", "ORUN REGISTRY NETWORK", ShipFaction.Orun),
+        ("TLV-", "TOLVAK TRANSIT LINE", ShipFaction.Tolvak),
+        ("PRJ-", "PRUNJUN SALVAGE REG.", ShipFaction.Prunjun),
+        ("FTV-", "INDEPENDENT FREE TRADERS", ShipFaction.FreeTraders),
+        ("HBR-", "HUN-BORIAN FREE VESSEL", ShipFaction.FreeTraders),
+        ("FTC-", "FAR-LINE TRANSIT CORP", ShipFaction.FarLineTransit),
+        ("MNG-", "MINING GUILD SYNDICATE", ShipFaction.MiningGuild),
+        ("ZNI-", "ZENITH INTERSTELLAR", ShipFaction.ZenithInterstellar)
+    ];
 
     private readonly ScreenManager _screenManager;
     private readonly GameState _gameState;
@@ -183,12 +245,28 @@ public sealed class DeskScreen : IScreen
     private string _reviewStatusNote = string.Empty;
     private string _verifiedViolationSummary = string.Empty;
 
-    // Tactile Pacing Timers: Approach (3.5s) & Protocol Download (1.85s)
+    // Tactile Pacing Timers: Approach (3.5s), Protocol Download (1.85s), Clearance Upload (1.35s)
     private float _shipApproachElapsed;
     private float _shipSlideOffset;
     private float _subspaceAutoTransferDelay;
     private float _protocolDownloadElapsed;
     private float _dataStreamAudioAccum;
+    private float _clearanceUploadElapsed;
+
+    // Day 1 Subspace Relay Ping State (Reference Manual Faction / Prefix Page)
+    private RelayQueryPhase _relayPhase = RelayQueryPhase.Idle;
+    private float _relayTypingElapsed;
+    private int _relayLastTypedChars;
+    private string _relayQueryFullText = string.Empty;
+    private RelayPingStatus _relayResultStatus = RelayPingStatus.ActiveClear;
+    private bool _relayTargetWasUnregistered;
+    private bool _relayAlertConfronted;
+
+    // Day 1 SPS Hold-to-Lock Anomaly Log State (Mini-Screen below SPS Toggle)
+    private ShipHardpointLayout? _activeShipHardpoints;
+    private readonly List<SpsAnomalyEntry> _spsLoggedAnomalies = [];
+    private SpsAnomalyKind _spsLockTarget = SpsAnomalyKind.None;
+    private float _spsLockProgress;
 
     // Day 3+ Manual Warp Field Scan & Physical Tear-Off Strip State
     private WarpPrinterPhase _warpPhase = WarpPrinterPhase.Idle;
@@ -286,10 +364,10 @@ public sealed class DeskScreen : IScreen
         {
             Id = DeskItemId.ExpectedList,
             X = 166,
-            Y = 292,
+            Y = 290,
             Width = 178,
-            Height = 234,
-            ExpandedHeight = 234,
+            Height = 236,
+            ExpandedHeight = 236,
             CollapsedHeight = 24,
             IsCollapsed = false,
             IsVisible = true
@@ -299,26 +377,26 @@ public sealed class DeskScreen : IScreen
         _deskItems[DeskItemId.DataSlate] = new DraggableDeskItem
         {
             Id = DeskItemId.DataSlate,
-            X = 350,
-            Y = 290,
-            Width = 186,
-            Height = 238,
-            ExpandedHeight = 238,
-            CollapsedHeight = 238,
+            X = 348,
+            Y = 289,
+            Width = 190,
+            Height = 240,
+            ExpandedHeight = 240,
+            CollapsedHeight = 240,
             IsCollapsed = false,
             IsVisible = false
         };
 
-        // 3. Movable Tabbed Desk Reference Manual (strictly read-only reference)
+        // 3. Movable Tabbed Desk Reference Manual (with Day 1 Subspace Relay Ping)
         _deskItems[DeskItemId.ReferenceManual] = new DraggableDeskItem
         {
             Id = DeskItemId.ReferenceManual,
             X = 542,
-            Y = 290,
+            Y = 289,
             Width = 246,
-            Height = 238,
-            ExpandedHeight = 238,
-            CollapsedHeight = 238,
+            Height = 240,
+            ExpandedHeight = 240,
+            CollapsedHeight = 240,
             IsCollapsed = false,
             IsVisible = true
         };
@@ -360,6 +438,7 @@ public sealed class DeskScreen : IScreen
         _activeCitationStrip = null;
         ResetProtocolReviewState();
         ResetWarpPrinterState();
+        ResetRelayAndSpsAnomalyState();
 
         // Resets ClericalWarningsThisShift = 0 and holds timer paused at t = 0 until first Next Hail
         _shiftController.StartNewShift(_gameState);
@@ -419,6 +498,22 @@ public sealed class DeskScreen : IScreen
         _verifiedViolationSummary = string.Empty;
     }
 
+    private void ResetRelayAndSpsAnomalyState()
+    {
+        _relayPhase = RelayQueryPhase.Idle;
+        _relayTypingElapsed = 0f;
+        _relayLastTypedChars = 0;
+        _relayQueryFullText = string.Empty;
+        _relayResultStatus = RelayPingStatus.ActiveClear;
+        _relayTargetWasUnregistered = false;
+        _relayAlertConfronted = false;
+
+        _activeShipHardpoints = null;
+        _spsLoggedAnomalies.Clear();
+        _spsLockTarget = SpsAnomalyKind.None;
+        _spsLockProgress = 0f;
+    }
+
     private void ResetWarpPrinterState()
     {
         _warpPhase = WarpPrinterPhase.Idle;
@@ -474,6 +569,10 @@ public sealed class DeskScreen : IScreen
 
         _currentSpsSwayOffset = ComputeSpsSwayOffset(_elapsedVisualTime);
         UpdateSpsLensRect(mouse);
+
+        // Update Day 1 Subspace Relay Ping typing animation & SPS Hold-to-Lock anomaly scanner
+        UpdateRelayQueryState(deltaTime);
+        UpdateSpsHoldToLock(deltaTime, mouse);
 
         // Update Day 3+ Manual Warp Field Scan & Downward Paper Extrusion
         UpdateWarpPrinterState(deltaTime);
@@ -585,13 +684,19 @@ public sealed class DeskScreen : IScreen
             return;
         }
 
-        // 2. Hardware Control Strip & Right-Side Clearance Dock / Detain Switch
+        // 2a. SPS Anomaly Log Mini-Screen Clickable Entries (works directly without toggling Review!)
+        if (TryHandleSpsMiniScreenClick(mouse))
+        {
+            return;
+        }
+
+        // 2b. Hardware Control Strip & Right-Side Clearance Dock / Detain Switch
         if (TryHandleHardwarePanelClicks(mouse))
         {
             return;
         }
 
-        // 3. Protocol Review Mode (Claim vs. Reality Only -- Manual is read-only)
+        // 3. Protocol Review Mode (Claim vs. Station Cycle / Reality / Relay Log)
         if (_protocolReviewModeActive && _activeShip != null &&
             (_phase is EncounterPhase.InspectingSlateAndShip or EncounterPhase.PreClearanceHailing))
         {
@@ -727,7 +832,263 @@ public sealed class DeskScreen : IScreen
     }
 
     // =========================================================================
-    // Protocol Review Mode (Claim vs. Reality Only -- Manual strictly Read-Only)
+    // Day 1 Subspace Relay Ping & SPS Hold-to-Lock Anomaly Scanner Logic
+    // =========================================================================
+    private bool CanStartRelayPing() =>
+        _activeShip != null &&
+        _phase == EncounterPhase.InspectingSlateAndShip &&
+        _relayPhase == RelayQueryPhase.Idle;
+
+    private bool IsActiveRelayAlert() =>
+        _activeShip != null &&
+        _relayPhase == RelayQueryPhase.Completed &&
+        (_relayResultStatus is RelayPingStatus.AlertReportedStolen or RelayPingStatus.AlertHullDecommissioned);
+
+    private void StartSubspaceRelayPing()
+    {
+        if (!CanStartRelayPing() || _activeShip == null)
+        {
+            AudioHooks.Play("citation_buzz");
+            return;
+        }
+
+        string factionTag = ShipGenerator.GetRelayFactionTag(_activeShip.Slate.DeclaredPrefix);
+        string regCode = _activeShip.Slate.RegistrationCode;
+
+        _relayPhase = RelayQueryPhase.TypingQuery;
+        _relayTypingElapsed = 0f;
+        _relayLastTypedChars = 0;
+        _relayTargetWasUnregistered = _activeShip.Slate.DeclaredPrefix.Equals(Constants.UnregisteredPrefix, StringComparison.OrdinalIgnoreCase);
+        _relayResultStatus = _activeShip.GroundTruth.RelayStatus;
+        _relayAlertConfronted = false;
+        _relayQueryFullText = $"QUERYING {factionTag} RELAY: {regCode}...";
+        AudioHooks.Play("key_type");
+    }
+
+    private void UpdateRelayQueryState(float deltaTime)
+    {
+        if (_relayPhase != RelayQueryPhase.TypingQuery || _activeShip == null)
+            return;
+
+        _relayTypingElapsed += deltaTime;
+        float progress = Math.Clamp(_relayTypingElapsed / RelayTypingDurationSeconds, 0f, 1f);
+        int visibleChars = (int)MathF.Floor(progress * _relayQueryFullText.Length);
+        if (visibleChars > _relayLastTypedChars)
+        {
+            _relayLastTypedChars = visibleChars;
+            AudioHooks.Play("key_type");
+        }
+
+        if (_relayTypingElapsed >= RelayTypingDurationSeconds)
+        {
+            _relayPhase = RelayQueryPhase.Completed;
+            _relayLastTypedChars = _relayQueryFullText.Length;
+            AudioHooks.Play(IsActiveRelayAlert() ? "citation_buzz" : "terminal_key_confirm");
+        }
+    }
+
+    private string GetRelayResultDisplayLine()
+    {
+        if (_relayTargetWasUnregistered)
+            return "NO RELAY RECORD (UNREGISTERED)";
+
+        return _relayResultStatus switch
+        {
+            RelayPingStatus.ActiveClear => "STATUS: REGISTRY ACTIVE / CLEAR",
+            RelayPingStatus.NoResponseInterference => "NO RELAY RESPONSE (INTERFERENCE)",
+            RelayPingStatus.AlertReportedStolen => "ALERT: VESSEL REPORTED STOLEN",
+            RelayPingStatus.AlertHullDecommissioned => "ALERT: HULL DECOMMISSIONED 6 MO AGO",
+            _ => "STATUS: REGISTRY ACTIVE / CLEAR"
+        };
+    }
+
+    private void TriggerRelayAlertConfrontation()
+    {
+        if (!IsActiveRelayAlert() || _activeShip == null)
+            return;
+
+        _relayAlertConfronted = true;
+        if (_activeShip.ProtocolReviewVerified)
+        {
+            AudioHooks.Play("terminal_key_click");
+            return;
+        }
+
+        string summary = _relayResultStatus == RelayPingStatus.AlertReportedStolen
+            ? "RELAY ALERT: VESSEL REPORTED STOLEN"
+            : "RELAY ALERT: HULL DECOMMISSIONED 6 MO AGO";
+        VerifyProtocolReviewDiscrepancy(ShipInfractionType.RelayRegistryAlert, summary);
+    }
+
+    private void GetRelayUiRects(DraggableDeskItem manual, out Rectangle pingBtnRect, out Rectangle readoutRect)
+    {
+        int mx = manual.X;
+        int my = manual.Y;
+        if (_manualActiveTab == 0)
+        {
+            pingBtnRect = new Rectangle(mx + 6, my + 197, 78, 16);
+            readoutRect = new Rectangle(mx + 6, my + 215, manual.Width - 12, 20);
+        }
+        else
+        {
+            pingBtnRect = new Rectangle(mx + 6, my + 180, 82, 18);
+            readoutRect = new Rectangle(mx + 6, my + 202, manual.Width - 12, 32);
+        }
+    }
+
+    private void UpdateSpsHoldToLock(float deltaTime, VirtualMouseState mouse)
+    {
+        bool canScanHardpoints =
+            _spsEnabled &&
+            _preShiftStage == PreShiftStage.None &&
+            _activeShip != null &&
+            _activeShipHardpoints != null &&
+            _phase == EncounterPhase.InspectingSlateAndShip &&
+            !_activeShip.GroundTruth.ActualShieldsUp &&
+            mouse.IsHit(ViewportX, ViewportSkyTopY, ViewportW, ViewportSkyH);
+
+        if (!canScanHardpoints || _activeShip == null || _activeShipHardpoints == null)
+        {
+            _spsLockProgress = Math.Max(0f, _spsLockProgress - deltaTime * 2.0f);
+            if (_spsLockProgress <= 0f)
+            {
+                _spsLockTarget = SpsAnomalyKind.None;
+            }
+            return;
+        }
+
+        float reticleCx = _lastSpsLensRect.X + _lastSpsLensRect.Width * 0.5f;
+        float reticleCy = _lastSpsLensRect.Y + _lastSpsLensRect.Height * 0.5f;
+        float shipBaseX = ShipAnchorX + _shipSlideOffset;
+        float shipBaseY = ShipAnchorY;
+
+        SpsAnomalyKind hoveredAnomaly = SpsAnomalyKind.None;
+
+        // 1. Check anomalous hot forward weapon mount (when slate claims WPN: OFFLINE)
+        bool hasUnloggedHotWeapons =
+            _activeShip.GroundTruth.HasSpoofedWeapons &&
+            _activeShip.GroundTruth.ActualWeaponsHot &&
+            !_spsLoggedAnomalies.Any(e => e.Kind == SpsAnomalyKind.HotWeaponMount);
+
+        if (hasUnloggedHotWeapons)
+        {
+            float wx = shipBaseX + _activeShipHardpoints.ForwardWeapons.X * 2.0f + 1.0f;
+            float wy = shipBaseY + _activeShipHardpoints.ForwardWeapons.Y * 2.0f + 1.0f;
+            float dx = reticleCx - wx;
+            float dy = reticleCy - wy;
+            if (dx * dx + dy * dy <= SpsLockRadiusPx * SpsLockRadiusPx)
+            {
+                hoveredAnomaly = SpsAnomalyKind.HotWeaponMount;
+            }
+        }
+
+        // 2. Check unexplained violet cargo power draw
+        if (hoveredAnomaly == SpsAnomalyKind.None)
+        {
+            bool hasUnloggedCargoPower =
+                _activeShip.GroundTruth.ActualCargoPowerDraw &&
+                !_spsLoggedAnomalies.Any(e => e.Kind == SpsAnomalyKind.VioletCargoPower);
+
+            if (hasUnloggedCargoPower)
+            {
+                float cx = shipBaseX + _activeShipHardpoints.CargoBay.X * 2.0f + 1.0f;
+                float cy = shipBaseY + _activeShipHardpoints.CargoBay.Y * 2.0f + 1.0f;
+                float dx = reticleCx - cx;
+                float dy = reticleCy - cy;
+                if (dx * dx + dy * dy <= SpsLockRadiusPx * SpsLockRadiusPx)
+                {
+                    hoveredAnomaly = SpsAnomalyKind.VioletCargoPower;
+                }
+            }
+        }
+
+        if (hoveredAnomaly != SpsAnomalyKind.None)
+        {
+            if (_spsLockTarget != hoveredAnomaly)
+            {
+                _spsLockTarget = hoveredAnomaly;
+                _spsLockProgress = 0f;
+            }
+
+            _spsLockProgress = Math.Min(1.0f, _spsLockProgress + deltaTime / SpsLockDurationSeconds);
+            if (_spsLockProgress >= 1.0f)
+            {
+                if (hoveredAnomaly == SpsAnomalyKind.HotWeaponMount)
+                {
+                    _spsLoggedAnomalies.Add(new SpsAnomalyEntry
+                    {
+                        Kind = SpsAnomalyKind.HotWeaponMount,
+                        Label = "[!] HOT WPN MOUNT",
+                        AccentColor = Palette.SpsWeaponsHot
+                    });
+                }
+                else if (hoveredAnomaly == SpsAnomalyKind.VioletCargoPower)
+                {
+                    _spsLoggedAnomalies.Add(new SpsAnomalyEntry
+                    {
+                        Kind = SpsAnomalyKind.VioletCargoPower,
+                        Label = "[!] CARGO PWR DRAW",
+                        AccentColor = Palette.SpsCargoHighDraw
+                    });
+                }
+
+                AudioHooks.Play("sps_lock");
+                _spsLockTarget = SpsAnomalyKind.None;
+                _spsLockProgress = 0f;
+            }
+        }
+        else
+        {
+            _spsLockProgress = Math.Max(0f, _spsLockProgress - deltaTime * 1.5f);
+            if (_spsLockProgress <= 0f)
+            {
+                _spsLockTarget = SpsAnomalyKind.None;
+            }
+        }
+    }
+
+    private bool TryHandleSpsMiniScreenClick(VirtualMouseState mouse)
+    {
+        if (_activeShip == null || _phase != EncounterPhase.InspectingSlateAndShip || _spsLoggedAnomalies.Count == 0)
+            return false;
+
+        int maxRows = Math.Min(2, _spsLoggedAnomalies.Count);
+        for (int i = 0; i < maxRows; i++)
+        {
+            int ry = SpsMiniY + 15 + i * 17;
+            if (!mouse.IsHit(SpsMiniX + 4, ry, SpsMiniW - 8, 15))
+                continue;
+
+            SpsAnomalyEntry entry = _spsLoggedAnomalies[i];
+            entry.WasConfronted = true;
+
+            if (_activeShip.ProtocolReviewVerified)
+            {
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+
+            if (entry.Kind == SpsAnomalyKind.HotWeaponMount)
+            {
+                VerifyProtocolReviewDiscrepancy(
+                    ShipInfractionType.SpoofedWeaponsHot,
+                    "SPOOFED WEAPONS: SLATE 'OFFLINE' vs HOT SPS MOUNT");
+            }
+            else if (entry.Kind == SpsAnomalyKind.VioletCargoPower)
+            {
+                VerifyProtocolReviewDiscrepancy(
+                    ShipInfractionType.UnexplainedCargoPowerDraw,
+                    "SPS VIOLET POWER DRAW IN DECLARED EMPTY HOLD");
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // =========================================================================
+    // Protocol Review Mode (Claim vs. Station Cycle / Reality / Relay Log)
     // =========================================================================
     private bool TryHandleProtocolReviewClick(VirtualMouseState mouse)
     {
@@ -740,8 +1101,8 @@ public sealed class DeskScreen : IScreen
 
         AudioHooks.Play("terminal_key_click");
 
-        // Standalone valid violation 1: Clicking UNR- Registration Prefix on the Data Slate
-        if (hitTarget == ReviewTarget.DataSlatePrefix &&
+        // Standalone valid violation 1: Clicking UNR- Registration Prefix or ORG on the Data Slate
+        if ((hitTarget is ReviewTarget.DataSlatePrefix or ReviewTarget.DataSlateOrg) &&
             _activeShip.Slate.DeclaredPrefix.Equals(Constants.UnregisteredPrefix, StringComparison.OrdinalIgnoreCase))
         {
             VerifyProtocolReviewDiscrepancy(
@@ -750,7 +1111,33 @@ public sealed class DeskScreen : IScreen
             return true;
         }
 
-        // Standalone valid violation 2: Clicking Viewport Ship after captain outright refused compliance (Day 14+ / rep <= -9)
+        // Standalone valid violation 2: Clicking active Relay Alert in the Manual's Subspace Relay Log
+        if (hitTarget == ReviewTarget.RelayAlertLog && IsActiveRelayAlert())
+        {
+            TriggerRelayAlertConfrontation();
+            return true;
+        }
+
+        // Standalone valid violation 3: Clicking misspelled ORG or ORIG (spoofed packet tampering)
+        if (hitTarget == ReviewTarget.DataSlateOrg &&
+            _activeShip.GroundTruth.TamperedField == PacketTamperField.Organization)
+        {
+            VerifyProtocolReviewDiscrepancy(
+                ShipInfractionType.PacketTamperingMisspelling,
+                $"SPOOFED PACKET: MISSPELLED ORG '{_activeShip.Slate.DeclaredFactionName}'");
+            return true;
+        }
+
+        if (hitTarget == ReviewTarget.DataSlateOrigin &&
+            _activeShip.GroundTruth.TamperedField == PacketTamperField.Origin)
+        {
+            VerifyProtocolReviewDiscrepancy(
+                ShipInfractionType.PacketTamperingMisspelling,
+                $"SPOOFED PACKET: MISSPELLED ORIGIN '{_activeShip.Slate.OriginSystem.ToUpperInvariant()}'");
+            return true;
+        }
+
+        // Standalone valid violation 4: Clicking Viewport Ship after captain outright refused compliance (Day 14+ / rep <= -9)
         if (hitTarget == ReviewTarget.ViewportShipHull && _captainRefusedCompliance)
         {
             VerifyProtocolReviewDiscrepancy(
@@ -783,6 +1170,12 @@ public sealed class DeskScreen : IScreen
         if (_activeShip == null)
             return ReviewTarget.None;
 
+        // 0. Check Top Console Header Station Cycle (for Registration Expiry verification)
+        if (mouse.IsHit(TopCycleX, TopCycleY, TopCycleW, TopCycleH))
+        {
+            return ReviewTarget.TopHeaderCycle;
+        }
+
         // 1. Check SPS Swaying Lens Conduit when SPS is ON and mouse clicks inside the lens over the ship
         if (_spsEnabled && mouse.IsHit(_lastSpsLensRect))
         {
@@ -812,8 +1205,7 @@ public sealed class DeskScreen : IScreen
             return ReviewTarget.WarpStripPaper;
         }
 
-        // 4. Check topmost movable desk documents (Data Slate Claims & Torn-Off Warp Strip Reality ONLY)
-        // NOTE: Desk Reference Manual is strictly READ-ONLY reference and NEVER registers as a discrepancy target!
+        // 4. Check topmost movable desk documents (Data Slate Claims, Torn-Off Warp Strip & Active Relay Alert)
         for (int i = _zOrder.Count - 1; i >= 0; i--)
         {
             DeskItemId id = _zOrder[i];
@@ -828,27 +1220,42 @@ public sealed class DeskScreen : IScreen
 
             if (id == DeskItemId.DataSlate && _phase == EncounterPhase.InspectingSlateAndShip)
             {
-                // Claim: REG / Prefix / Organization block
-                if (mouse.IsHit(item.X + 74, item.Y + 18, 108, 38) ||
-                    mouse.IsHit(item.X + 4, item.Y + 106, 178, 22))
-                {
+                // Top-Right Claims: REG CODE / PREFIX & WPN: OFFLINE
+                if (mouse.IsHit(item.X + 74, item.Y + 21, 112, 26))
                     return ReviewTarget.DataSlatePrefix;
-                }
-                // Claim: WPN: OFFLINE
-                if (mouse.IsHit(item.X + 74, item.Y + 58, 108, 26))
-                {
+
+                if (mouse.IsHit(item.X + 74, item.Y + 60, 112, 14))
                     return ReviewTarget.DataSlateWeapons;
-                }
-                // Claim: ORIG system (Day 3+)
-                if (mouse.IsHit(item.X + 4, item.Y + 162, 178, 20))
-                {
+
+                // Lower Table Claims: ORG, EXP, SPEC, ORIG, CARGO
+                int rowW = item.Width - 8;
+                if (mouse.IsHit(item.X + 4, item.Y + 106, rowW, 14))
+                    return ReviewTarget.DataSlateOrg;
+
+                if (mouse.IsHit(item.X + 4, item.Y + 121, rowW, 14))
+                    return ReviewTarget.DataSlateExpiry;
+
+                if (mouse.IsHit(item.X + 4, item.Y + 151, rowW, 14))
+                    return ReviewTarget.DataSlateSpecies;
+
+                if (mouse.IsHit(item.X + 4, item.Y + 166, rowW, 14))
                     return ReviewTarget.DataSlateOrigin;
-                }
+
+                if (mouse.IsHit(item.X + 4, item.Y + 196, rowW, 28))
+                    return ReviewTarget.DataSlateCargo;
             }
             else if (id == DeskItemId.ReferenceManual)
             {
-                // Manual is strictly read-only reference and NEVER triggers a discrepancy target;
-                // returning None lets TryHandleDeskItemsMousePress handle tab/page clicks cleanly once.
+                // Allow clicking an active Subspace Relay Alert on Tab 0 / Tab 1 inside Protocol Review;
+                // all other Manual clicks return None so tab switching & PING RELAY still work seamlessly.
+                if ((_manualActiveTab == 0 || _manualActiveTab == 1) && IsActiveRelayAlert())
+                {
+                    GetRelayUiRects(item, out _, out Rectangle readoutRect);
+                    if (mouse.IsHit(readoutRect))
+                    {
+                        return ReviewTarget.RelayAlertLog;
+                    }
+                }
                 return ReviewTarget.None;
             }
 
@@ -866,8 +1273,65 @@ public sealed class DeskScreen : IScreen
         bool IsPair(ReviewTarget x, ReviewTarget y) => (a == x && b == y) || (a == y && b == x);
         ShipGroundTruth truth = _activeShip.GroundTruth;
 
-        // Claim (Data Slate Prefix) vs. Reality (Live Viewport Ship Hull)
-        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.ViewportShipHull))
+        // 1. Claim (Data Slate EXP) vs. Reality (Top Console Station Cycle)
+        if (IsPair(ReviewTarget.DataSlateExpiry, ReviewTarget.TopHeaderCycle))
+        {
+            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.ExpiredRegistration))
+            {
+                (int curY, int curM) = Constants.GetStationCycle(_gameState.Day);
+                VerifyProtocolReviewDiscrepancy(
+                    ShipInfractionType.ExpiredRegistration,
+                    $"EXPIRED REG ({_activeShip.Slate.RegistrationExpiryDisplay} < CYC {Constants.FormatStationCycle(curY, curM)})");
+            }
+            else
+            {
+                LogNoDiscrepancyDetected();
+            }
+            return;
+        }
+
+        // 2. Claim (Data Slate Prefix) vs. Claim (Data Slate ORG) -- Mismatched Organization or Misspelled Org
+        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.DataSlateOrg))
+        {
+            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixOrganizationMismatch))
+            {
+                VerifyProtocolReviewDiscrepancy(
+                    ShipInfractionType.PrefixOrganizationMismatch,
+                    $"PREFIX '{_activeShip.Slate.DeclaredPrefix}' vs ORG '{_activeShip.Slate.DeclaredFactionName}'");
+            }
+            else if (truth.TamperedField == PacketTamperField.Organization)
+            {
+                VerifyProtocolReviewDiscrepancy(
+                    ShipInfractionType.PacketTamperingMisspelling,
+                    $"SPOOFED PACKET: MISSPELLED ORG '{_activeShip.Slate.DeclaredFactionName}'");
+            }
+            else
+            {
+                LogNoDiscrepancyDetected();
+            }
+            return;
+        }
+
+        // 3. Claim (Data Slate Prefix or ORG) vs. Claim (Data Slate SPEC) -- Restricted Single-Species Prefix
+        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.DataSlateSpecies) ||
+            IsPair(ReviewTarget.DataSlateOrg, ReviewTarget.DataSlateSpecies))
+        {
+            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixSpeciesMismatch))
+            {
+                VerifyProtocolReviewDiscrepancy(
+                    ShipInfractionType.PrefixSpeciesMismatch,
+                    $"PREFIX '{_activeShip.Slate.DeclaredPrefix}' PROHIBITS {_activeShip.Slate.DeclaredCaptainSpecies.ToString().ToUpperInvariant()}");
+            }
+            else
+            {
+                LogNoDiscrepancyDetected();
+            }
+            return;
+        }
+
+        // 4. Claim (Data Slate Prefix or ORG) vs. Reality (Live Viewport Ship Hull)
+        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.ViewportShipHull) ||
+            IsPair(ReviewTarget.DataSlateOrg, ReviewTarget.ViewportShipHull))
         {
             if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixHullSilhouetteMismatch))
             {
@@ -883,10 +1347,10 @@ public sealed class DeskScreen : IScreen
             return;
         }
 
-        // Claim (Data Slate WPN: OFFLINE) vs. Reality (SPS Live Conduit inside swaying lens)
+        // 5. Claim (Data Slate WPN: OFFLINE) vs. Reality (SPS Live Conduit inside swaying lens)
         if (IsPair(ReviewTarget.DataSlateWeapons, ReviewTarget.SpsLensConduit))
         {
-            if (truth.ActualWeaponsHot && !truth.ActualShieldsUp)
+            if (truth.HasSpoofedWeapons && truth.ActualWeaponsHot && !truth.ActualShieldsUp)
             {
                 VerifyProtocolReviewDiscrepancy(
                     ShipInfractionType.SpoofedWeaponsHot,
@@ -899,7 +1363,23 @@ public sealed class DeskScreen : IScreen
             return;
         }
 
-        // Claim (Data Slate Origin) vs. Reality (Physical Thermal Warp Field Strip on Day 3+)
+        // 6. Claim (Data Slate CARGO) vs. Reality (SPS Violet Cargo Conduit)
+        if (IsPair(ReviewTarget.DataSlateCargo, ReviewTarget.SpsLensConduit))
+        {
+            if (truth.ActualCargoPowerDraw && !truth.ActualShieldsUp)
+            {
+                VerifyProtocolReviewDiscrepancy(
+                    ShipInfractionType.UnexplainedCargoPowerDraw,
+                    "SPS VIOLET POWER DRAW IN DECLARED EMPTY HOLD");
+            }
+            else
+            {
+                LogNoDiscrepancyDetected();
+            }
+            return;
+        }
+
+        // 7. Claim (Data Slate Origin) vs. Reality (Physical Thermal Warp Field Strip on Day 3+)
         if (IsPair(ReviewTarget.DataSlateOrigin, ReviewTarget.WarpStripPaper))
         {
             if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.FalsifiedOriginWaveform))
@@ -907,6 +1387,21 @@ public sealed class DeskScreen : IScreen
                 VerifyProtocolReviewDiscrepancy(
                     ShipInfractionType.FalsifiedOriginWaveform,
                     $"WARP STRIP '{truth.ActualOriginSystem.ToUpperInvariant()}' vs SLATE '{_activeShip.Slate.OriginSystem.ToUpperInvariant()}'");
+            }
+            else
+            {
+                LogNoDiscrepancyDetected();
+            }
+            return;
+        }
+
+        // 8. Claim (Data Slate Prefix or ORG) vs. Relay Alert Log
+        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.RelayAlertLog) ||
+            IsPair(ReviewTarget.DataSlateOrg, ReviewTarget.RelayAlertLog))
+        {
+            if (IsActiveRelayAlert())
+            {
+                TriggerRelayAlertConfrontation();
             }
             else
             {
@@ -947,6 +1442,35 @@ public sealed class DeskScreen : IScreen
                 captainExcuse = _activeShip.ConfrontationGuiltyExcuseUnregistered;
                 break;
 
+            case ShipInfractionType.ExpiredRegistration:
+                officerPrompt = $"Your registration expired on {_activeShip.Slate.RegistrationExpiryDisplay}. Current cycle is {Constants.FormatStationCycle(Constants.GetStationCycle(_gameState.Day).Year, Constants.GetStationCycle(_gameState.Day).Month)}.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseExpired;
+                break;
+
+            case ShipInfractionType.PrefixOrganizationMismatch:
+                officerPrompt = $"Prefix '{_activeShip.Slate.DeclaredPrefix}' does not belong to '{_activeShip.Slate.DeclaredFactionName}'.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseOrgMismatch;
+                break;
+
+            case ShipInfractionType.PrefixSpeciesMismatch:
+                officerPrompt = $"Prefix '{_activeShip.Slate.DeclaredPrefix}' is restricted and does not permit a {_activeShip.Slate.DeclaredCaptainSpecies} captain.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseSpeciesMismatch;
+                break;
+
+            case ShipInfractionType.PacketTamperingMisspelling:
+                officerPrompt = _activeShip.GroundTruth.TamperedField == PacketTamperField.Organization
+                    ? $"Your Data Slate organization '{_activeShip.Slate.DeclaredFactionName}' is misspelled -- transponder packet tampering."
+                    : $"Your Data Slate origin '{_activeShip.Slate.OriginSystem}' is misspelled -- transponder packet tampering.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcusePacketTamper;
+                break;
+
+            case ShipInfractionType.RelayRegistryAlert:
+                officerPrompt = _activeShip.GroundTruth.RelayStatus == RelayPingStatus.AlertReportedStolen
+                    ? $"Faction relay returned a STOLEN VESSEL alert on registration {_activeShip.Slate.RegistrationCode}."
+                    : $"Faction relay reports hull {_activeShip.Slate.RegistrationCode} was DECOMMISSIONED 6 months ago.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseRelayAlert;
+                break;
+
             case ShipInfractionType.PrefixHullSilhouetteMismatch:
                 officerPrompt = $"Your Data Slate declares '{_activeShip.Slate.DeclaredPrefix}', which does not match your hull silhouette.";
                 captainExcuse = _activeShip.ConfrontationGuiltyExcuseHull;
@@ -955,6 +1479,11 @@ public sealed class DeskScreen : IScreen
             case ShipInfractionType.SpoofedWeaponsHot:
                 officerPrompt = "Your Data Slate claims weapons OFFLINE, yet SPS shows live power feeding forward mounts.";
                 captainExcuse = _activeShip.ConfrontationGuiltyExcuseWeapons;
+                break;
+
+            case ShipInfractionType.UnexplainedCargoPowerDraw:
+                officerPrompt = "Your manifest declares an empty unpowered hold, yet SPS shows high-draw violet power in your cargo bay.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseCargoPower;
                 break;
 
             case ShipInfractionType.FalsifiedOriginWaveform:
@@ -979,9 +1508,15 @@ public sealed class DeskScreen : IScreen
             ReviewTarget.DataSlatePrefix => "SLATE REG/PREFIX",
             ReviewTarget.DataSlateWeapons => "SLATE WPN STATUS",
             ReviewTarget.DataSlateOrigin => "SLATE ORIGIN",
+            ReviewTarget.DataSlateOrg => "SLATE ORG",
+            ReviewTarget.DataSlateExpiry => "SLATE EXPIRY",
+            ReviewTarget.DataSlateSpecies => "SLATE SPECIES",
+            ReviewTarget.DataSlateCargo => "SLATE CARGO",
+            ReviewTarget.TopHeaderCycle => "STATION CYCLE",
             ReviewTarget.ViewportShipHull => "VIEWPORT HULL",
             ReviewTarget.SpsLensConduit => "SPS LENS CONDUIT",
             ReviewTarget.WarpStripPaper => "WARP STRIP PAPER",
+            ReviewTarget.RelayAlertLog => "RELAY ALERT LOG",
             _ => "NONE"
         };
 
@@ -1082,7 +1617,7 @@ public sealed class DeskScreen : IScreen
     }
 
     // =========================================================================
-    // Encounter State Machine (3.5s Ease-Out Approach & 1.85s Protocol Download)
+    // Encounter State Machine (3.5s Approach, Delayed Viewscreen, 1.85s Download, 1.35s Clearance Upload)
     // =========================================================================
     private void UpdateEncounterPhase(float deltaTime)
     {
@@ -1093,7 +1628,8 @@ public sealed class DeskScreen : IScreen
         {
             case EncounterPhase.ShipGlidingIn:
             {
-                // Heavy, deliberate 3.5-second docking approach with smooth cubic ease-out deceleration
+                // Heavy, deliberate 3.5-second docking approach with smooth cubic ease-out deceleration.
+                // Hailing Viewscreen remains dark/standby until docking completes.
                 _shipApproachElapsed = Math.Min(ShipApproachDurationSeconds, _shipApproachElapsed + deltaTime);
                 float t = _shipApproachElapsed / ShipApproachDurationSeconds;
                 float eased = 1.0f - MathF.Pow(1.0f - t, 3.0f);
@@ -1107,11 +1643,14 @@ public sealed class DeskScreen : IScreen
                     _transcriptScrollTopLine = 0;
                     _transcriptAutoFollowBottom = true;
 
+                    // Open live/static portrait feed and play captain's opening hail ONLY now that ship finished docking
+                    RebuildLivePortraitTexture();
+                    AudioHooks.Play("hail_incoming_chime");
                     AddTranscriptLine($"HAIL [{_activeShip.Slate.RegistrationCode}]: {_activeShip.GreetingHailLine}", Palette.CrtAmberPrimary);
 
                     if (_activeShip.GroundTruth.IsPreClearanceSatisfied)
                     {
-                        _subspaceAutoTransferDelay = 0.50f;
+                        _subspaceAutoTransferDelay = 0.35f;
                     }
                 }
                 break;
@@ -1169,11 +1708,28 @@ public sealed class DeskScreen : IScreen
                 break;
             }
 
+            case EncounterPhase.UploadingClearance:
+            {
+                // Keep ship strictly stationary in the viewport until Clearance Dock upload hits 100%
+                _shipSlideOffset = 0f;
+                _clearanceUploadElapsed = Math.Min(ClearanceUploadDurationSeconds, _clearanceUploadElapsed + deltaTime);
+                if (_clearanceUploadElapsed >= ClearanceUploadDurationSeconds)
+                {
+                    AudioHooks.Play("clearance_granted");
+                    AddTranscriptLine("[DOCK LINK] CLEARANCE UPLOADED (100%) -- DEPARTURE AUTHORIZED.", Palette.ClearanceTeal);
+                    _decisionEvalTimer = ShipDepartureDurationSeconds;
+                    _phase = EncounterPhase.ResolvingDecision;
+                }
+                break;
+            }
+
             case EncounterPhase.ResolvingDecision:
             {
                 if (_pendingDecision == PlayerDecision.GrantAccess)
                 {
-                    _shipSlideOffset -= deltaTime * 270f;
+                    // Smooth ease-in fly-away departure animation AFTER upload reached 100%
+                    float depT = Math.Clamp(1.0f - (_decisionEvalTimer / ShipDepartureDurationSeconds), 0f, 1f);
+                    _shipSlideOffset = -(depT * depT) * 430.0f;
                 }
 
                 _decisionEvalTimer -= deltaTime;
@@ -1256,7 +1812,7 @@ public sealed class DeskScreen : IScreen
             _activeShip.GroundTruth.IsPreClearanceSatisfied &&
             !_captainRefusedCompliance)
         {
-            _subspaceAutoTransferDelay = 0.40f;
+            _subspaceAutoTransferDelay = 0.35f;
         }
     }
 
@@ -1274,8 +1830,8 @@ public sealed class DeskScreen : IScreen
 
         // Spawn the Data Slate onto the desk immediately in progressive streaming state
         DraggableDeskItem slateItem = _deskItems[DeskItemId.DataSlate];
-        slateItem.X = 350;
-        slateItem.Y = 290;
+        slateItem.X = 348;
+        slateItem.Y = 289;
         slateItem.IsVisible = true;
         _isDataSlateDocked = false;
         BringDeskItemToFront(DeskItemId.DataSlate);
@@ -1306,8 +1862,8 @@ public sealed class DeskScreen : IScreen
         if (_preShiftStage != PreShiftStage.None || _shiftController.IsPreShiftSequenceActive)
             return false;
 
-        // 1. NEXT HAIL button (x=302, y=256, w=114, h=26)
-        if (mouse.IsHit(302, 256, 114, 26))
+        // 1. NEXT HAIL button (x=300, y=256, w=104, h=26)
+        if (mouse.IsHit(300, 256, 104, 26))
         {
             if (_shiftController.CanTriggerNextHail && _phase == EncounterPhase.BayEmpty)
             {
@@ -1322,8 +1878,8 @@ public sealed class DeskScreen : IScreen
             return true;
         }
 
-        // 2. LOWER SHIELDS compliance button (x=422, y=256, w=128, h=26)
-        if (mouse.IsHit(422, 256, 128, 26))
+        // 2. LOWER SHIELDS compliance button (x=410, y=256, w=122, h=26)
+        if (mouse.IsHit(410, 256, 122, 26))
         {
             if (_activeShip != null &&
                 (_phase is EncounterPhase.PreClearanceHailing or EncounterPhase.InspectingSlateAndShip) &&
@@ -1337,8 +1893,8 @@ public sealed class DeskScreen : IScreen
             return true;
         }
 
-        // 3. POWER DOWN WPN compliance button (x=556, y=256, w=136, h=26)
-        if (mouse.IsHit(556, 256, 136, 26))
+        // 3. POWER DOWN WPN compliance button (x=538, y=256, w=130, h=26)
+        if (mouse.IsHit(538, 256, 130, 26))
         {
             if (_activeShip != null &&
                 (_phase is EncounterPhase.PreClearanceHailing or EncounterPhase.InspectingSlateAndShip) &&
@@ -1352,16 +1908,8 @@ public sealed class DeskScreen : IScreen
             return true;
         }
 
-        // 4. SPS TOGGLE button (x=698, y=256, w=120, h=26)
-        if (mouse.IsHit(698, 256, 120, 26))
-        {
-            _spsEnabled = !_spsEnabled;
-            AudioHooks.Play(_spsEnabled ? "sps_scanner_on" : "sps_scanner_off");
-            return true;
-        }
-
-        // 5. PROTOCOL REVIEW Toggle button (x=824, y=256, w=126, h=26)
-        if (mouse.IsHit(824, 256, 126, 26))
+        // 4. PROTOCOL REVIEW Toggle button (x=674, y=256, w=120, h=26)
+        if (mouse.IsHit(674, 256, 120, 26))
         {
             if (_activeShip != null &&
                 (_phase is EncounterPhase.PreClearanceHailing or EncounterPhase.InspectingSlateAndShip))
@@ -1369,26 +1917,39 @@ public sealed class DeskScreen : IScreen
                 _protocolReviewModeActive = !_protocolReviewModeActive;
                 _reviewFirstSelection = ReviewTarget.None;
                 _reviewStatusNote = _protocolReviewModeActive
-                    ? "SELECT CLAIM vs REALITY (OR UNR-)."
+                    ? "CLICK CLAIM vs CYCLE/HULL/RELAY."
                     : string.Empty;
                 AudioHooks.Play("terminal_key_tab");
             }
             return true;
         }
 
-        // 6. GRANT ACCESS button inside Clearance Dock (x=808, y=398, w=128, h=22)
-        if (mouse.IsHit(DockPanelX + 8, DockPanelY + 106, DockPanelW - 16, 22))
+        // 5. SPS TOGGLE button (x=800, y=256, w=144, h=26 -- directly above SPS Anomaly Mini-Screen!)
+        if (mouse.IsHit(800, 256, 144, 26))
+        {
+            _spsEnabled = !_spsEnabled;
+            if (!_spsEnabled)
+            {
+                _spsLockTarget = SpsAnomalyKind.None;
+                _spsLockProgress = 0f;
+            }
+            AudioHooks.Play(_spsEnabled ? "sps_scanner_on" : "sps_scanner_off");
+            return true;
+        }
+
+        // 6. GRANT ACCESS button inside Clearance Dock (x=808, y=DockPanelY+75, w=128, h=22)
+        if (mouse.IsHit(DockPanelX + 8, DockPanelY + 75, DockPanelW - 16, 22))
         {
             if (_activeShip != null &&
                 _phase == EncounterPhase.InspectingSlateAndShip &&
                 _isDataSlateDocked)
             {
-                AudioHooks.Play("clearance_granted");
+                AudioHooks.Play("clearance_upload");
                 _protocolReviewModeActive = false;
-                AddTranscriptLine("> BOOTH 04: [UPLINKING DOCKING CLEARANCE...]", Palette.ClearanceTeal);
+                AddTranscriptLine("> BOOTH 04: [UPLOADING CLEARANCE...]", Palette.ClearanceTeal);
                 _pendingDecision = PlayerDecision.GrantAccess;
-                _decisionEvalTimer = 1.50f;
-                _phase = EncounterPhase.ResolvingDecision;
+                _clearanceUploadElapsed = 0f;
+                _phase = EncounterPhase.UploadingClearance;
             }
             else
             {
@@ -1425,12 +1986,15 @@ public sealed class DeskScreen : IScreen
         UnloadEncounterTextures();
         ResetProtocolReviewState();
         ResetWarpPrinterState();
+        ResetRelayAndSpsAnomalyState();
 
         _activeShip = _shipGenerator.GenerateNextShip(_gameState, _queueCounter++, _sessionEntropy, forceValidity);
         _shiftController.HasActiveShipInBay = true;
         _phase = EncounterPhase.ShipGlidingIn;
         _shipApproachElapsed = 0f;
         _shipSlideOffset = 390f;
+        _subspaceAutoTransferDelay = 0f;
+        _clearanceUploadElapsed = 0f;
         _pendingShieldsOrder = false;
         _pendingWeaponsOrder = false;
         _captainRefusedCompliance = false;
@@ -1439,12 +2003,17 @@ public sealed class DeskScreen : IScreen
         _detainLeverPulled = false;
         _deskItems[DeskItemId.DataSlate].IsVisible = false;
 
-        AudioHooks.Play("hail_incoming_chime");
+        // Keep Hailing Viewscreen dark/standby during docking approach;
+        // portrait feed and hail chime trigger only once docking finishes.
+        AudioHooks.Play("terminal_key_confirm");
+        _transcriptLines.Clear();
+        _transcriptScrollTopLine = 0;
+        _transcriptAutoFollowBottom = true;
+        AddTranscriptLine("APPROACH VECTOR LOCKED -- VESSEL GLIDING INTO BAY...", Palette.CrtAmberDimmed);
 
         _lastShipAnimBucket = -1;
         _lastPortraitAnimBucket = -1;
         RebuildActiveShipTextures();
-        RebuildLivePortraitTexture();
     }
 
     private void FinalizeShipResolution()
@@ -1487,6 +2056,7 @@ public sealed class DeskScreen : IScreen
         UnloadEncounterTextures();
         ResetProtocolReviewState();
         ResetWarpPrinterState();
+        ResetRelayAndSpsAnomalyState();
 
         _deskItems[DeskItemId.DataSlate].IsVisible = false;
         _isDataSlateDocked = false;
@@ -1580,6 +2150,14 @@ public sealed class DeskScreen : IScreen
                 return true;
             }
 
+            // Lock Data Slate inside Clearance Dock while actively uploading clearance or departing
+            if (id == DeskItemId.DataSlate && _isDataSlateDocked &&
+                (_phase is EncounterPhase.UploadingClearance or EncounterPhase.ResolvingDecision))
+            {
+                AudioHooks.Play("citation_buzz");
+                return true;
+            }
+
             _draggingItemId = id;
             _dragOffsetX = mouse.X - item.X;
             _dragOffsetY = mouse.Y - item.Y;
@@ -1600,37 +2178,63 @@ public sealed class DeskScreen : IScreen
         int mx = manual.X;
         int my = manual.Y;
 
-        if (mouse.IsHit(mx + 6, my + 20, 76, 18))
+        if (mouse.IsHit(mx + 6, my + 20, 76, 16))
         {
             _manualActiveTab = 0;
             AudioHooks.Play("terminal_key_tab");
             return true;
         }
-        if (mouse.IsHit(mx + 85, my + 20, 76, 18))
+        if (mouse.IsHit(mx + 85, my + 20, 76, 16))
         {
             _manualActiveTab = 1;
             AudioHooks.Play("terminal_key_tab");
             RebuildManualSilhouetteTexture();
             return true;
         }
-        if (mouse.IsHit(mx + 164, my + 20, 76, 18))
+        if (mouse.IsHit(mx + 164, my + 20, 76, 16))
         {
             _manualActiveTab = 2;
             AudioHooks.Play("terminal_key_tab");
             return true;
         }
 
+        // Day 1 Subspace Relay Ping button & clickable Relay Alert box (available on Tab 0 Prefixes & Tab 1 Faction Page)
+        if (_manualActiveTab == 0 || _manualActiveTab == 1)
+        {
+            GetRelayUiRects(manual, out Rectangle pingBtnRect, out Rectangle readoutRect);
+
+            if (mouse.IsHit(pingBtnRect))
+            {
+                StartSubspaceRelayPing();
+                return true;
+            }
+
+            if (IsActiveRelayAlert() && mouse.IsHit(readoutRect))
+            {
+                TriggerRelayAlertConfrontation();
+                return true;
+            }
+        }
+
         if (_manualActiveTab == 0)
         {
-            // Prefix-to-Hull jump preserved!
-            int rowStartY = my + 44;
+            // Prefix-to-Hull jump across all 12 canonical prefixes
+            int rowStartY = my + 39;
             if (mouse.X >= mx + 6 && mouse.X <= mx + manual.Width - 6 &&
-                mouse.Y >= rowStartY && mouse.Y < rowStartY + 11 * 15)
+                mouse.Y >= rowStartY && mouse.Y < rowStartY + ManualPrefixDirectory.Length * 12)
             {
-                int clickedIdx = (mouse.Y - rowStartY) / 15;
-                if (clickedIdx >= 0 && clickedIdx < ShipRenderer.AllFactions.Count)
+                int clickedIdx = (mouse.Y - rowStartY) / 12;
+                if (clickedIdx >= 0 && clickedIdx < ManualPrefixDirectory.Length)
                 {
-                    _manualFactionIndex = clickedIdx;
+                    ShipFaction targetFaction = ManualPrefixDirectory[clickedIdx].VisualFaction;
+                    for (int f = 0; f < ShipRenderer.AllFactions.Count; f++)
+                    {
+                        if (ShipRenderer.AllFactions[f] == targetFaction)
+                        {
+                            _manualFactionIndex = f;
+                            break;
+                        }
+                    }
                     _manualClassIndex = 0;
                     _manualActiveTab = 1;
                     AudioHooks.Play("terminal_key_click");
@@ -1642,7 +2246,7 @@ public sealed class DeskScreen : IScreen
         else if (_manualActiveTab == 1)
         {
             int factionCount = ShipRenderer.AllFactions.Count;
-            if (mouse.IsHit(mx + 6, my + 42, 72, 18))
+            if (mouse.IsHit(mx + 6, my + 40, 72, 16))
             {
                 _manualFactionIndex = (_manualFactionIndex - 1 + factionCount) % factionCount;
                 _manualClassIndex = 0;
@@ -1650,7 +2254,7 @@ public sealed class DeskScreen : IScreen
                 RebuildManualSilhouetteTexture();
                 return true;
             }
-            if (_devDebug.DevManualSyncEnabled && mouse.IsHit(mx + 84, my + 42, 78, 18))
+            if (_devDebug.DevManualSyncEnabled && mouse.IsHit(mx + 84, my + 40, 78, 16))
             {
                 if (_activeShip != null)
                 {
@@ -1678,7 +2282,7 @@ public sealed class DeskScreen : IScreen
                 }
                 return true;
             }
-            if (mouse.IsHit(mx + 168, my + 42, 72, 18))
+            if (mouse.IsHit(mx + 168, my + 40, 72, 16))
             {
                 _manualFactionIndex = (_manualFactionIndex + 1) % factionCount;
                 _manualClassIndex = 0;
@@ -1689,14 +2293,14 @@ public sealed class DeskScreen : IScreen
 
             ShipFaction currentFaction = ShipRenderer.AllFactions[_manualFactionIndex];
             IReadOnlyList<ShipClass> allowed = ShipRenderer.GetAllowedClasses(currentFaction);
-            if (mouse.IsHit(mx + 6, my + 212, 112, 20))
+            if (mouse.IsHit(mx + 6, my + 144, 58, 16))
             {
                 _manualClassIndex = (_manualClassIndex - 1 + allowed.Count) % allowed.Count;
                 AudioHooks.Play("terminal_key_click");
                 RebuildManualSilhouetteTexture();
                 return true;
             }
-            if (mouse.IsHit(mx + 128, my + 212, 112, 20))
+            if (mouse.IsHit(mx + 182, my + 144, 58, 16))
             {
                 _manualClassIndex = (_manualClassIndex + 1) % allowed.Count;
                 AudioHooks.Play("terminal_key_click");
@@ -1728,13 +2332,14 @@ public sealed class DeskScreen : IScreen
                 _preShiftStage == PreShiftStage.None &&
                 _phase == EncounterPhase.InspectingSlateAndShip)
             {
-                bool overlapsDock = item.X + item.Width >= DockPanelX + 10 &&
+                bool overlapsDock = item.X + item.Width >= DockPanelX - 8 &&
                                     item.Y + item.Height >= DockPanelY &&
                                     item.Y <= DockPanelY + DockPanelH;
                 if (overlapsDock)
                 {
-                    item.X = DockPanelX - item.Width + 16;
-                    item.Y = 290;
+                    // Snap flush against the Clearance Dock divider so it never covers the SPS Anomaly Log
+                    item.X = DockPanelX - item.Width - 4;
+                    item.Y = 289;
                     _isDataSlateDocked = true;
                     AudioHooks.Play("dock_lock");
                 }
@@ -1840,7 +2445,11 @@ public sealed class DeskScreen : IScreen
             RebuildActiveShipTextures();
         }
 
-        if (_activeShip.GroundTruth.UsesStaticViewscreen)
+        // Only animate static viewscreen portrait once docking finished and portrait feed opened
+        if (_phase != EncounterPhase.ShipGlidingIn &&
+            _phase != EncounterPhase.BayEmpty &&
+            _activeShip.GroundTruth.UsesStaticViewscreen &&
+            _cachedLivePortraitTex.Id != 0)
         {
             int portraitBucket = _animTick / 6;
             if (portraitBucket != _lastPortraitAnimBucket)
@@ -1855,11 +2464,17 @@ public sealed class DeskScreen : IScreen
         PixelBuffer.UnloadTexture(ref _cachedShipLiveTex);
         PixelBuffer.UnloadTexture(ref _cachedShipSpsTex);
         if (_activeShip == null)
+        {
+            _activeShipHardpoints = null;
             return;
+        }
 
         _lastShipAnimBucket = _animTick / 9;
 
-        PixelBuffer liveBuf = ShipRenderer.RenderBuffer(_activeShip.BuildLiveShipRenderOptions(spsEnabled: false, _animTick));
+        PixelBuffer liveBuf = ShipRenderer.RenderBuffer(
+            _activeShip.BuildLiveShipRenderOptions(spsEnabled: false, _animTick),
+            out ShipHardpointLayout hardpoints);
+        _activeShipHardpoints = hardpoints;
         _cachedShipLiveTex = liveBuf.ToTexture2D();
 
         PixelBuffer spsBuf = ShipRenderer.RenderBuffer(_activeShip.BuildLiveShipRenderOptions(spsEnabled: true, _animTick));
@@ -1955,11 +2570,27 @@ public sealed class DeskScreen : IScreen
         Raylib.DrawLine(0, 23, Constants.VirtualWidth, 23, Palette.WeatheredGunmetalEdge);
 
         string headerText =
-            $"VG-3 // BOOTH 04 CUSTOMS CONTROL   |   DAY {_gameState.Day:D2}   |   SCRIP: {_gameState.PactScrip} SC   |   " +
-            $"WARNINGS: {_gameState.ClericalWarningsThisShift}/{Constants.FreeClericalWarningsPerShift}   |   " +
-            $"STRIKES: {_gameState.SecurityStrikes}/{_gameState.MaxSecurityStrikesThreshold}   |   SHIPS: {_gameState.ShipsProcessedToday}";
+            $"VG-3 // BOOTH 04  |  DAY {_gameState.Day:D2}  |  SCRIP: {_gameState.PactScrip} SC  |  " +
+            $"WARN: {_gameState.ClericalWarningsThisShift}/{Constants.FreeClericalWarningsPerShift}  |  " +
+            $"STRIKES: {_gameState.SecurityStrikes}/{_gameState.MaxSecurityStrikesThreshold}  |  SHIPS: {_gameState.ShipsProcessedToday}";
 
         Raylib.DrawText(headerText, 10, 7, 10, Palette.CrtAmberPrimary);
+
+        // Current Station Date / Cycle panel (clickable in Protocol Review against Data Slate EXP)
+        (int curYear, int curMonth) = Constants.GetStationCycle(_gameState.Day);
+        string cycleLabel = $"CYCLE {Constants.FormatStationCycle(curYear, curMonth)}";
+        bool cycleSelected = _protocolReviewModeActive && _reviewFirstSelection == ReviewTarget.TopHeaderCycle;
+        bool cycleHovered = _protocolReviewModeActive && mouse.IsHit(TopCycleX, TopCycleY, TopCycleW, TopCycleH);
+        Raylib.DrawRectangle(TopCycleX, TopCycleY, TopCycleW, TopCycleH,
+            cycleSelected ? Palette.OxidizedBronzeShadow : Palette.DeepSpaceVoid);
+        Raylib.DrawRectangleLines(TopCycleX, TopCycleY, TopCycleW, TopCycleH,
+            cycleSelected ? Palette.ClearanceTeal : (cycleHovered ? Palette.CrtAmberPrimary : Palette.OxidizedBronzeWorn));
+        if (_protocolReviewModeActive)
+        {
+            DrawReviewHotspotOutline(mouse, TopCycleX, TopCycleY, TopCycleW, TopCycleH, cycleSelected);
+        }
+        Raylib.DrawText(cycleLabel, TopCycleX + 10, TopCycleY + 4, 10,
+            cycleSelected ? Palette.ClearanceTeal : Palette.CrtAmberPrimary);
 
         DrawSmallButton(mouse, 764, 4, 86, 16, "MAIN MENU");
         DrawSmallButton(mouse, 856, 4, 94, 16, "TO QUARTERS");
@@ -2089,7 +2720,10 @@ public sealed class DeskScreen : IScreen
                 Raylib.BeginScissorMode(ViewportX + 2, ViewportSkyTopY, ViewportW - 4, ViewportSkyH);
 
                 bool reviewLensHover = _protocolReviewModeActive && mouse.IsHit(_lastSpsLensRect);
-                Color reticleCol = reviewLensHover ? Palette.CrtAmberPrimary : Palette.SpsCommsActive;
+                bool lockingActive = _spsLockProgress > 0.01f;
+                Color reticleCol = reviewLensHover
+                    ? Palette.CrtAmberPrimary
+                    : (lockingActive ? Palette.CrtAmberPrimary : Palette.SpsCommsActive);
                 Raylib.DrawRectangleLines(lx, ly, lw, lh, reticleCol);
                 int cx = lx + lw / 2;
                 int cy = ly + lh / 2;
@@ -2099,6 +2733,15 @@ public sealed class DeskScreen : IScreen
                 Raylib.DrawLine(lx + 1, ly + 1, lx + 1, ly + 8, Palette.SpsShieldArcIce);
                 Raylib.DrawLine(lx + lw - 9, ly + lh - 2, lx + lw - 2, ly + lh - 2, Palette.SpsShieldArcIce);
                 Raylib.DrawLine(lx + lw - 2, ly + lh - 9, lx + lw - 2, ly + lh - 2, Palette.SpsShieldArcIce);
+
+                // Subtle hold-to-lock progress bar at bottom edge of SPS lens (zero spoiler text)
+                if (lockingActive)
+                {
+                    int lockMaxW = lw - 10;
+                    int lockFillW = Math.Clamp((int)MathF.Round(lockMaxW * _spsLockProgress), 1, lockMaxW);
+                    Raylib.DrawRectangle(lx + 5, ly + lh - 6, lockMaxW, 3, Palette.OutlineVoid);
+                    Raylib.DrawRectangle(lx + 5, ly + lh - 6, lockFillW, 3, Palette.CrtAmberPrimary);
+                }
             }
         }
         else if (_shiftController.CanEndShift)
@@ -2137,13 +2780,17 @@ public sealed class DeskScreen : IScreen
 
         Raylib.DrawRectangle(portraitBoxX, portraitBoxY, portraitSize, portraitSize, Palette.DeepSpaceVoid);
 
+        bool viewscreenOpen = _activeShip != null &&
+                              _phase != EncounterPhase.ShipGlidingIn &&
+                              _cachedLivePortraitTex.Id != 0;
+
         if (_preShiftStage == PreShiftStage.Day3KordaniPreShiftHail && _cachedPreShiftKordaniPortraitTex.Id != 0)
         {
             Rectangle src = new(0, 0, Constants.PortraitWidth, Constants.PortraitHeight);
             Rectangle dst = new(portraitBoxX, portraitBoxY, portraitSize, portraitSize);
             Raylib.DrawTexturePro(_cachedPreShiftKordaniPortraitTex, src, dst, Vector2.Zero, 0f, Color.White);
         }
-        else if (_activeShip != null && _cachedLivePortraitTex.Id != 0)
+        else if (viewscreenOpen)
         {
             Rectangle src = new(0, 0, Constants.PortraitWidth, Constants.PortraitHeight);
             Rectangle dst = new(portraitBoxX, portraitBoxY, portraitSize, portraitSize);
@@ -2166,10 +2813,14 @@ public sealed class DeskScreen : IScreen
             ? "INTERNAL: KDF-SEC"
             : (_activeShip == null
                 ? "SIGNAL: IDLE"
-                : (_activeShip.GroundTruth.UsesStaticViewscreen ? "FEED: AUDIO ONLY" : "FEED: LIVE VIDEO"));
+                : (_phase == EncounterPhase.ShipGlidingIn
+                    ? "SIGNAL: STANDBY"
+                    : (_activeShip.GroundTruth.UsesStaticViewscreen ? "FEED: AUDIO ONLY" : "FEED: LIVE VIDEO")));
         Raylib.DrawText(feedLine, portraitBoxX + 6, sigY + 6, 10, Palette.CrtAmberPrimary);
 
-        string regLine = _activeShip != null ? $"ID: {_activeShip.Slate.RegistrationCode}" : "CHANNEL: OPEN";
+        string regLine = (_activeShip != null && _phase != EncounterPhase.ShipGlidingIn)
+            ? $"ID: {_activeShip.Slate.RegistrationCode}"
+            : (_phase == EncounterPhase.ShipGlidingIn ? "ID: PENDING" : "CHANNEL: OPEN");
         Raylib.DrawText(Truncate(regLine, 19), portraitBoxX + 6, sigY + 22, 10, Palette.CrtAmberDimmed);
 
         string reviewBadge = (_activeShip != null && _activeShip.ProtocolReviewVerified)
@@ -2180,7 +2831,13 @@ public sealed class DeskScreen : IScreen
 
         string bayState = _activeShip == null
             ? "BAY: EMPTY"
-            : (_phase == EncounterPhase.ShipGlidingIn ? "BAY: APPROACHING" : "BAY: DOCK LOCKED");
+            : _phase switch
+            {
+                EncounterPhase.ShipGlidingIn => "BAY: APPROACHING",
+                EncounterPhase.UploadingClearance => "BAY: UPLOADING",
+                EncounterPhase.ResolvingDecision when _pendingDecision == PlayerDecision.GrantAccess => "BAY: DEPARTING",
+                _ => "BAY: DOCK LOCKED"
+            };
         Raylib.DrawText(bayState, portraitBoxX + 6, sigY + 54, 10, Palette.CrtAmberDimmed);
 
         // Right: Thematic Scrollable CRT Dialogue Transcript Box
@@ -2269,9 +2926,9 @@ public sealed class DeskScreen : IScreen
     {
         bool lockedByPreShift = _preShiftStage != PreShiftStage.None || _shiftController.IsPreShiftSequenceActive;
 
-        // Left Status Readout Console (x=10, y=256, w=286, h=26)
-        Raylib.DrawRectangle(10, 256, 286, 26, Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(10, 256, 286, 26, _protocolReviewModeActive ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
+        // Left Status Readout Console (x=10, y=256, w=284, h=26)
+        Raylib.DrawRectangle(10, 256, 284, 26, Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(10, 256, 284, 26, _protocolReviewModeActive ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
 
         string statusText = lockedByPreShift
             ? "PRE-SHIFT HOLD -- CONTROLS LOCKED"
@@ -2288,54 +2945,55 @@ public sealed class DeskScreen : IScreen
                     EncounterPhase.InspectingSlateAndShip => _isDataSlateDocked
                         ? "SLATE DOCKED -> [GRANT ACCESS]"
                         : (!string.IsNullOrEmpty(_reviewStatusNote) ? _reviewStatusNote : "INSPECT VESSEL OR SLOT DATA SLATE"),
+                    EncounterPhase.UploadingClearance => "UPLOADING CLEARANCE...",
                     EncounterPhase.ResolvingDecision => _pendingDecision == PlayerDecision.GrantAccess
-                        ? "UPLINKING CLEARANCE..."
+                        ? "CLEARANCE CONFIRMED -- DEPARTING"
                         : "ENGAGING STATION CLAMPS...",
                     _ => string.Empty
                 });
 
-        Raylib.DrawText(Truncate(statusText, 44), 16, 264, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawText(TruncateByPixelWidth(statusText, 10, 272), 16, 264, 10, Palette.CrtAmberPrimary);
 
-        // 1. NEXT HAIL (x=302, y=256, w=114, h=26)
+        // 1. NEXT HAIL (x=300, y=256, w=104, h=26)
         bool canHail = !lockedByPreShift && _shiftController.CanTriggerNextHail && _phase == EncounterPhase.BayEmpty;
         string hailLabel = lockedByPreShift ? "LOCKED" : (_shiftController.IsShiftTimerExpired ? "WATCH ENDED" : "NEXT HAIL");
-        DrawHardwareButton(mouse, 302, 256, 114, 26, hailLabel, enabled: canHail, highlight: canHail, Palette.CrtAmberPrimary);
+        DrawHardwareButton(mouse, 300, 256, 104, 26, hailLabel, enabled: canHail, highlight: canHail, Palette.CrtAmberPrimary);
 
-        // 2. LOWER SHIELDS (x=422, y=256, w=128, h=26) -- Uniform neutral styling
+        // 2. LOWER SHIELDS (x=410, y=256, w=122, h=26) -- Uniform neutral styling
         bool shipInteractable = !lockedByPreShift && _activeShip != null &&
                                 (_phase is EncounterPhase.PreClearanceHailing or EncounterPhase.InspectingSlateAndShip);
         DrawHardwareButton(
-            mouse, 422, 256, 128, 26,
+            mouse, 410, 256, 122, 26,
             _pendingShieldsOrder ? "ORDERING..." : "LOWER SHIELDS",
             enabled: shipInteractable && !_pendingShieldsOrder,
             highlight: false,
             Palette.CrtAmberPrimary);
 
-        // 3. POWER DOWN WPN (x=556, y=256, w=136, h=26) -- Uniform neutral styling
+        // 3. POWER DOWN WPN (x=538, y=256, w=130, h=26) -- Uniform neutral styling
         DrawHardwareButton(
-            mouse, 556, 256, 136, 26,
+            mouse, 538, 256, 130, 26,
             _pendingWeaponsOrder ? "ORDERING..." : "POWER DOWN WPN",
             enabled: shipInteractable && !_pendingWeaponsOrder,
             highlight: false,
             Palette.CrtAmberPrimary);
 
-        // 4. SPS SCAN TOGGLE (x=698, y=256, w=120, h=26)
-        DrawHardwareButton(
-            mouse, 698, 256, 120, 26,
-            _spsEnabled ? "SPS: ACTIVE" : "SPS: OFF",
-            enabled: !lockedByPreShift,
-            highlight: _spsEnabled && !lockedByPreShift,
-            Palette.SpsCommsActive);
-
-        // 5. PROTOCOL REVIEW Toggle (x=824, y=256, w=126, h=26 -> 10px right margin)
+        // 4. PROTOCOL REVIEW Toggle (x=674, y=256, w=120, h=26)
         bool canReview = !lockedByPreShift && _activeShip != null &&
                          (_phase is EncounterPhase.PreClearanceHailing or EncounterPhase.InspectingSlateAndShip);
         DrawHardwareButton(
-            mouse, 824, 256, 126, 26,
+            mouse, 674, 256, 120, 26,
             _protocolReviewModeActive ? "REVIEW: ON" : "REVIEW: OFF",
             enabled: canReview,
             highlight: _protocolReviewModeActive,
             Palette.CrtAmberPrimary);
+
+        // 5. SPS SCAN TOGGLE (x=800, y=256, w=144, h=26 -- aligned directly above SPS Anomaly Mini-Screen!)
+        DrawHardwareButton(
+            mouse, 800, 256, 144, 26,
+            _spsEnabled ? "SPS: ACTIVE" : "SPS: OFF",
+            enabled: !lockedByPreShift,
+            highlight: _spsEnabled && !lockedByPreShift,
+            Palette.SpsCommsActive);
     }
 
     private void DrawBottomDeskWorkspace(VirtualMouseState mouse)
@@ -2488,8 +3146,8 @@ public sealed class DeskScreen : IScreen
                 ? "CLICK CLAIM OR REALITY"
                 : $"1/2: {FormatReviewTargetLabel(_reviewFirstSelection)}";
             Raylib.DrawText(Truncate(stepLine, 21), LeftColX + 6, logY + 24, 10, Palette.CrtAmberPrimary);
-            Raylib.DrawText("COMPARE DATA SLATE", LeftColX + 6, logY + 40, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("AGAINST SHIP / SPS.", LeftColX + 6, logY + 52, 10, Palette.CrtAmberDimmed);
+            Raylib.DrawText("COMPARE SLATE vs", LeftColX + 6, logY + 40, 10, Palette.CrtAmberDimmed);
+            Raylib.DrawText("CYCLE / HULL / RELAY", LeftColX + 6, logY + 52, 10, Palette.CrtAmberDimmed);
         }
         else if (!string.IsNullOrEmpty(_reviewStatusNote))
         {
@@ -2596,19 +3254,88 @@ public sealed class DeskScreen : IScreen
         }
     }
 
+    private void DrawSpsMiniScreenAnomalyLog(VirtualMouseState mouse)
+    {
+        bool hasLogged = _spsLoggedAnomalies.Count > 0;
+        bool locking = _spsLockProgress > 0.01f;
+        Color frameCol = hasLogged
+            ? Palette.CrtAmberPrimary
+            : (_spsEnabled ? Palette.SpsCommsActive : Palette.WeatheredGunmetalEdge);
+
+        Raylib.DrawRectangle(SpsMiniX, SpsMiniY, SpsMiniW, SpsMiniH, Palette.DeepSpaceVoid);
+        Raylib.DrawRectangleLines(SpsMiniX, SpsMiniY, SpsMiniW, SpsMiniH, frameCol);
+
+        Raylib.DrawRectangle(SpsMiniX + 1, SpsMiniY + 1, SpsMiniW - 2, 12, Palette.OutlineVoid);
+        Raylib.DrawLine(SpsMiniX + 1, SpsMiniY + 13, SpsMiniX + SpsMiniW - 1, SpsMiniY + 13, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawText("SPS ANOMALY LOG", SpsMiniX + 6, SpsMiniY + 2, 10,
+            _spsEnabled || hasLogged ? Palette.SpsCommsActive : Palette.CrtAmberDimmed);
+
+        if (hasLogged)
+        {
+            int maxRows = Math.Min(2, _spsLoggedAnomalies.Count);
+            for (int i = 0; i < maxRows; i++)
+            {
+                SpsAnomalyEntry entry = _spsLoggedAnomalies[i];
+                int ry = SpsMiniY + 15 + i * 17;
+                bool hovered = _phase == EncounterPhase.InspectingSlateAndShip &&
+                               mouse.IsHit(SpsMiniX + 4, ry, SpsMiniW - 8, 15);
+                Color rowBorder = entry.WasConfronted
+                    ? Palette.ClearanceTeal
+                    : (hovered ? Palette.CrtAmberPrimary : entry.AccentColor);
+                Color rowBg = hovered ? Palette.OxidizedBronzeShadow : Palette.OutlineVoid;
+                Color rowFg = entry.WasConfronted ? Palette.ClearanceTeal : entry.AccentColor;
+                string rowText = entry.WasConfronted ? entry.Label.Replace("[!]", "[OK]") : entry.Label;
+
+                Raylib.DrawRectangle(SpsMiniX + 4, ry, SpsMiniW - 8, 15, rowBg);
+                Raylib.DrawRectangleLines(SpsMiniX + 4, ry, SpsMiniW - 8, 15, rowBorder);
+                Raylib.DrawText(TruncateByPixelWidth(rowText, 10, SpsMiniW - 16), SpsMiniX + 8, ry + 3, 10, rowFg);
+            }
+        }
+        else if (locking)
+        {
+            Raylib.DrawText("LOCKING SIGNAL...", SpsMiniX + 8, SpsMiniY + 18, 10, Palette.CrtAmberPrimary);
+            int maxBarW = SpsMiniW - 16;
+            int fillW = Math.Clamp((int)MathF.Round(maxBarW * _spsLockProgress), 1, maxBarW);
+            Raylib.DrawRectangle(SpsMiniX + 8, SpsMiniY + 33, maxBarW, 8, Palette.OutlineVoid);
+            Raylib.DrawRectangle(SpsMiniX + 8, SpsMiniY + 33, fillW, 8, Palette.SpsCommsActive);
+            Raylib.DrawRectangleLines(SpsMiniX + 8, SpsMiniY + 33, maxBarW, 8, Palette.SpsCommsActive);
+        }
+        else if (_spsEnabled)
+        {
+            if (_activeShip != null && _activeShip.GroundTruth.ActualShieldsUp)
+            {
+                Raylib.DrawText("SHIELD BLOCKED", SpsMiniX + 8, SpsMiniY + 18, 10, Palette.SpsShieldArcIce);
+                Raylib.DrawText("LOWER SHIELDS", SpsMiniX + 8, SpsMiniY + 31, 10, Palette.CrtAmberDimmed);
+            }
+            else
+            {
+                Raylib.DrawText("HOLD LENS 0.5S", SpsMiniX + 8, SpsMiniY + 18, 10, Palette.SpsCommsActive);
+                Raylib.DrawText("TO LOG ANOMALY", SpsMiniX + 8, SpsMiniY + 31, 10, Palette.WeatheredGunmetalEdge);
+            }
+        }
+        else
+        {
+            Raylib.DrawText("SPS STANDBY", SpsMiniX + 8, SpsMiniY + 18, 10, Palette.CrtAmberDimmed);
+            Raylib.DrawText("NO LOGGED SCAN", SpsMiniX + 8, SpsMiniY + 31, 10, Palette.WeatheredGunmetalEdge);
+        }
+    }
+
     private void DrawRightSideClearanceDockAndDetainSwitch(VirtualMouseState mouse)
     {
+        DrawSpsMiniScreenAnomalyLog(mouse);
+
         bool lockedByPreShift = _preShiftStage != PreShiftStage.None || _shiftController.IsPreShiftSequenceActive;
 
         bool draggingSlateNearDock = !lockedByPreShift &&
                                      _draggingItemId == DeskItemId.DataSlate &&
                                      _deskItems[DeskItemId.DataSlate].X + _deskItems[DeskItemId.DataSlate].Width >= DockPanelX - 16;
 
-        bool isTransmittingClearance = _phase == EncounterPhase.ResolvingDecision && _pendingDecision == PlayerDecision.GrantAccess;
+        bool isUploadingClearance = _phase == EncounterPhase.UploadingClearance && _pendingDecision == PlayerDecision.GrantAccess;
+        bool isDepartingAfterUpload = _phase == EncounterPhase.ResolvingDecision && _pendingDecision == PlayerDecision.GrantAccess;
 
         Color dockBorder = lockedByPreShift
             ? Palette.WeatheredGunmetalEdge
-            : (_isDataSlateDocked || isTransmittingClearance
+            : (_isDataSlateDocked || isUploadingClearance || isDepartingAfterUpload
                 ? Palette.ClearanceTeal
                 : (draggingSlateNearDock ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge));
 
@@ -2619,54 +3346,73 @@ public sealed class DeskScreen : IScreen
             dockBorder,
             string.Empty);
 
-        Raylib.DrawText("CLEARANCE DOCK", DockPanelX + 18, DockPanelY + 8, 10,
+        Raylib.DrawText("CLEARANCE DOCK", DockPanelX + 16, DockPanelY + 5, 10,
             lockedByPreShift ? Palette.WeatheredGunmetalEdge : Palette.ClearanceTeal);
-        Raylib.DrawText(lockedByPreShift ? "PRE-SHIFT LOCKED" : "USB TELEMETRY PORT", DockPanelX + 12, DockPanelY + 22, 10, Palette.CrtAmberDimmed);
 
-        Raylib.DrawRectangle(DockPanelX + 10, DockPanelY + 38, DockPanelW - 20, 36, Palette.DeepSpaceVoid);
-        Raylib.DrawRectangleLines(DockPanelX + 10, DockPanelY + 38, DockPanelW - 20, 36, dockBorder);
-
-        bool pulseLed = ((_animTick / 8) % 2) == 0;
-        for (int pin = 0; pin < 7; pin++)
+        // Glowing teal USB coupler latch connecting a docked Data Slate cleanly into the Clearance Dock
+        if (_isDataSlateDocked || isUploadingClearance || isDepartingAfterUpload)
         {
-            int px = DockPanelX + 18 + pin * 16;
-            Color pinCol = isTransmittingClearance
-                ? (pulseLed ? Palette.ClearanceTeal : Palette.SpsShieldArcIce)
-                : (_isDataSlateDocked ? Palette.ClearanceTeal : Palette.OxidizedBronzeWorn);
-            Raylib.DrawRectangle(px, DockPanelY + 44, 8, 5, pinCol);
+            Raylib.DrawRectangle(DockPanelX - 4, DockPanelY + 28, 6, 14, Palette.ClearanceTeal);
+            Raylib.DrawRectangle(DockPanelX - 3, DockPanelY + 31, 4, 8, Palette.SpsShieldArcIce);
         }
 
-        if (isTransmittingClearance)
+        Raylib.DrawRectangle(DockPanelX + 8, DockPanelY + 19, DockPanelW - 16, 34, Palette.DeepSpaceVoid);
+        Raylib.DrawRectangleLines(DockPanelX + 8, DockPanelY + 19, DockPanelW - 16, 34, dockBorder);
+
+        bool pulseLed = ((_animTick / 6) % 2) == 0;
+        for (int pin = 0; pin < 7; pin++)
         {
-            float progress = Math.Clamp(1.0f - (_decisionEvalTimer / 1.50f), 0f, 1f);
-            int barW = (int)MathF.Round((DockPanelW - 28) * progress);
-            Raylib.DrawRectangle(DockPanelX + 14, DockPanelY + 56, DockPanelW - 28, 10, Palette.OutlineVoid);
-            Raylib.DrawRectangle(DockPanelX + 14, DockPanelY + 56, barW, 10, Palette.ClearanceTeal);
-            Raylib.DrawRectangleLines(DockPanelX + 14, DockPanelY + 56, DockPanelW - 28, 10, Palette.ClearanceTeal);
-            Raylib.DrawText("UPLINKING CLEARANCE", DockPanelX + 12, DockPanelY + 82, 10, Palette.ClearanceTeal);
+            int px = DockPanelX + 16 + pin * 16;
+            Color pinCol = isUploadingClearance
+                ? (pulseLed ? Palette.ClearanceTeal : Palette.SpsShieldArcIce)
+                : (_isDataSlateDocked || isDepartingAfterUpload ? Palette.ClearanceTeal : Palette.OxidizedBronzeWorn);
+            Raylib.DrawRectangle(px, DockPanelY + 24, 8, 4, pinCol);
+        }
+
+        if (isUploadingClearance)
+        {
+            float progress = Math.Clamp(_clearanceUploadElapsed / ClearanceUploadDurationSeconds, 0f, 1f);
+            int barMaxW = DockPanelW - 24;
+            int barW = (int)MathF.Round(barMaxW * progress);
+            Raylib.DrawRectangle(DockPanelX + 12, DockPanelY + 34, barMaxW, 11, Palette.OutlineVoid);
+            Raylib.DrawRectangle(DockPanelX + 12, DockPanelY + 34, barW, 11, Palette.ClearanceTeal);
+            Raylib.DrawRectangleLines(DockPanelX + 12, DockPanelY + 34, barMaxW, 11, Palette.ClearanceTeal);
+
+            int pct = (int)MathF.Round(progress * 100f);
+            Raylib.DrawText($"UPLOADING {pct}%", DockPanelX + 14, DockPanelY + 58, 10, Palette.ClearanceTeal);
+        }
+        else if (isDepartingAfterUpload)
+        {
+            int barMaxW = DockPanelW - 24;
+            Raylib.DrawRectangle(DockPanelX + 12, DockPanelY + 34, barMaxW, 11, Palette.ClearanceTeal);
+            Raylib.DrawRectangleLines(DockPanelX + 12, DockPanelY + 34, barMaxW, 11, Palette.SpsShieldArcIce);
+            Raylib.DrawText("UPLOAD COMPLETE!", DockPanelX + 14, DockPanelY + 58, 10, Palette.ClearanceTeal);
         }
         else
         {
             string slotLabel = lockedByPreShift
                 ? "DOCK LOCKED"
-                : (_isDataSlateDocked ? "SLATE LOCKED [READY]" : (draggingSlateNearDock ? ">> DROP TO DOCK <<" : "DRAG SLATE HERE"));
-            Raylib.DrawText(slotLabel, DockPanelX + 14, DockPanelY + 56, 10,
+                : (_isDataSlateDocked ? "SLATE LOCKED" : (draggingSlateNearDock ? ">> DROP SLATE <<" : "DRAG SLATE HERE"));
+            Raylib.DrawText(slotLabel, DockPanelX + 14, DockPanelY + 35, 10,
                 _isDataSlateDocked ? Palette.ClearanceTeal : Palette.CrtAmberPrimary);
 
             Color ledCol = _isDataSlateDocked ? Palette.ClearanceTeal : Palette.WeatheredGunmetalEdge;
-            Raylib.DrawCircle(DockPanelX + 20, DockPanelY + 87, 4, ledCol);
-            Raylib.DrawText(_isDataSlateDocked ? "LINK: ACTIVE" : "LINK: IDLE", DockPanelX + 30, DockPanelY + 82, 10, ledCol);
+            Raylib.DrawCircle(DockPanelX + 18, DockPanelY + 63, 4, ledCol);
+            Raylib.DrawText(_isDataSlateDocked ? "LINK: ACTIVE" : "LINK: IDLE", DockPanelX + 28, DockPanelY + 58, 10, ledCol);
         }
 
         bool canGrant = !lockedByPreShift &&
                         _activeShip != null &&
                         _phase == EncounterPhase.InspectingSlateAndShip &&
                         _isDataSlateDocked;
+        string grantBtnLabel = isUploadingClearance
+            ? "UPLOADING..."
+            : (isDepartingAfterUpload ? "DEPARTING..." : (canGrant ? "GRANT ACCESS" : "SLOT DATA SLATE"));
         DrawHardwareButton(
-            mouse, DockPanelX + 8, DockPanelY + 106, DockPanelW - 16, 22,
-            canGrant ? "GRANT ACCESS" : "SLOT DATA SLATE",
+            mouse, DockPanelX + 8, DockPanelY + 75, DockPanelW - 16, 22,
+            grantBtnLabel,
             enabled: canGrant,
-            highlight: canGrant,
+            highlight: canGrant || isUploadingClearance,
             activeColor: Palette.ClearanceTeal);
 
         // Physical Red DETAIN Switch -- ALWAYS UNLOCKED once a vessel has hailed!
@@ -2682,19 +3428,19 @@ public sealed class DeskScreen : IScreen
         Raylib.DrawRectangle(DetainSwitchX, DetainSwitchY, DetainSwitchW, DetainSwitchH, detainBg);
         Raylib.DrawRectangleLines(DetainSwitchX, DetainSwitchY, DetainSwitchW, DetainSwitchH, detainBorder);
 
-        int leverY = _detainLeverPulled ? (DetainSwitchY + 32) : (DetainSwitchY + 8);
-        Raylib.DrawRectangle(DetainSwitchX + 8, DetainSwitchY + 7, 14, 42, Palette.OutlineVoid);
-        Raylib.DrawRectangle(DetainSwitchX + 9, leverY, 12, 14, detainBorder);
+        int leverY = _detainLeverPulled ? (DetainSwitchY + 28) : (DetainSwitchY + 6);
+        Raylib.DrawRectangle(DetainSwitchX + 8, DetainSwitchY + 5, 14, 38, Palette.OutlineVoid);
+        Raylib.DrawRectangle(DetainSwitchX + 9, leverY, 12, 13, detainBorder);
 
-        Raylib.DrawText("DETAIN VESSEL", DetainSwitchX + 28, DetainSwitchY + 10, 10,
+        Raylib.DrawText("DETAIN VESSEL", DetainSwitchX + 28, DetainSwitchY + 6, 10,
             _detainLeverPulled ? Palette.OutlineVoid : detainBorder);
-        Raylib.DrawText("PULL TO CLAMP", DetainSwitchX + 28, DetainSwitchY + 25, 10,
+        Raylib.DrawText("PULL TO CLAMP", DetainSwitchX + 28, DetainSwitchY + 19, 10,
             _detainLeverPulled ? Palette.OutlineVoid : (canDetain ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge));
 
         string reviewSubTag = (_activeShip != null && _activeShip.ProtocolReviewVerified)
             ? "REVIEW: VERIFIED"
             : "DISCRETION ARMED";
-        Raylib.DrawText(reviewSubTag, DetainSwitchX + 28, DetainSwitchY + 39, 10,
+        Raylib.DrawText(reviewSubTag, DetainSwitchX + 28, DetainSwitchY + 33, 10,
             _detainLeverPulled ? Palette.OutlineVoid : ((_activeShip != null && _activeShip.ProtocolReviewVerified) ? Palette.ClearanceTeal : Palette.CrtAmberDimmed));
 
         // Late-Game Destroy Override Switch (Day 14+ & KDF rep >= +8)
@@ -2706,7 +3452,7 @@ public sealed class DeskScreen : IScreen
             destroyUnlocked ? Palette.AlertCrimson : Palette.WeatheredGunmetalEdge);
         Raylib.DrawText(
             destroyUnlocked ? "DESTROY [ARMED]" : "DESTROY [LOCKED]",
-            DestroySwitchX + 18, DestroySwitchY + 10, 10,
+            DestroySwitchX + 18, DestroySwitchY + 8, 10,
             destroyUnlocked ? Palette.AlertCrimson : Palette.WeatheredGunmetalEdge);
     }
 
@@ -2830,47 +3576,60 @@ public sealed class DeskScreen : IScreen
         // Protocol Review Claim Hotspots (only when download is complete)
         if (_protocolReviewModeActive && !isDownloading)
         {
-            DrawReviewHotspotOutline(mouse, x + 74, y + 18, 108, 38, _reviewFirstSelection == ReviewTarget.DataSlatePrefix);
-            DrawReviewHotspotOutline(mouse, x + 74, y + 58, 108, 26, _reviewFirstSelection == ReviewTarget.DataSlateWeapons);
-            if (IsSpectrometerOperational)
-            {
-                DrawReviewHotspotOutline(mouse, x + 4, y + 162, 178, 20, _reviewFirstSelection == ReviewTarget.DataSlateOrigin);
-            }
+            int rowW = w - 8;
+            DrawReviewHotspotOutline(mouse, x + 74, y + 21, 112, 26, _reviewFirstSelection == ReviewTarget.DataSlatePrefix);
+            DrawReviewHotspotOutline(mouse, x + 74, y + 60, 112, 14, _reviewFirstSelection == ReviewTarget.DataSlateWeapons);
+            DrawReviewHotspotOutline(mouse, x + 4, y + 106, rowW, 14, _reviewFirstSelection == ReviewTarget.DataSlateOrg);
+            DrawReviewHotspotOutline(mouse, x + 4, y + 121, rowW, 14, _reviewFirstSelection == ReviewTarget.DataSlateExpiry);
+            DrawReviewHotspotOutline(mouse, x + 4, y + 151, rowW, 14, _reviewFirstSelection == ReviewTarget.DataSlateSpecies);
+            DrawReviewHotspotOutline(mouse, x + 4, y + 166, rowW, 14, _reviewFirstSelection == ReviewTarget.DataSlateOrigin);
+            DrawReviewHotspotOutline(mouse, x + 4, y + 196, rowW, 28, _reviewFirstSelection == ReviewTarget.DataSlateCargo);
         }
 
-        // Progressive Top-to-Bottom Field Population (Zero Auto-Hint Colors)
-        int rightColX = x + 78;
-        if (dl >= 0.14f)
+        // Progressive Top-to-Bottom Field Population (Zero Auto-Hint Colors, Pixel-Accurate Width Clamping)
+        int rightColX = x + 76;
+        int rightColMaxPx = w - 82;
+        if (dl >= 0.12f)
         {
             Raylib.DrawText("REG CODE:", rightColX, y + 23, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText(Truncate(slate.RegistrationCode, 14), rightColX, y + 35, 10, Palette.CrtAmberPrimary);
+            Raylib.DrawText(TruncateByPixelWidth(slate.RegistrationCode, 10, rightColMaxPx), rightColX, y + 34, 10, Palette.CrtAmberPrimary);
         }
-        if (dl >= 0.28f)
+        if (dl >= 0.22f)
         {
             Raylib.DrawText($"CLASS: {ShortClass(slate.DeclaredShipClass)}", rightColX, y + 49, 10, Palette.CrtAmberPrimary);
         }
-        if (dl >= 0.38f)
+        if (dl >= 0.32f)
         {
-            Raylib.DrawText($"WPN: {slate.DeclaredWeaponsStatus}", rightColX, y + 63, 10, Palette.CrtAmberPrimary);
+            Raylib.DrawText($"WPN: {slate.DeclaredWeaponsStatus}", rightColX, y + 62, 10, Palette.CrtAmberPrimary);
             Raylib.DrawText($"MASS: {slate.DeclaredTonnage} T", rightColX, y + 75, 10, Palette.CrtAmberDimmed);
         }
 
         int fieldX = x + 6;
+        int fieldMaxPx = w - 12;
         int fieldY = y + 93;
-        const int lineStep = 18;
+        const int lineStep = 15;
 
-        Raylib.DrawLine(x + 4, y + 89, x + w - 4, y + 89, Palette.WeatheredGunmetalEdge);
-        if (dl >= 0.48f) Raylib.DrawText(Truncate($"SHIP: {slate.ShipName}", 28), fieldX, fieldY, 10, Palette.CrtAmberPrimary);
-        if (dl >= 0.58f) Raylib.DrawText(Truncate($"ORG:  {slate.DeclaredFactionName}", 28), fieldX, fieldY + lineStep, 10, Palette.CrtAmberPrimary);
-        if (dl >= 0.68f) Raylib.DrawText(Truncate($"CAPT: {slate.DeclaredCaptainName}", 28), fieldX, fieldY + lineStep * 2, 10, Palette.CrtAmberPrimary);
-        if (dl >= 0.76f) Raylib.DrawText(Truncate($"SPEC: {slate.DeclaredCaptainSpecies.ToString().ToUpperInvariant()}", 28), fieldX, fieldY + lineStep * 3, 10, Palette.CrtAmberDimmed);
-        if (dl >= 0.84f) Raylib.DrawText(Truncate($"ORIG: {slate.OriginSystem}", 28), fieldX, fieldY + lineStep * 4, 10, Palette.CrtAmberPrimary);
-        if (dl >= 0.90f) Raylib.DrawText(Truncate($"DEST: {slate.DestinationSystem}", 28), fieldX, fieldY + lineStep * 5, 10, Palette.CrtAmberDimmed);
-        if (dl >= 0.96f) Raylib.DrawText(Truncate($"CARGO: {slate.CargoManifest}", 28), fieldX, fieldY + lineStep * 6, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawLine(x + 4, y + 90, x + w - 4, y + 90, Palette.WeatheredGunmetalEdge);
+        if (dl >= 0.42f) Raylib.DrawText(TruncateByPixelWidth($"SHIP: {slate.ShipName}", 10, fieldMaxPx), fieldX, fieldY, 10, Palette.CrtAmberPrimary);
+        if (dl >= 0.50f) Raylib.DrawText(TruncateByPixelWidth($"ORG:  {slate.DeclaredFactionName}", 10, fieldMaxPx), fieldX, fieldY + lineStep, 10, Palette.CrtAmberPrimary);
+        if (dl >= 0.58f) Raylib.DrawText(TruncateByPixelWidth($"EXP:  {slate.RegistrationExpiryDisplay}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 2, 10, Palette.CrtAmberPrimary);
+        if (dl >= 0.66f) Raylib.DrawText(TruncateByPixelWidth($"CAPT: {slate.DeclaredCaptainName}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 3, 10, Palette.CrtAmberPrimary);
+        if (dl >= 0.74f) Raylib.DrawText(TruncateByPixelWidth($"SPEC: {slate.DeclaredCaptainSpecies.ToString().ToUpperInvariant()}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 4, 10, Palette.CrtAmberDimmed);
+        if (dl >= 0.82f) Raylib.DrawText(TruncateByPixelWidth($"ORIG: {slate.OriginSystem}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 5, 10, Palette.CrtAmberPrimary);
+        if (dl >= 0.88f) Raylib.DrawText(TruncateByPixelWidth($"DEST: {slate.DestinationSystem}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 6, 10, Palette.CrtAmberDimmed);
+        if (dl >= 0.94f)
+        {
+            List<string> cargoLines = WrapTextByPixelWidth($"CARGO: {slate.CargoManifest}", 10, fieldMaxPx, maxLines: 2);
+            int cargoBaseY = fieldY + lineStep * 7;
+            for (int c = 0; c < cargoLines.Count; c++)
+            {
+                Raylib.DrawText(cargoLines[c], fieldX, cargoBaseY + c * 13, 10, Palette.CrtAmberPrimary);
+            }
+        }
     }
 
     // =========================================================================
-    // 3. Movable Tabbed Desk Reference Manual (Read-Only Reference)
+    // 3. Movable Tabbed Desk Reference Manual (with Day 1 Subspace Relay Ping)
     // =========================================================================
     private void DrawDeskReferenceManual(VirtualMouseState mouse, DraggableDeskItem item, bool isTopmost)
     {
@@ -2891,42 +3650,30 @@ public sealed class DeskScreen : IScreen
         Raylib.DrawRectangle(x + 1, y + 1, w - 2, 16, Palette.OxidizedBronzeShadow);
         Raylib.DrawText("DESK REFERENCE MANUAL", x + 8, y + 4, 10, Palette.CrtAmberPrimary);
 
-        DrawManualTabButton(mouse, x + 6, y + 20, 76, 18, "1.PREFIXES", _manualActiveTab == 0);
-        DrawManualTabButton(mouse, x + 85, y + 20, 76, 18, "2.HULLS", _manualActiveTab == 1);
-        DrawManualTabButton(mouse, x + 164, y + 20, 76, 18, "3.STARS", _manualActiveTab == 2);
+        DrawManualTabButton(mouse, x + 6, y + 20, 76, 16, "1.PREFIXES", _manualActiveTab == 0);
+        DrawManualTabButton(mouse, x + 85, y + 20, 76, 16, "2.HULLS", _manualActiveTab == 1);
+        DrawManualTabButton(mouse, x + 164, y + 20, 76, 16, "3.STARS", _manualActiveTab == 2);
 
         if (_manualActiveTab == 0)
         {
-            string[] prefixRows =
-            [
-                "GUV-  GALACTIC UNION",
-                "KDF-  KORDANI DEFENSE FLEET",
-                "BMC-  BRENGOP CONSORTIUM",
-                "KRW-  KRUSHVAK WAR-FLEET",
-                "ORN-  ORUN REGISTRY NETWORK",
-                "TLV-  TOLVAK TRANSIT LINE",
-                "PRJ-  PRUNJUN SALVAGE (HACK)",
-                "FTV-  FREE TRADERS (HBR-)",
-                "FTC-  FAR-LINE TRANSIT CORP",
-                "MNG-  MINING GUILD SYNDICATE",
-                "ZNI-  ZENITH INTERSTELLAR"
-            ];
-
-            int ry = y + 44;
-            for (int i = 0; i < prefixRows.Length; i++)
+            int ry = y + 39;
+            for (int i = 0; i < ManualPrefixDirectory.Length; i++)
             {
-                bool rowHovered = mouse.IsHit(x + 6, ry, w - 12, 14);
+                var entry = ManualPrefixDirectory[i];
+                bool rowHovered = mouse.IsHit(x + 6, ry, w - 12, 12);
                 if (rowHovered)
                 {
-                    Raylib.DrawRectangle(x + 6, ry - 1, w - 12, 14, Palette.OxidizedBronzeShadow);
+                    Raylib.DrawRectangle(x + 6, ry, w - 12, 12, Palette.OxidizedBronzeShadow);
                 }
-                Raylib.DrawText(prefixRows[i], x + 10, ry + 1, 10,
+                string rowText = $"{entry.Prefix}  {entry.OrgName}";
+                Raylib.DrawText(TruncateByPixelWidth(rowText, 10, w - 18), x + 10, ry + 1, 10,
                     rowHovered ? Palette.ClearanceTeal : Palette.CrtAmberPrimary);
-                ry += 15;
+                ry += 12;
             }
 
-            Raylib.DrawLine(x + 6, y + 212, x + w - 6, y + 212, Palette.WeatheredGunmetalEdge);
-            Raylib.DrawText("UNR-  UNREGISTERED -> DETAIN!", x + 10, y + 218, 10, Palette.AlertCrimson);
+            Raylib.DrawText("UNR-  UNREGISTERED -> DETAIN!", x + 10, y + 184, 10, Palette.AlertCrimson);
+            Raylib.DrawLine(x + 6, y + 195, x + w - 6, y + 195, Palette.WeatheredGunmetalEdge);
+            DrawSubspaceRelayWidget(mouse, item);
         }
         else if (_manualActiveTab == 1)
         {
@@ -2934,45 +3681,45 @@ public sealed class DeskScreen : IScreen
             IReadOnlyList<ShipClass> allowedClasses = ShipRenderer.GetAllowedClasses(faction);
             ShipClass selectedClass = allowedClasses[Math.Clamp(_manualClassIndex, 0, allowedClasses.Count - 1)];
 
-            DrawSmallButton(mouse, x + 6, y + 42, 72, 18, "< FACTION");
+            DrawSmallButton(mouse, x + 6, y + 40, 72, 16, "< FACTION");
             if (_devDebug.DevManualSyncEnabled)
             {
-                DrawSmallButton(mouse, x + 84, y + 42, 78, 18, "DEV SYNC", Palette.ClearanceTeal);
+                DrawSmallButton(mouse, x + 84, y + 40, 78, 16, "DEV SYNC", Palette.ClearanceTeal);
             }
-            DrawSmallButton(mouse, x + 168, y + 42, 72, 18, "FACTION >");
+            DrawSmallButton(mouse, x + 168, y + 40, 72, 16, "FACTION >");
 
             string factionTitle = ShipRenderer.GetFactionDisplayName(faction);
-            Raylib.DrawText(Truncate(factionTitle, 36), x + 8, y + 66, 10, Palette.CrtAmberPrimary);
+            Raylib.DrawText(TruncateByPixelWidth(factionTitle, 10, w - 16), x + 8, y + 59, 10, Palette.CrtAmberPrimary);
 
-            string allowedList = string.Join(" / ", allowedClasses.Select(ShortClass));
-            Raylib.DrawText($"ALLOWED CLASSES: {allowedList}", x + 8, y + 80, 10, Palette.CrtAmberDimmed);
+            string crewLine = ShipGenerator.GetAllowedCrewSummary(faction);
+            Raylib.DrawText(TruncateByPixelWidth(crewLine, 10, w - 16), x + 8, y + 71, 10, Palette.ClearanceTeal);
 
             int chartX = x + (w - Constants.ShipWidth) / 2;
-            int chartY = y + 100;
+            int chartY = y + 84;
             if (_cachedManualShipTex.Id != 0)
             {
                 Raylib.DrawTexture(_cachedManualShipTex, chartX, chartY, Color.White);
             }
             Raylib.DrawRectangleLines(chartX - 1, chartY - 1, Constants.ShipWidth + 2, Constants.ShipHeight + 2, Palette.CrtAmberDimmed);
 
-            string classCaption = $"SILHOUETTE: {selectedClass.ToString().ToUpperInvariant()} ({_manualClassIndex + 1}/{allowedClasses.Count})";
-            Raylib.DrawText(classCaption, x + 8, y + 166, 10, Palette.ClearanceTeal);
+            DrawSmallButton(mouse, x + 6, y + 144, 58, 16, "< PREV");
+            string classCaption = $"{ShortClass(selectedClass)} ({_manualClassIndex + 1}/{allowedClasses.Count})";
+            int capW = Raylib.MeasureText(classCaption, 10);
+            Raylib.DrawText(classCaption, x + (w - capW) / 2, y + 147, 10, Palette.ClearanceTeal);
+            DrawSmallButton(mouse, x + 182, y + 144, 58, 16, "NEXT >");
 
-            if (faction == ShipFaction.FreeTraders)
-            {
-                Raylib.DrawText("*SHARED BY FTV- AND HBR- VESSELS*", x + 8, y + 182, 10, Palette.CrtAmberDimmed);
-            }
-            else if (faction == ShipFaction.FarLineTransit)
-            {
-                Raylib.DrawText("*OFFICIAL PREFIX: FTC- (FAR-LINE)*", x + 8, y + 182, 10, Palette.CrtAmberDimmed);
-            }
+            string allowedList = string.Join("/", allowedClasses.Select(ShortClass));
+            string subNote = faction == ShipFaction.FreeTraders
+                ? $"CLASSES: {allowedList} (SHARED FTV/HBR)"
+                : $"ALLOWED CLASSES: {allowedList}";
+            Raylib.DrawText(TruncateByPixelWidth(subNote, 10, w - 16), x + 8, y + 163, 10, Palette.CrtAmberDimmed);
 
-            DrawSmallButton(mouse, x + 6, y + 212, 112, 20, "< PREV CLASS");
-            DrawSmallButton(mouse, x + 128, y + 212, 112, 20, "NEXT CLASS >");
+            Raylib.DrawLine(x + 6, y + 176, x + w - 6, y + 176, Palette.WeatheredGunmetalEdge);
+            DrawSubspaceRelayWidget(mouse, item);
         }
         else
         {
-            Raylib.DrawText("SECTOR WARP SIGNATURE GUIDE:", x + 8, y + 44, 10, Palette.CrtAmberPrimary);
+            Raylib.DrawText("SECTOR WARP SIGNATURE GUIDE:", x + 8, y + 42, 10, Palette.CrtAmberPrimary);
             (string Key, string Label)[] systems =
             [
                 ("Veridia", "1. VERIDIA"),
@@ -2986,7 +3733,7 @@ public sealed class DeskScreen : IScreen
             ];
             for (int i = 0; i < systems.Length; i++)
             {
-                int rowY = y + 60 + i * 20;
+                int rowY = y + 58 + i * 20;
                 bool isRestricted = (i == 7);
                 Raylib.DrawText(systems[i].Label, x + 8, rowY + 3, 10,
                     isRestricted ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
@@ -2995,8 +3742,110 @@ public sealed class DeskScreen : IScreen
             }
             Raylib.DrawText(
                 IsSpectrometerOperational ? "SPECTROMETER: ONLINE (DAY 3+)" : "SPECTROMETER OFFLINE (DAYS 1-2)",
-                x + 8, y + 220, 10,
+                x + 8, y + 221, 10,
                 IsSpectrometerOperational ? Palette.ClearanceTeal : Palette.CrtAmberDimmed);
+        }
+    }
+
+    private void DrawSubspaceRelayWidget(VirtualMouseState mouse, DraggableDeskItem manual)
+    {
+        GetRelayUiRects(manual, out Rectangle pingBtnRect, out Rectangle readoutRect);
+
+        bool canPing = CanStartRelayPing();
+        string btnLabel = _relayPhase switch
+        {
+            RelayQueryPhase.TypingQuery => "PINGING...",
+            RelayQueryPhase.Completed => "RELAY DONE",
+            _ => "PING RELAY"
+        };
+
+        DrawHardwareButton(
+            mouse,
+            (int)pingBtnRect.X, (int)pingBtnRect.Y, (int)pingBtnRect.Width, (int)pingBtnRect.Height,
+            btnLabel,
+            enabled: canPing,
+            highlight: canPing,
+            activeColor: Palette.ClearanceTeal);
+
+        bool isAlert = IsActiveRelayAlert();
+        bool alertFlash = ((_animTick / 10) % 2) == 0;
+
+        string sideHint = _relayPhase switch
+        {
+            RelayQueryPhase.TypingQuery => "TX SUBSPACE RELAY...",
+            RelayQueryPhase.Completed when isAlert => _relayAlertConfronted ? "ALERT VERIFIED" : "[!] CLICK ALERT BELOW",
+            RelayQueryPhase.Completed => "RELAY LOGGED",
+            _ => _phase == EncounterPhase.InspectingSlateAndShip ? "FACTION RELAY READY" : "AWAITING DATA SLATE"
+        };
+        Color sideCol = isAlert
+            ? (_relayAlertConfronted ? Palette.ClearanceTeal : (alertFlash ? Palette.AlertCrimson : Palette.CrtAmberPrimary))
+            : (_relayPhase == RelayQueryPhase.TypingQuery ? Palette.ClearanceTeal : Palette.CrtAmberDimmed);
+        Raylib.DrawText(
+            TruncateByPixelWidth(sideHint, 10, manual.Width - (int)pingBtnRect.Width - 20),
+            (int)pingBtnRect.X + (int)pingBtnRect.Width + 6,
+            (int)pingBtnRect.Y + ((int)pingBtnRect.Height - 10) / 2,
+            10,
+            sideCol);
+
+        int rx = (int)readoutRect.X;
+        int ry = (int)readoutRect.Y;
+        int rw = (int)readoutRect.Width;
+        int rh = (int)readoutRect.Height;
+        bool alertHovered = isAlert && mouse.IsHit(readoutRect);
+
+        Color boxBg = alertHovered ? Palette.BrownDwarfGlowDeep : Palette.DeepSpaceVoid;
+        Color boxBorder = isAlert
+            ? (_relayAlertConfronted ? Palette.ClearanceTeal : (alertHovered || alertFlash ? Palette.AlertCrimson : Palette.CrtAmberPrimary))
+            : (_relayPhase == RelayQueryPhase.TypingQuery ? Palette.ClearanceTeal : Palette.WeatheredGunmetalEdge);
+
+        Raylib.DrawRectangle(rx, ry, rw, rh, boxBg);
+        Raylib.DrawRectangleLines(rx, ry, rw, rh, boxBorder);
+
+        if (_protocolReviewModeActive && isAlert)
+        {
+            DrawReviewHotspotOutline(mouse, rx, ry, rw, rh, _reviewFirstSelection == ReviewTarget.RelayAlertLog);
+        }
+
+        int textMaxPx = rw - 10;
+        if (_relayPhase == RelayQueryPhase.Idle)
+        {
+            string idleMsg = _phase == EncounterPhase.InspectingSlateAndShip
+                ? "READY: CLICK [PING RELAY] TO VERIFY REG"
+                : "SUBSPACE RELAY STANDBY (LOAD SLATE)";
+            Raylib.DrawText(TruncateByPixelWidth(idleMsg, 10, textMaxPx), rx + 5, ry + 5, 10, Palette.WeatheredGunmetalEdge);
+        }
+        else if (_relayPhase == RelayQueryPhase.TypingQuery)
+        {
+            int count = Math.Clamp(_relayLastTypedChars, 0, _relayQueryFullText.Length);
+            string typed = _relayQueryFullText[..count] + (((_animTick / 8) % 2) == 0 ? "_" : "");
+            Raylib.DrawText(TruncateByPixelWidth(typed, 10, textMaxPx), rx + 5, ry + 5, 10, Palette.ClearanceTeal);
+            if (rh >= 28)
+            {
+                Raylib.DrawText("AWAITING FACTION RELAY REPLY...", rx + 5, ry + 18, 10, Palette.CrtAmberDimmed);
+            }
+        }
+        else
+        {
+            string resLine = GetRelayResultDisplayLine();
+            Color resCol = isAlert
+                ? (_relayAlertConfronted ? Palette.ClearanceTeal : Palette.AlertCrimson)
+                : (_relayTargetWasUnregistered
+                    ? Palette.AlertCrimson
+                    : (_relayResultStatus == RelayPingStatus.ActiveClear ? Palette.ClearanceTeal : Palette.CrtAmberDimmed));
+            Raylib.DrawText(TruncateByPixelWidth(resLine, 10, textMaxPx), rx + 5, ry + 5, 10, resCol);
+
+            if (rh >= 28)
+            {
+                string subLine = isAlert
+                    ? (_relayAlertConfronted ? "CONFRONTATION LOGGED -- DETAIN AUTHORIZED" : ">> CLICK THIS ALERT TO CONFRONT CAPTAIN <<")
+                    : (_relayResultStatus == RelayPingStatus.NoResponseInterference && !_relayTargetWasUnregistered
+                        ? "RIM INTERFERENCE -- NOT A VIOLATION ALONE"
+                        : (_relayTargetWasUnregistered ? "NO OFFICIAL PREFIX ON FILE (UNR-)" : "REGISTRY RECORD MATCHES ACTIVE VESSEL"));
+                Color subCol = isAlert
+                    ? (_relayAlertConfronted ? Palette.ClearanceTeal : Palette.CrtAmberPrimary)
+                    : Palette.CrtAmberDimmed;
+                Raylib.DrawText(TruncateByPixelWidth(subLine, 10, textMaxPx), rx + 5, ry + 18, 10, subCol);
+            }
         }
     }
 
@@ -3264,6 +4113,63 @@ public sealed class DeskScreen : IScreen
         if (string.IsNullOrEmpty(value) || value.Length <= maxChars)
             return value;
         return value[..maxChars];
+    }
+
+    private static string TruncateByPixelWidth(string value, int fontSize, int maxPixelWidth)
+    {
+        if (string.IsNullOrEmpty(value) || maxPixelWidth <= 0)
+            return string.Empty;
+
+        if (Raylib.MeasureText(value, fontSize) <= maxPixelWidth)
+            return value;
+
+        int len = value.Length;
+        while (len > 1 && Raylib.MeasureText(value[..len], fontSize) > maxPixelWidth)
+        {
+            len--;
+        }
+        return value[..len];
+    }
+
+    private static List<string> WrapTextByPixelWidth(string text, int fontSize, int maxPixelWidth, int maxLines)
+    {
+        List<string> lines = [];
+        if (string.IsNullOrWhiteSpace(text) || maxLines <= 0)
+            return lines;
+
+        string[] words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        string current = string.Empty;
+
+        for (int i = 0; i < words.Length; i++)
+        {
+            string word = words[i];
+            string candidate = current.Length == 0 ? word : $"{current} {word}";
+
+            if (Raylib.MeasureText(candidate, fontSize) <= maxPixelWidth)
+            {
+                current = candidate;
+            }
+            else if (current.Length == 0)
+            {
+                lines.Add(TruncateByPixelWidth(word, fontSize, maxPixelWidth));
+                if (lines.Count >= maxLines)
+                    return lines;
+            }
+            else
+            {
+                lines.Add(current);
+                if (lines.Count >= maxLines)
+                    return lines;
+                current = word;
+            }
+        }
+
+        if (current.Length > 0 && lines.Count < maxLines)
+        {
+            lines.Add(TruncateByPixelWidth(current, fontSize, maxPixelWidth));
+        }
+
+        return lines;
     }
 
     private static void DrawManualTabButton(

@@ -13,7 +13,28 @@ public enum ShipInfractionType
     StokerMassMismatch = 6,
     BiometricSpeciesMismatch = 7,
     UndeclaredCargoBioSignature = 8,
-    InvalidBrengopTransitPass = 9
+    InvalidBrengopTransitPass = 9,
+    ExpiredRegistration = 10,
+    PrefixOrganizationMismatch = 11,
+    PrefixSpeciesMismatch = 12,
+    PacketTamperingMisspelling = 13,
+    RelayRegistryAlert = 14,
+    UnexplainedCargoPowerDraw = 15
+}
+
+public enum RelayPingStatus
+{
+    ActiveClear = 0,
+    NoResponseInterference = 1,
+    AlertReportedStolen = 2,
+    AlertHullDecommissioned = 3
+}
+
+public enum PacketTamperField
+{
+    None = 0,
+    Organization = 1,
+    Origin = 2
 }
 
 public sealed class ShipInfraction
@@ -58,6 +79,11 @@ public sealed class ShipGroundTruth
     public PortraitSpecies ActualCaptainSpecies { get; set; } = PortraitSpecies.Human;
     public string ActualOriginSystem { get; set; } = "Veridia";
     public bool IsDay2GhostRouteSuspect { get; set; } = false;
+
+    // Day 1 Verification Ground Truth (Subspace Relay Ping & Packet Tampering)
+    public RelayPingStatus RelayStatus { get; set; } = RelayPingStatus.ActiveClear;
+    public PacketTamperField TamperedField { get; set; } = PacketTamperField.None;
+    public string UntamperedExpectedValue { get; set; } = string.Empty;
 
     /// <summary>
     /// Exact list of active infractions on this vessel.
@@ -136,6 +162,12 @@ public sealed class ShipSpec
     public string ConfrontationGuiltyExcuseWeapons { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseUnregistered { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseOrigin { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseExpired { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseOrgMismatch { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseSpeciesMismatch { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcusePacketTamper { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseRelayAlert { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseCargoPower { get; set; } = string.Empty;
     public string ConfrontationInnocentProtest { get; set; } = string.Empty;
 
     public ShipRenderOptions BuildLiveShipRenderOptions(bool spsEnabled, int animTick) =>

@@ -245,7 +245,16 @@ public static class Program
                         ShieldsUp = false,
                         WeaponsHot = true,
                         IsDecommissioned = true
-                    });
+                    }, out ShipHardpointLayout hp);
+
+                    if (hp.ForwardWeapons.X is < 0 or >= Constants.ShipWidth ||
+                        hp.ForwardWeapons.Y is < 0 or >= Constants.ShipHeight ||
+                        hp.CargoBay.X is < 0 or >= Constants.ShipWidth ||
+                        hp.CargoBay.Y is < 0 or >= Constants.ShipHeight)
+                    {
+                        throw new InvalidOperationException(
+                            $"Out-of-bounds ship hardpoint metadata for {faction} {allowedClass}.");
+                    }
 
                     // Verify transparent background outside the hull outline
                     if (sBuf.HasPixel(0, 0) || sBuf.HasPixel(Constants.ShipWidth - 1, 0))
@@ -314,6 +323,7 @@ public static class Program
         int expectedInFirstFive = 0;
         int validCount = 0;
         const int totalSample = 60;
+        (int curYear, int curMonth) = Constants.GetStationCycle(1);
 
         for (int i = 0; i < totalSample; i++)
         {
@@ -324,6 +334,7 @@ public static class Program
                 string.IsNullOrWhiteSpace(spec.Slate.OriginSystem) ||
                 string.IsNullOrWhiteSpace(spec.Slate.DestinationSystem) ||
                 string.IsNullOrWhiteSpace(spec.Slate.CargoManifest) ||
+                !spec.Slate.RegistrationExpiryDisplay.StartsWith("CYC ") ||
                 spec.Slate.DeclaredTonnage <= 0)
             {
                 throw new InvalidOperationException("DataSlateModel missing required inspectable fields.");
@@ -334,11 +345,73 @@ public static class Program
                 throw new InvalidOperationException("Day 1 ship must NEVER generate RefusedShieldsOrWeaponsCompliance (locked to Day 14+ / rep <= -9).");
             }
 
+            if (spec.GroundTruth.IsValid)
+            {
+                if (Constants.CompareCycle(spec.Slate.RegistrationExpiryYear, spec.Slate.RegistrationExpiryMonth, curYear, curMonth) <= 0)
+                    throw new InvalidOperationException("Valid Day 1 ship spawned with expired registration.");
+                if (!ShipGenerator.IsSpeciesValidForPrefix(spec.Slate.DeclaredPrefix, spec.Slate.DeclaredCaptainSpecies))
+                    throw new InvalidOperationException("Valid Day 1 ship spawned with invalid species for restricted prefix.");
+                if (spec.GroundTruth.RelayStatus is RelayPingStatus.AlertReportedStolen or RelayPingStatus.AlertHullDecommissioned)
+                    throw new InvalidOperationException("Valid Day 1 ship spawned with a Relay Alert flag.");
+                if (spec.GroundTruth.TamperedField != PacketTamperField.None || spec.GroundTruth.ActualCargoPowerDraw)
+                    throw new InvalidOperationException("Valid Day 1 ship spawned with tampering or unexplained cargo power.");
+            }
+
             if (i < 5 && spec.GroundTruth.IsExpectedShip)
                 expectedInFirstFive++;
 
             if (spec.GroundTruth.IsValid)
                 validCount++;
+        }
+
+        // 1b. Verify all expanded Day 1 procedural infraction types generate cleanly with ground truth & citation text
+        HashSet<ShipInfractionType> seenDay1Infractions = [];
+        bool seenTamperedOrg = false;
+        bool seenTamperedOrigin = false;
+        bool seenRelayStolen = false;
+        bool seenRelayDecomm = false;
+        ShipGenerator day1InfGen = new();
+        day1InfGen.InitializeDaySchedule(1, 909u);
+        for (int i = 0; i < 160; i++)
+        {
+            ShipSpec inv = day1InfGen.GenerateNextShip(simState, i, 909u, DebugSpawnValidityMode.ForceInvalid);
+            if (inv.GroundTruth.ActiveInfractions.Count == 0 || string.IsNullOrWhiteSpace(inv.GroundTruth.ActiveInfractions[0].CitationReason))
+                throw new InvalidOperationException("ForceInvalid ship missing active infraction or citation reason.");
+
+            ShipInfractionType t = inv.GroundTruth.ActiveInfractions[0].Type;
+            seenDay1Infractions.Add(t);
+            if (t == ShipInfractionType.PacketTamperingMisspelling)
+            {
+                if (inv.GroundTruth.TamperedField == PacketTamperField.Organization) seenTamperedOrg = true;
+                if (inv.GroundTruth.TamperedField == PacketTamperField.Origin) seenTamperedOrigin = true;
+            }
+            if (t == ShipInfractionType.RelayRegistryAlert)
+            {
+                if (inv.GroundTruth.RelayStatus == RelayPingStatus.AlertReportedStolen) seenRelayStolen = true;
+                if (inv.GroundTruth.RelayStatus == RelayPingStatus.AlertHullDecommissioned) seenRelayDecomm = true;
+            }
+        }
+
+        ShipInfractionType[] requiredDay1Infractions =
+        [
+            ShipInfractionType.ExpiredRegistration,
+            ShipInfractionType.PrefixOrganizationMismatch,
+            ShipInfractionType.PrefixSpeciesMismatch,
+            ShipInfractionType.PacketTamperingMisspelling,
+            ShipInfractionType.PrefixHullSilhouetteMismatch,
+            ShipInfractionType.UnregisteredPrefix,
+            ShipInfractionType.SpoofedWeaponsHot,
+            ShipInfractionType.UnexplainedCargoPowerDraw,
+            ShipInfractionType.RelayRegistryAlert
+        ];
+        foreach (ShipInfractionType req in requiredDay1Infractions)
+        {
+            if (!seenDay1Infractions.Contains(req))
+                throw new InvalidOperationException($"Expected Day 1 infraction '{req}' did not appear in 160 invalid samples.");
+        }
+        if (!seenTamperedOrg || !seenTamperedOrigin || !seenRelayStolen || !seenRelayDecomm)
+        {
+            throw new InvalidOperationException("Expected all Day 1 Packet Tampering (Org/Origin) and Relay Alert (Stolen/Decomm) sub-variants to generate.");
         }
 
         if (expectedInFirstFive is < 2 or > 3)
