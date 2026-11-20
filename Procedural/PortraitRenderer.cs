@@ -418,7 +418,7 @@ public static class PortraitRenderer
                 "BMC-" => Palette.BrengopSecondaryGrimyBrassRamp,
                 "KRW-" => Palette.KrushvakPrimaryOliveGreenRamp,
                 "FTV-" or "HBR-" => Palette.FreeTraderPrimarySlateRamp,
-                "FTC-" or "FLT-" => Palette.FarLineAccentNavyRamp,
+                "FTC-" => Palette.FarLineAccentNavyRamp,
                 "MNG-" => Palette.MiningGuildPrimaryCharcoalRamp,
                 "ZNI-" => Palette.ZenithPrimaryBurgundyRamp,
                 _ => guAlternates[traits.UniformArchetype % guAlternates.Length]

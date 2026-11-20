@@ -96,8 +96,8 @@ public static class AssetManager
             Raylib.DrawLine(x + width - 3, y + height - 3 - tick, x + width - 3, y + height - 3, borderColor);
         }
 
-        string displayLabel = string.IsNullOrWhiteSpace(label) ? relativeImagePath : label;
-        if (height >= 14 && width >= 24)
+        string? displayLabel = label ?? relativeImagePath;
+        if (!string.IsNullOrEmpty(displayLabel) && height >= 14 && width >= 24)
         {
             Raylib.DrawText(displayLabel, x + 5, y + 4, 10, borderColor);
         }

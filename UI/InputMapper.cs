@@ -21,13 +21,14 @@ public readonly struct VirtualMouseState
 {
     public int ScreenX { get; init; }
     public int ScreenY { get; init; }
-    public int X { get; init; } // Clamped 0..639
-    public int Y { get; init; } // Clamped 0..359
+    public int X { get; init; } // Clamped 0..(VirtualWidth-1)
+    public int Y { get; init; } // Clamped 0..(VirtualHeight-1)
     public bool IsInsideViewport { get; init; }
     public bool LeftPressed { get; init; }
     public bool LeftDown { get; init; }
     public bool LeftReleased { get; init; }
     public bool RightPressed { get; init; }
+    public float WheelMove { get; init; }
     public int Scale { get; init; }
     public int OffsetX { get; init; }
     public int OffsetY { get; init; }
@@ -111,6 +112,7 @@ public static class InputMapper
             LeftDown = inside && Raylib.IsMouseButtonDown(MouseButton.Left),
             LeftReleased = Raylib.IsMouseButtonReleased(MouseButton.Left),
             RightPressed = inside && Raylib.IsMouseButtonPressed(MouseButton.Right),
+            WheelMove = inside ? Raylib.GetMouseWheelMove() : 0f,
             Scale = viewport.Scale,
             OffsetX = viewport.OffsetX,
             OffsetY = viewport.OffsetY

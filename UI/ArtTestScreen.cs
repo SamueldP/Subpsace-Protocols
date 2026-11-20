@@ -63,7 +63,7 @@ public sealed class ArtTestScreen : IScreen
         "TLV-308-SOLARIS",
         "PRJ-009-HACKJOB",
         "FTV-612-CALDERA",
-        "FLT-205-ENDURANCE",
+        "FTC-205-ENDURANCE",
         "MNG-990-ORUUN4",
         "ZNI-800-SOLVANE"
     ];
@@ -127,7 +127,12 @@ public sealed class ArtTestScreen : IScreen
         }
 
         HandleKeyboardShortcuts();
-        HandleMouseInput(mouse);
+        VirtualMouseState centeredMouse = mouse with
+        {
+            X = mouse.X - 160,
+            Y = mouse.Y - 90
+        };
+        HandleMouseInput(centeredMouse);
 
         EnsureCachedTexturesUpToDate(forceRebuild: false);
     }
@@ -573,20 +578,33 @@ public sealed class ArtTestScreen : IScreen
 
     public void DrawVirtual(VirtualMouseState mouse)
     {
-        Raylib.ClearBackground(Palette.DeepSpaceVoid);
+        Raylib.ClearBackground(Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(158, 88, 644, 364, Palette.OxidizedBronzeWorn);
+
+        VirtualMouseState centeredMouse = mouse with
+        {
+            X = mouse.X - 160,
+            Y = mouse.Y - 90
+        };
+
+        Rlgl.PushMatrix();
+        Rlgl.Translatef(160, 90, 0);
+
+        Raylib.DrawRectangle(0, 0, 640, 360, Palette.DeepSpaceVoid);
 
         // =====================================================================
         // 1. TOP HEADER & LIVE VRAM TEXTURE TELEMETRY
         // =====================================================================
-        Raylib.DrawRectangle(0, 0, Constants.VirtualWidth, 23, Palette.OutlineVoid);
-        Raylib.DrawLine(0, 22, Constants.VirtualWidth, 22, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawRectangle(0, 0, 640, 23, Palette.OutlineVoid);
+        Raylib.DrawLine(0, 22, 640, 22, Palette.WeatheredGunmetalEdge);
         Raylib.DrawText("08_PHYSICAL_LOOK // PROCEDURAL ART GALLERY", 6, 6, 10, Palette.CrtAmberPrimary);
 
         string vramText =
             $"VRAM TEX: {PixelBuffer.TotalActiveVramTextures} (PROC:{PixelBuffer.ActiveProceduralTextureCount} GEN:{PixelBuffer.TotalProceduralTexturesCreated} FREE:{PixelBuffer.TotalProceduralTexturesUnloaded})";
         Raylib.DrawText(vramText, 256, 6, 10, Palette.ClearanceTeal);
 
-        DrawButton(mouse, 550, 3, 84, 17, "MAIN MENU");
+        DrawButton(centeredMouse, 550, 3, 84, 17, "MAIN MENU");
+        mouse = centeredMouse;
 
         // =====================================================================
         // 2. SEED & ANIMATION BAR (y = 26..44)
@@ -745,6 +763,7 @@ public sealed class ArtTestScreen : IScreen
         Raylib.DrawText("<-- BOW (LEFT: x=8..35)      STERN/PYLONS (RIGHT: x=75..114) -->", 290, 166, 10, Palette.CrtAmberDimmed);
         if (_cachedShipTex.Id != 0)
         {
+            Raylib.DrawRectangle(290, 180, Constants.ShipWidth * 2, Constants.ShipHeight * 2, Palette.DeepSpaceVoid);
             Rectangle src = new(0, 0, Constants.ShipWidth, Constants.ShipHeight);
             Rectangle dst2x = new(290, 180, Constants.ShipWidth * 2, Constants.ShipHeight * 2);
             Raylib.DrawTexturePro(_cachedShipTex, src, dst2x, Vector2.Zero, 0f, Color.White);
@@ -780,11 +799,13 @@ public sealed class ArtTestScreen : IScreen
         // =====================================================================
         // 5. FOOTER STATUS BAR (y = 338..360)
         // =====================================================================
-        Raylib.DrawRectangle(0, 338, Constants.VirtualWidth, 22, Palette.OutlineVoid);
-        Raylib.DrawLine(0, 338, Constants.VirtualWidth, 338, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawRectangle(0, 338, 640, 22, Palette.OutlineVoid);
+        Raylib.DrawLine(0, 338, 640, 338, Palette.WeatheredGunmetalEdge);
         Raylib.DrawText(
             "HOTKEYS: [S]PECIES [M]ODE [V] 4-SEED [F]ACTION [C]LASS [R]ANDOM [1]SHIELD [2]WPN [3]DECOMM [4]MOLT [5]SPS",
             8, 344, 10, Palette.CrtAmberDimmed);
+
+        Rlgl.PopMatrix();
     }
 
     private void DrawClassMatrixPill(

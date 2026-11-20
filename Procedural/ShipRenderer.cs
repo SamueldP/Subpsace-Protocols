@@ -13,7 +13,7 @@ public enum ShipFaction
     Tolvak = 5,             // TLV-
     Prunjun = 6,            // PRJ- (Rigid Hack-Job Assembly)
     FreeTraders = 7,        // FTV- (and HBR- Hun-Borian Free Vessels)
-    FarLineTransit = 8,     // FLT- / FTC-
+    FarLineTransit = 8,     // FTC- (Far-Line Transit Corp)
     MiningGuild = 9,        // MNG-
     ZenithInterstellar = 10 // ZNI-
 }
@@ -176,7 +176,7 @@ public static class ShipRenderer
             ShipFaction.Tolvak => "TLV-",
             ShipFaction.Prunjun => "PRJ-",
             ShipFaction.FreeTraders => "FTV-",
-            ShipFaction.FarLineTransit => "FLT-",
+            ShipFaction.FarLineTransit => "FTC-",
             ShipFaction.MiningGuild => "MNG-",
             ShipFaction.ZenithInterstellar => "ZNI-",
             _ => "FTV-"
@@ -193,7 +193,7 @@ public static class ShipRenderer
             ShipFaction.Tolvak => "TLV- Tolvak Transit",
             ShipFaction.Prunjun => "PRJ- Prunjun Hack-Job",
             ShipFaction.FreeTraders => "FTV- Free Traders (HBR-)",
-            ShipFaction.FarLineTransit => "FLT-/FTC- Far-Line Corp",
+            ShipFaction.FarLineTransit => "FTC- Far-Line Transit Corp",
             ShipFaction.MiningGuild => "MNG- Mining Guild",
             ShipFaction.ZenithInterstellar => "ZNI- Zenith Interstellar",
             _ => "Unknown"
@@ -213,7 +213,7 @@ public static class ShipRenderer
         if (s.StartsWith("TLV-")) return ShipFaction.Tolvak;
         if (s.StartsWith("PRJ-")) return ShipFaction.Prunjun;
         if (s.StartsWith("FTV-") || s.StartsWith("HBR-")) return ShipFaction.FreeTraders;
-        if (s.StartsWith("FLT-") || s.StartsWith("FTC-")) return ShipFaction.FarLineTransit;
+        if (s.StartsWith("FTC-")) return ShipFaction.FarLineTransit;
         if (s.StartsWith("MNG-")) return ShipFaction.MiningGuild;
         if (s.StartsWith("ZNI-")) return ShipFaction.ZenithInterstellar;
         return ShipFaction.GalacticUnion;
@@ -285,8 +285,9 @@ public static class ShipRenderer
         }
 
         // 3. Mode Branch: Live Viewport or SPS Subspace Power-Grid Scanner Layer
+        // Leave background strictly transparent (alpha = 0 outside the 1px hull outline & shield envelope)
+        // so the Desk viewport's deep space and arcing Brown Dwarf sky render cleanly behind every vessel.
         PixelBuffer viewportBuf = new(Constants.ShipWidth, Constants.ShipHeight);
-        RenderViewportBackdrop(viewportBuf, options.SpsEnabled, rng);
 
         int animBucket = options.EffectiveAnimBucket;
         bool enginePulseBright = (animBucket % 2) == 0;
@@ -1694,7 +1695,7 @@ public static class ShipRenderer
     }
 
     // =========================================================================
-    // 9. FAR-LINE TRANSIT CORP (FLT- / FTC-) — Cargo & Civilian ONLY:
+    // 9. FAR-LINE TRANSIT CORP (FTC-) — Cargo & Civilian ONLY:
     //    - CIV: Compact ~72px Passenger Commuter Sleeper Tube (x = 20..92) with lit cabin windows
     //    - CRG: Stretched ~108px Deep-Space Colony Ark (x = 6..114) with 8 huge spherical fuel/cryo pods
     // =========================================================================

@@ -2,15 +2,15 @@ namespace SubspaceProtocols.Core;
 
 public static class Constants
 {
-    // Virtual Framebuffer & Window Dimensions
-    public const int VirtualWidth = 640;
-    public const int VirtualHeight = 360;
-    public const int DefaultWindowWidth = 1280;
-    public const int DefaultWindowHeight = 720;
+    // Virtual Framebuffer & Window Dimensions (Exact 16:9 -> 2x Integer Scale = 1920x1080)
+    public const int VirtualWidth = 960;
+    public const int VirtualHeight = 540;
+    public const int DefaultWindowWidth = 1920;
+    public const int DefaultWindowHeight = 1080;
 
     // Static Aspect-Ratio Sub-Views
-    public const int CorridorWidth = 640;
-    public const int CorridorHeight = 274; // 21:9 Walk-to-Work Corridor Strip
+    public const int CorridorWidth = 960;
+    public const int CorridorHeight = 411; // 21:9 Walk-to-Work Corridor Strip
 
     // Procedural Buffer Grids
     public const int PortraitWidth = 64;

@@ -3,11 +3,16 @@ using SubspaceProtocols.Core;
 
 namespace SubspaceProtocols.UI;
 
+/// <summary>
+/// 960x540 Main Menu featuring 3 persistent Save Slots (%APPDATA%/SubspaceProtocols/save_slot_1..3.json)
+/// with START NEW (always Day 1), LOAD, and DELETE controls, plus direct gallery/quarters routing.
+/// </summary>
 public sealed class MainMenuScreen : IScreen
 {
     private readonly ScreenManager _screenManager;
     private readonly GameState _gameState;
     private readonly Core.ConfigFlags _config;
+    private SaveSlotSummary[] _slotSummaries = [];
 
     public MainMenuScreen(ScreenManager screenManager, GameState gameState, Core.ConfigFlags config)
     {
@@ -16,36 +21,72 @@ public sealed class MainMenuScreen : IScreen
         _config = config;
     }
 
-    public void OnEnter() { }
+    public void OnEnter()
+    {
+        RefreshSlots();
+    }
 
     public void OnExit() { }
+
+    private void RefreshSlots()
+    {
+        _slotSummaries = GameState.GetAllSlotSummaries();
+    }
 
     public void Update(float deltaTime, VirtualMouseState mouse)
     {
         if (!mouse.LeftPressed)
             return;
 
-        if (mouse.IsHit(200, 150, 240, 24))
+        // 3 Save Slot Rows (x=180..780, y=196, 250, 304, height=44)
+        for (int i = 0; i < _slotSummaries.Length; i++)
         {
-            AudioHooks.Play("terminal_key_confirm");
-            _screenManager.RouteViaCorridor(ScreenId.Desk);
+            SaveSlotSummary slot = _slotSummaries[i];
+            int rowY = 196 + i * 54;
+
+            if (!slot.Exists)
+            {
+                // [START NEW (DAY 01)] button (x=548, y=rowY+9, w=216, h=26)
+                if (mouse.IsHit(548, rowY + 9, 216, 26))
+                {
+                    AudioHooks.Play("terminal_key_confirm");
+                    _gameState.ResetForNewSave(slot.SlotNumber);
+                    RefreshSlots();
+                    _screenManager.RouteViaCorridor(ScreenId.Desk);
+                    return;
+                }
+            }
+            else
+            {
+                // [LOAD] button (x=548, y=rowY+9, w=116, h=26)
+                if (mouse.IsHit(548, rowY + 9, 116, 26))
+                {
+                    AudioHooks.Play("terminal_key_confirm");
+                    if (_gameState.LoadSlotIntoCurrent(slot.SlotNumber))
+                    {
+                        _screenManager.RouteViaCorridor(ScreenId.Desk);
+                    }
+                    return;
+                }
+
+                // [DELETE] button (x=672, y=rowY+9, w=92, h=26)
+                if (mouse.IsHit(672, rowY + 9, 92, 26))
+                {
+                    AudioHooks.Play("citation_buzz");
+                    GameState.DeleteSlot(slot.SlotNumber);
+                    RefreshSlots();
+                    return;
+                }
+            }
         }
-        else if (mouse.IsHit(200, 182, 240, 24))
-        {
-            AudioHooks.Play("terminal_key_confirm");
-            _screenManager.SwitchTo(ScreenId.Desk);
-        }
-        else if (mouse.IsHit(200, 214, 240, 24))
+
+        // Bottom Utility Buttons (y=382, 422)
+        if (mouse.IsHit(180, 384, 290, 28))
         {
             AudioHooks.Play("terminal_key_confirm");
             _screenManager.SwitchTo(ScreenId.Quarters);
         }
-        else if (mouse.IsHit(200, 246, 240, 24))
-        {
-            AudioHooks.Play("terminal_key_confirm");
-            _screenManager.RouteViaCorridor(ScreenId.Quarters);
-        }
-        else if (mouse.IsHit(200, 278, 240, 24))
+        else if (mouse.IsHit(490, 384, 290, 28))
         {
             AudioHooks.Play("terminal_key_confirm");
             _screenManager.SwitchTo(ScreenId.ArtTest);
@@ -54,52 +95,76 @@ public sealed class MainMenuScreen : IScreen
 
     public void DrawVirtual(VirtualMouseState mouse)
     {
-        // 16:9 Widescreen Landscape (640 x 360) Main Menu Banner
         AssetManager.DrawImageOrPlaceholder(
             "ui/main_menu_banner.png",
             0, 0, Constants.VirtualWidth, Constants.VirtualHeight,
             Palette.DeepSpaceVoid,
             Palette.WeatheredGunmetalEdge,
-            "STATIC ASSET: ui/main_menu_banner.png (640x360 16:9)");
+            string.Empty);
 
         // Dim Brown Dwarf horizon wash across top backdrop
-        Raylib.DrawRectangle(1, 20, Constants.VirtualWidth - 2, 76, Palette.BrownDwarfGlowDeep);
-        Raylib.DrawLine(1, 96, Constants.VirtualWidth - 2, 96, Palette.BrownDwarfGlowRim);
+        Raylib.DrawRectangle(1, 24, Constants.VirtualWidth - 2, 118, Palette.BrownDwarfGlowDeep);
+        Raylib.DrawLine(1, 142, Constants.VirtualWidth - 2, 142, Palette.BrownDwarfGlowRim);
 
-        // Title header panel (Legacy FTC Software Terminal Framing)
-        Raylib.DrawRectangle(140, 36, 360, 88, Palette.WeatheredGunmetalMid);
-        Raylib.DrawRectangleLines(140, 36, 360, 88, Palette.OxidizedBronzeWorn);
-        Raylib.DrawRectangleLines(143, 39, 354, 82, Palette.OutlineVoid);
+        // Centered Title Header Panel (960x540)
+        Raylib.DrawRectangle(220, 40, 520, 108, Palette.WeatheredGunmetalMid);
+        Raylib.DrawRectangleLines(220, 40, 520, 108, Palette.OxidizedBronzeWorn);
+        Raylib.DrawRectangleLines(224, 44, 512, 100, Palette.OutlineVoid);
 
-        Raylib.DrawText("SUBSPACE PROTOCOLS", 184, 52, 20, Palette.CrtAmberPrimary);
-        Raylib.DrawText("VOID GATE 3 (VG-3) // BOOTH 04 TERMINAL", 184, 78, 10, Palette.CrtAmberDimmed);
-        Raylib.DrawText("LEGACY FTC CONSORTIUM OS v4.08 — BULWARK PACT OVERRIDE", 162, 96, 10, Palette.ClearanceTeal);
+        Raylib.DrawText("SUBSPACE PROTOCOLS", 342, 58, 20, Palette.CrtAmberPrimary);
+        Raylib.DrawText("VOID GATE 3 (VG-3) // BOOTH 04 CUSTOMS & DOCKING TERMINAL", 282, 90, 10, Palette.CrtAmberDimmed);
+        Raylib.DrawText("LEGACY FTC CONSORTIUM OS v4.08 -- BULWARK PACT OVERRIDE", 286, 112, 10, Palette.ClearanceTeal);
 
-        // Navigation Buttons
-        DrawMenuButton(mouse, 200, 150, 240, 24, "1. WALK TO WORK -> BOOTH 04");
-        DrawMenuButton(mouse, 200, 182, 240, 24, "2. DIRECT TO BOOTH 04 (DESK)");
-        DrawMenuButton(mouse, 200, 214, 240, 24, "3. OFFICER QUARTERS (BERTH)");
-        DrawMenuButton(mouse, 200, 246, 240, 24, "4. CORRIDOR LOADING STRIP");
-        DrawMenuButton(mouse, 200, 278, 240, 24, "5. PROCEDURAL ART & PALETTE");
+        // Save Slot Panel Header
+        Raylib.DrawText("PORT OFFICER ASSIGNMENT PROFILES (3 SAVE SLOTS -- NEW SAVE STARTS ON DAY 01)", 180, 174, 10, Palette.CrtAmberPrimary);
 
-        // Footer bar
-        Raylib.DrawRectangle(0, 336, Constants.VirtualWidth, 24, Palette.OutlineVoid);
-        Raylib.DrawLine(0, 336, Constants.VirtualWidth, 336, Palette.WeatheredGunmetalEdge);
+        for (int i = 0; i < _slotSummaries.Length; i++)
+        {
+            SaveSlotSummary slot = _slotSummaries[i];
+            int rowY = 196 + i * 54;
+
+            Raylib.DrawRectangle(180, rowY, 600, 44, Palette.OutlineVoid);
+            Raylib.DrawRectangleLines(180, rowY, 600, 44, slot.Exists ? Palette.CrtAmberDimmed : Palette.WeatheredGunmetalEdge);
+
+            string slotHeader = $"SAVE SLOT {slot.SlotNumber:D2}";
+            Raylib.DrawText(slotHeader, 196, rowY + 8, 10, Palette.CrtAmberPrimary);
+
+            if (!slot.Exists)
+            {
+                Raylib.DrawText("STATUS: [ EMPTY ]", 196, rowY + 24, 10, Palette.WeatheredGunmetalEdge);
+                DrawMenuButton(mouse, 548, rowY + 9, 216, 26, "START NEW SAVE (DAY 01)", Palette.ClearanceTeal);
+            }
+            else
+            {
+                string summary = $"DAY {slot.Day:D2}  |  {slot.PactScrip} SC  |  STRIKES: {slot.SecurityStrikes}";
+                Raylib.DrawText(summary, 196, rowY + 24, 10, Palette.ClearanceTeal);
+
+                DrawMenuButton(mouse, 548, rowY + 9, 116, 26, "LOAD SAVE", Palette.CrtAmberPrimary);
+                DrawMenuButton(mouse, 672, rowY + 9, 92, 26, "DELETE", Palette.AlertCrimson);
+            }
+        }
+
+        // Secondary Dev/Preview Tools
+        DrawMenuButton(mouse, 180, 384, 290, 28, "OFFICER QUARTERS (BERTH PREVIEW)", Palette.CrtAmberDimmed);
+        DrawMenuButton(mouse, 490, 384, 290, 28, "PROCEDURAL ART & PALETTE GALLERY", Palette.CrtAmberDimmed);
+
+        // Footer bar (pure ASCII)
+        Raylib.DrawRectangle(0, Constants.VirtualHeight - 26, Constants.VirtualWidth, 26, Palette.OutlineVoid);
+        Raylib.DrawLine(0, Constants.VirtualHeight - 26, Constants.VirtualWidth, Constants.VirtualHeight - 26, Palette.WeatheredGunmetalEdge);
         Raylib.DrawText(
-            $"DAY {_gameState.Day:D2} | SCRIP: {_gameState.PactScrip} SC | STRIKES: {_gameState.SecurityStrikes} | F1-F5: ROUTE | F11/ALT+ENTER: FULLSCREEN",
-            12, 344, 10, Palette.CrtAmberDimmed);
+            $"ACTIVE SLOT: {_gameState.ActiveSaveSlot:D2}  |  DAY {_gameState.Day:D2}  |  960x540 NATIVE  |  F1 / `: DEV DEBUG & DAY JUMP  |  F11 / ALT+ENTER: FULLSCREEN",
+            16, Constants.VirtualHeight - 17, 10, Palette.CrtAmberDimmed);
     }
 
-    private static void DrawMenuButton(VirtualMouseState mouse, int x, int y, int w, int h, string text)
+    private static void DrawMenuButton(VirtualMouseState mouse, int x, int y, int w, int h, string text, Color fg)
     {
         bool hovered = mouse.IsHit(x, y, w, h);
         Color bg = hovered ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid;
         Color border = hovered ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge;
-        Color textCol = hovered ? Palette.CrtAmberPrimary : Palette.ClearanceTeal;
 
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        Raylib.DrawText(text, x + 12, y + 7, 10, textCol);
+        Raylib.DrawText(text, x + 12, y + (h - 10) / 2, 10, hovered ? Palette.CrtAmberPrimary : fg);
     }
 
     public void Unload() { }
