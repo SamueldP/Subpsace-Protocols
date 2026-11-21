@@ -6,31 +6,16 @@ A sci-fi bureaucratic customs inspection and management game set aboard **Void G
 
 ---
 
-## Prerequisites
+## How to Play (Recommended)
 
-- **OS:** Windows 10 / 11 (64-bit)
-- **SDK:** [.NET 8.0 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) (required to run the build script)
+No coding tools or .NET installation required—everything needed to run the game is bundled in the release download.
 
----
+1. Go to the **[Releases](https://github.com/SamueldP/Subpsace-Protocols/releases)** page on the right-hand side of this repository.
+2. Download the latest `SubspaceProtocols-vX.X.zip` file under **Assets**.
+3. Extract the `.zip` folder anywhere on your PC (Windows 10 / 11, 64-bit).
+4. Open the extracted folder and run **`SubspaceProtocols.exe`**.
 
-## Installation & Build Steps
-
-1. **Download or clone** this repository to your machine (if downloading as a ZIP from GitHub, extract the `Subspace-Protocols-main` folder).
-2. **Run the build script:**
-   - Open PowerShell inside the root `Subspace-Protocols-main` folder and run:
-     ```powershell
-     .\build_exe.ps1
-     ```
-   - *(If Windows blocks the script due to execution policies, run it with:)*
-     ```powershell
-     powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
-     ```
-3. **Navigate to the compiled release folder:**
-   ```text
-   Subspace-Protocols-main\release\SubspaceProtocols_win-x64
-   ```
-4. **Launch the game:**
-   - Run `SubspaceProtocols.exe`.
+*(Note: Because this is an unsigned indie prototype, Windows SmartScreen may show a "Windows protected your PC" pop-up on first launch. Click **More info** -> **Run anyway**.)*
 
 ---
 
@@ -43,7 +28,32 @@ A sci-fi bureaucratic customs inspection and management game set aboard **Void G
 
 ---
 
+## Building from Source (Optional)
+
+Only needed if you want to modify or compile the C# source code yourself.
+
+### Prerequisites
+- **OS:** Windows 10 / 11 (64-bit)
+- **SDK:** [.NET 8.0 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+
+### Build Steps
+1. Clone or download this repository and open PowerShell inside the root project folder.
+2. Run the build script:
+   ```powershell
+   .\build_exe.ps1
+   ```
+   *(If Windows blocks the script due to execution policies, run:)*
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
+   ```
+3. Launch the compiled executable at:
+   ```text
+   release\SubspaceProtocols_win-x64\SubspaceProtocols.exe
+   ```
+
+---
+
 ## Notes
 
 - Save files are automatically stored in `%APPDATA%\SubspaceProtocols\`.
-- If the application encounters an unexpected error, check `crash.log` inside the release folder alongside `SubspaceProtocols.exe`.
+- If the application encounters an unexpected error, check `crash.log` in the same folder as `SubspaceProtocols.exe`.
