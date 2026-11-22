@@ -45,6 +45,7 @@ public sealed record PortraitRenderOptions
     public int AnimTick { get; init; } = 0;
     public bool IsScriptedOverride { get; init; } = false;
     public string? ScriptedAssetName { get; init; } = null;
+    public bool IsKordaniSecurityOfficer { get; init; } = false;
 
     /// <summary>
     /// Quantizes animation tick so static snow updates at discrete intervals (~10 Hz)
@@ -198,6 +199,11 @@ public static class PortraitRenderer
     /// </summary>
     public static PixelBuffer RenderBuffer(PortraitRenderOptions options)
     {
+        if (options.IsKordaniSecurityOfficer)
+        {
+            return RenderKordaniSecurityOfficerBuffer();
+        }
+
         if (options.Mode == PortraitRenderMode.Static)
         {
             return RenderStaticMode(options);
@@ -2198,5 +2204,179 @@ public static class PortraitRenderer
         buf.DrawBitmapText(21, 32, "SIGNAL", Palette.HexCrtAmberPrimary);
 
         return buf;
+    }
+
+    /// <summary>
+    /// Dedicated hardcoded (zero RNG variation) 64x64 Kordani Security Officer portrait
+    /// wearing an authoritarian peaked cap topped with a golden winged bird insignia.
+    /// Used for the Day 3 Pre-Shift Kordani Live Viewscreen Hail.
+    /// </summary>
+    public static PixelBuffer RenderKordaniSecurityOfficerBuffer()
+    {
+        PixelBuffer charBuf = new(Constants.PortraitWidth, Constants.PortraitHeight);
+
+        string[] skinRamp = Palette.KordaniSkinRamps[0];          // Cold steel-blue Kordani scales
+        string[] coatRamp = Palette.KordaniSecondaryDarkSlateRamp; // Authoritarian dark slate tunic/cap
+        string[] trimRamp = Palette.KordaniPrimaryBlueGreenRamp;   // KDF blue-green piping
+        string[] goldRamp = Palette.ZenithTrimPolishedGoldRamp;    // Gold cap band, epaulettes & bird insignia
+
+        static string Sample(int x, int y, string[] ramp, float t) => Dither.SampleRamp(x, y, ramp, t);
+
+        // 1. High-Collared KDF Military Tunic & Armored Shoulders (y = 43..63)
+        ReadOnlySpan<(int X, int Y)> shoulders =
+        [
+            (7, 63), (11, 47), (21, 43), (43, 43), (53, 47), (57, 63)
+        ];
+        charBuf.FillPoly(shoulders, (px, py) =>
+        {
+            float t = Math.Clamp(0.82f - (py - 43) / 24.0f - MathF.Abs(px - 32) / 36.0f, 0.08f, 0.92f);
+            return Sample(px, py, coatRamp, t);
+        });
+
+        // High stiff authoritarian collar + diagonal KDF breast sash
+        charBuf.FillRect(20, 41, 24, 6, (px, py) => Sample(px, py, trimRamp, 0.85f - MathF.Abs(px - 32) / 18.0f));
+        charBuf.DrawLine(20, 41, 44, 41, goldRamp[2]);
+        charBuf.DrawLine(22, 47, 36, 63, trimRamp[2]);
+        charBuf.DrawLine(23, 47, 37, 63, goldRamp[1]);
+
+        // Gold officer shoulder epaulettes
+        charBuf.FillRect(11, 46, 8, 3, goldRamp[2]);
+        charBuf.DrawLine(11, 46, 18, 46, goldRamp[3]);
+        charBuf.FillRect(45, 46, 8, 3, goldRamp[1]);
+        charBuf.DrawLine(45, 46, 52, 46, goldRamp[2]);
+
+        // Crimson & gold security commander collar rank pips
+        charBuf.Set(22, 44, Palette.HexAlertCrimson);
+        charBuf.Set(24, 44, goldRamp[3]);
+        charBuf.Set(26, 44, goldRamp[3]);
+        charBuf.Set(38, 44, goldRamp[3]);
+        charBuf.Set(40, 44, goldRamp[3]);
+        charBuf.Set(42, 44, Palette.HexAlertCrimson);
+
+        // Scaled Kordani neck
+        ReadOnlySpan<(int X, int Y)> neck = [(26, 37), (38, 37), (39, 44), (25, 44)];
+        charBuf.FillPoly(neck, (px, py) => Sample(px, py, skinRamp, 0.58f - MathF.Abs(px - 32) / 12.0f));
+
+        // 2. Angular Reptilian Kordani Skull (x = 19..45, y = 18..44)
+        ReadOnlySpan<(int X, int Y)> skull =
+        [
+            (20, 19), (44, 19), (45, 27), (41, 36), (37, 42), (32, 44), (27, 42), (23, 36), (19, 27)
+        ];
+        charBuf.FillPoly(skull, (px, py) =>
+        {
+            float dx = (px - 32) / 14.0f;
+            float dy = (py - 29) / 15.0f;
+            float dist = MathF.Sqrt(dx * dx + dy * dy);
+            float t = Math.Clamp(0.90f - dist * 0.52f - dx * 0.16f - dy * 0.18f, 0.08f, 0.96f);
+            return Sample(px, py, skinRamp, t);
+        });
+
+        // Cheek scale-ridge chevrons
+        for (int i = 0; i < 3; i++)
+        {
+            int sy = 29 + i * 3;
+            charBuf.DrawLine(21, sy, 25, sy + 2, skinRamp[0]);
+            charBuf.DrawLine(21, sy + 1, 25, sy + 3, skinRamp[3]);
+            charBuf.DrawLine(43, sy, 39, sy + 2, skinRamp[0]);
+            charBuf.DrawLine(43, sy + 1, 39, sy + 3, skinRamp[3]);
+        }
+
+        // Sharp authoritarian furrowed V-brow + amber slit reptilian eyes
+        charBuf.DrawLine(23, 24, 29, 26, skinRamp[0]);
+        charBuf.DrawLine(41, 24, 35, 26, skinRamp[0]);
+
+        charBuf.FillRect(24, 26, 5, 2, "#f59e0b");
+        charBuf.Set(26, 26, Palette.HexOutlineVoid);
+        charBuf.Set(26, 27, Palette.HexOutlineVoid);
+        charBuf.Set(24, 26, "#fde047");
+
+        charBuf.FillRect(35, 26, 5, 2, "#f59e0b");
+        charBuf.Set(37, 26, Palette.HexOutlineVoid);
+        charBuf.Set(37, 27, Palette.HexOutlineVoid);
+        charBuf.Set(35, 26, "#fde047");
+
+        // Sculpted nose bridge & compressed stern frown
+        charBuf.DrawLine(31, 27, 31, 33, skinRamp[0]);
+        charBuf.DrawLine(32, 27, 32, 33, skinRamp[3]);
+        charBuf.Set(30, 33, Palette.HexOutlineVoid);
+        charBuf.Set(34, 33, Palette.HexOutlineVoid);
+
+        charBuf.DrawLine(27, 37, 37, 37, Palette.HexOutlineVoid);
+        charBuf.Set(26, 38, Palette.HexOutlineVoid);
+        charBuf.Set(38, 38, Palette.HexOutlineVoid);
+        charBuf.DrawLine(29, 39, 35, 39, skinRamp[0]);
+
+        // 3. Authoritarian Peaked Officer's Cap (y = 3..21)
+        // High flared dark-slate crown
+        ReadOnlySpan<(int X, int Y)> capCrown =
+        [
+            (13, 14), (17, 6), (25, 4), (32, 3), (39, 4), (47, 6), (51, 14), (46, 17), (18, 17)
+        ];
+        charBuf.FillPoly(capCrown, (px, py) =>
+        {
+            float t = Math.Clamp(0.84f - (py - 3) / 16.0f - MathF.Abs(px - 32) / 28.0f, 0.10f, 0.92f);
+            return Sample(px, py, coatRamp, t);
+        });
+
+        // Crisp top crown piping in KDF teal-green
+        charBuf.DrawLine(17, 6, 25, 4, trimRamp[3]);
+        charBuf.DrawLine(25, 4, 32, 3, trimRamp[3]);
+        charBuf.DrawLine(32, 3, 39, 4, trimRamp[2]);
+        charBuf.DrawLine(39, 4, 47, 6, trimRamp[2]);
+
+        // Oxidized gold/amber officer cap band (y = 15..16)
+        charBuf.FillRect(18, 15, 28, 2, (px, py) =>
+            py == 15 ? goldRamp[2] : goldRamp[0]);
+        charBuf.DrawLine(18, 14, 46, 14, Palette.HexOutlineVoid);
+
+        // Glossy dark peaked visor brim (y = 17..21) casting shadow over brow
+        ReadOnlySpan<(int X, int Y)> visorBrim =
+        [
+            (16, 17), (48, 17), (45, 21), (32, 22), (19, 21)
+        ];
+        charBuf.FillPoly(visorBrim, (px, py) =>
+            py == 18 && px >= 22 && px <= 40 ? coatRamp[2] : (py <= 19 ? coatRamp[0] : Palette.HexOutlineVoid));
+        charBuf.DrawLine(21, 19, 36, 19, coatRamp[3]); // Crisp glossy visor catch-light
+
+        // 4. Crisp Golden Winged Bird Insignia centered on top front of Peaked Cap (x = 23..41, y = 5..14)
+        // Dark backing crest for contrast
+        charBuf.FillRect(29, 7, 7, 7, Palette.HexOutlineVoid);
+        // Bird head & beak facing left
+        charBuf.FillRect(31, 6, 3, 2, goldRamp[3]);
+        charBuf.Set(30, 6, goldRamp[2]); // Beak
+        // Central body & breast shield
+        charBuf.FillRect(31, 8, 3, 4, goldRamp[2]);
+        charBuf.Set(32, 9, goldRamp[3]);
+        // Tail chevron
+        charBuf.DrawLine(30, 13, 34, 13, goldRamp[1]);
+        charBuf.DrawLine(31, 12, 33, 12, goldRamp[2]);
+        // Symmetrical swept authoritarian wings (left: x = 23..30, right: x = 34..41)
+        // Top wing bar (bright gold highlight)
+        charBuf.DrawLine(23, 7, 30, 8, goldRamp[3]);
+        charBuf.DrawLine(34, 8, 41, 7, goldRamp[3]);
+        // Mid wing feathers (gold base)
+        charBuf.DrawLine(24, 8, 30, 9, goldRamp[2]);
+        charBuf.DrawLine(34, 9, 40, 8, goldRamp[2]);
+        charBuf.DrawLine(25, 9, 30, 10, goldRamp[2]);
+        charBuf.DrawLine(34, 10, 39, 9, goldRamp[2]);
+        // Lower notched wing tips (gold shadow)
+        charBuf.DrawLine(26, 10, 29, 11, goldRamp[1]);
+        charBuf.DrawLine(35, 11, 38, 10, goldRamp[1]);
+        charBuf.Set(27, 11, goldRamp[0]);
+        charBuf.Set(37, 11, goldRamp[0]);
+
+        // 5. Final 1px dark silhouette outline
+        charBuf.ApplyOutline(Palette.HexOutlineVoid);
+
+        // 6. Compose over Kordani Security Command Bridge backdrop with live CRT scanlines
+        PixelBuffer finalBuf = new(Constants.PortraitWidth, Constants.PortraitHeight);
+        RenderBridgeBackdrop(finalBuf, PortraitSpecies.Kordani, "KDF-", isCrayon: false, new DeterministicRng("kdf-sec-bridge-fixed"));
+        // Red security status pips on command bulkhead
+        finalBuf.Set(5, 12, Palette.HexAlertCrimson);
+        finalBuf.Set(58, 12, Palette.HexAlertCrimson);
+        finalBuf.BlitFrom(charBuf);
+        ApplyLiveCrtScanlines(finalBuf);
+
+        return finalBuf;
     }
 }

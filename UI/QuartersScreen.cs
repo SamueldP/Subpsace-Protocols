@@ -4,9 +4,10 @@ using SubspaceProtocols.Core;
 namespace SubspaceProtocols.UI;
 
 /// <summary>
-/// Officer Berth / Quarters fixed room view (960x540, zero movable player sprite)
-/// with Side Door Viewport, Personal Terminal, Food Replicator, Bed, and a clean
+/// Officer Berth / Quarters fixed room view preview (1280x720, zero movable player sprite)
+/// with Side Door Viewport, Personal Terminal placeholder, Food Replicator, Bed, and a clean
 /// "START NEXT SHIFT" control that advances GameState.Day and resets daily warnings.
+/// (Prompt 4 Quarters Economy intentionally deferred.)
 /// </summary>
 public sealed class QuartersScreen : IScreen
 {
@@ -46,13 +47,13 @@ public sealed class QuartersScreen : IScreen
             return;
 
         // Top header navigation
-        if (mouse.IsHit(712, 4, 86, 16))
+        if (mouse.IsHit(980, 6, 104, 20))
         {
             AudioHooks.Play("terminal_key_confirm");
             _screenManager.SwitchTo(ScreenId.MainMenu);
             return;
         }
-        if (mouse.IsHit(804, 4, 146, 16))
+        if (mouse.IsHit(1092, 6, 180, 20))
         {
             StartNextDayShift();
             return;
@@ -60,7 +61,7 @@ public sealed class QuartersScreen : IScreen
 
         if (_terminalOpen)
         {
-            if (mouse.IsHit(772, 64, 72, 20))
+            if (mouse.IsHit(1012, 92, 84, 24))
             {
                 _terminalOpen = false;
                 AudioHooks.Play("terminal_power_off");
@@ -69,8 +70,8 @@ public sealed class QuartersScreen : IScreen
 
             for (int i = 0; i < TerminalTabs.Length; i++)
             {
-                int tabX = 122 + i * 142;
-                if (mouse.IsHit(tabX, 94, 136, 22))
+                int tabX = 184 + i * 184;
+                if (mouse.IsHit(tabX, 128, 176, 26))
                 {
                     _activeTerminalTab = i;
                     AudioHooks.Play("terminal_key_tab");
@@ -80,23 +81,22 @@ public sealed class QuartersScreen : IScreen
             return;
         }
 
-        // Fixed room interactive hotspots
+        // Fixed room interactive hotspots (1280x720)
         // 1. Side Door (Left)
-        if (mouse.IsHit(28, 72, 164, 380))
+        if (mouse.IsHit(40, 96, 220, 480))
         {
             _doorViewportOpen = !_doorViewportOpen;
             AudioHooks.Play("door_viewport_shutter");
         }
         // 2. Personal Terminal (Center-Left)
-        else if (mouse.IsHit(222, 146, 228, 176))
+        else if (mouse.IsHit(300, 196, 300, 224))
         {
             _terminalOpen = true;
             AudioHooks.Play("terminal_power_on");
         }
         // 3. Food Replicator (Center-Right)
-        else if (mouse.IsHit(480, 146, 188, 176))
+        else if (mouse.IsHit(640, 196, 260, 224))
         {
-            // Cycle placeholder ration tier for playtesting food -> SPS sway loop
             _gameState.CurrentHungerTier = _gameState.CurrentHungerTier switch
             {
                 HungerTier.LowNoFood => HungerTier.MediumNutrientPaste,
@@ -108,12 +108,12 @@ public sealed class QuartersScreen : IScreen
             AudioHooks.Play("food_replicator_chime");
         }
         // 4. Bed (Right -- Sleep & Start Next Day Shift)
-        else if (mouse.IsHit(698, 220, 234, 210))
+        else if (mouse.IsHit(940, 280, 300, 260))
         {
             StartNextDayShift();
         }
         // 5. Explicit START NEXT SHIFT button (Bottom Center)
-        else if (mouse.IsHit(310, 474, 340, 38))
+        else if (mouse.IsHit(440, 620, 400, 48))
         {
             StartNextDayShift();
         }
@@ -122,7 +122,6 @@ public sealed class QuartersScreen : IScreen
     private void StartNextDayShift()
     {
         AudioHooks.Play("bed_sleep_transition");
-        // Cleanly increment GameState.Day, reset daily warnings to 0, apply overnight Day 3 logic & persist save.json
         _gameState.AdvanceToDay(_gameState.Day + 1);
         _screenManager.RouteViaCorridor(ScreenId.Desk);
     }
@@ -131,49 +130,52 @@ public sealed class QuartersScreen : IScreen
     {
         AssetManager.DrawImageOrPlaceholder(
             "locations/quarters_interior.png",
-            0, 24, Constants.VirtualWidth, Constants.VirtualHeight - 24,
+            0, 32, Constants.VirtualWidth, Constants.VirtualHeight - 32,
             Palette.WeatheredGunmetalMid,
             Palette.WeatheredGunmetalEdge,
             string.Empty);
 
-        // Header Bar
-        Raylib.DrawRectangle(0, 0, Constants.VirtualWidth, 24, Palette.OutlineVoid);
-        Raylib.DrawLine(0, 23, Constants.VirtualWidth, 23, Palette.WeatheredGunmetalEdge);
+        // Header Bar (1280x32)
+        Raylib.DrawRectangle(0, 0, Constants.VirtualWidth, 32, Palette.OutlineVoid);
+        Raylib.DrawLine(0, 31, Constants.VirtualWidth, 31, Palette.WeatheredGunmetalEdge);
+        string strikesText = _gameState.Day >= 3 ? $"   |   STRIKES: {_gameState.SecurityStrikes}" : string.Empty;
         Raylib.DrawText(
-            $"VG-3 // OFFICER BERTH QUARTERS   |   END OF DAY {_gameState.Day:D2}   |   SCRIP: {_gameState.PactScrip} SC   |   PU: {_gameState.PowerUnits}   |   STRIKES: {_gameState.SecurityStrikes}",
-            10, 7, 10, Palette.CrtAmberPrimary);
+            $"VG-3 // OFFICER BERTH QUARTERS   |   END OF DAY {_gameState.Day:D2}   |   SCRIP: {_gameState.PactScrip} SC   |   PU: {_gameState.PowerUnits}{strikesText}",
+            14, 11, 10, Palette.CrtAmberPrimary);
 
-        DrawButton(mouse, 712, 4, 86, 16, "MAIN MENU");
-        DrawButton(mouse, 804, 4, 146, 16, $"START DAY {_gameState.Day + 1:D2} -> DESK", Palette.ClearanceTeal);
+        DrawButton(mouse, 980, 6, 104, 20, "MAIN MENU");
+        DrawButton(mouse, 1092, 6, 180, 20, $"START DAY {_gameState.Day + 1:D2} -> DESK", Palette.ClearanceTeal);
 
         // 1. Side Door & Corridor Viewport
-        DrawHotspot(mouse, 28, 72, 164, 380, "SIDE DOOR",
+        DrawHotspot(mouse, 40, 96, 220, 480, "SIDE DOOR",
             _doorViewportOpen ? "VIEWPORT: [CORRIDOR CLEAR]" : "CLICK: PEEK VIEWPORT");
 
         // 2. Personal Terminal
-        Raylib.DrawRectangle(296, 114, 78, 22, Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(296, 114, 78, 22, Palette.CrtAmberPrimary);
-        Raylib.DrawText("[! MSG]", 314, 120, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawRectangle(408, 160, 84, 24, Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(408, 160, 84, 24, Palette.CrtAmberPrimary);
+        Raylib.DrawText("[! MSG]", 428, 167, 10, Palette.CrtAmberPrimary);
 
-        DrawHotspot(mouse, 222, 146, 228, 176, "PERSONAL TERMINAL", "CLICK: 4:3 CONSOLE (5 TABS)");
+        DrawHotspot(mouse, 300, 196, 300, 224, "PERSONAL TERMINAL", "CLICK: 4:3 CONSOLE (PROMPT 4)");
 
-        // 3. Food Replicator (Cycles food tier for testing SPS sway)
+        // 3. Food Replicator
         string foodTierLabel = _gameState.CurrentHungerTier switch
         {
             HungerTier.HighTierRations => "HIGH-GRADE (0 SWAY)",
             HungerTier.MediumNutrientPaste => "STANDARD (MED SWAY)",
             _ => "NO FOOD 2D+ (MAX SWAY)"
         };
-        DrawHotspot(mouse, 480, 146, 188, 176, "FOOD REPLICATOR", $"TIER: {foodTierLabel}");
+        DrawHotspot(mouse, 640, 196, 260, 224, "FOOD REPLICATOR", $"TIER: {foodTierLabel}");
 
         // 4. Bed (Sleep & End Day)
-        DrawHotspot(mouse, 698, 220, 234, 210, "BERTH BUNK (SLEEP)", $"SLEEP -> START DAY {_gameState.Day + 1:D2} WATCH");
+        DrawHotspot(mouse, 940, 280, 300, 260, "BERTH BUNK (SLEEP)", $"SLEEP -> START DAY {_gameState.Day + 1:D2} WATCH");
 
-        // 5. Prominent START NEXT SHIFT Button (Fixes Day 1 loop cleanly)
-        bool nextHover = mouse.IsHit(310, 474, 340, 38);
-        Raylib.DrawRectangle(310, 474, 340, 38, nextHover ? Palette.OxidizedBronzeShadow : Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(310, 474, 340, 38, Palette.ClearanceTeal);
-        Raylib.DrawText($"START NEXT SHIFT  ->  DAY {_gameState.Day + 1:D2} (BOOTH 04)", 354, 488, 10, Palette.ClearanceTeal);
+        // 5. Prominent START NEXT SHIFT Button
+        bool nextHover = mouse.IsHit(440, 620, 400, 48);
+        Raylib.DrawRectangle(440, 620, 400, 48, nextHover ? Palette.OxidizedBronzeShadow : Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(440, 620, 400, 48, Palette.ClearanceTeal);
+        string nextLabel = $"START NEXT SHIFT  ->  DAY {_gameState.Day + 1:D2} (BOOTH 04)";
+        int nw = Raylib.MeasureText(nextLabel, 10);
+        Raylib.DrawText(nextLabel, 440 + (400 - nw) / 2, 639, 10, Palette.ClearanceTeal);
 
         if (_terminalOpen)
         {
@@ -183,25 +185,25 @@ public sealed class QuartersScreen : IScreen
 
     private void DrawPersonalTerminalModal(VirtualMouseState mouse)
     {
-        Raylib.DrawRectangle(104, 52, 752, 412, Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(104, 52, 752, 412, Palette.CrtAmberPrimary);
-        Raylib.DrawRectangleLines(108, 56, 744, 404, Palette.CrtAmberDimmed);
+        Raylib.DrawRectangle(160, 76, 960, 520, Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(160, 76, 960, 520, Palette.CrtAmberPrimary);
+        Raylib.DrawRectangleLines(164, 80, 952, 512, Palette.CrtAmberDimmed);
 
-        Raylib.DrawText("FTC PERSONAL BERTH TERMINAL // 4:3 DISPLAY (PLACEHOLDER -- PROMPT 4 PENDING)", 122, 68, 10, Palette.CrtAmberPrimary);
-        DrawButton(mouse, 772, 64, 72, 20, "CLOSE [X]");
+        Raylib.DrawText("FTC PERSONAL BERTH TERMINAL // 4:3 DISPLAY (PROMPT 4 PENDING)", 184, 98, 10, Palette.CrtAmberPrimary);
+        DrawButton(mouse, 1012, 92, 84, 24, "CLOSE [X]");
 
         for (int i = 0; i < TerminalTabs.Length; i++)
         {
-            int tabX = 122 + i * 142;
+            int tabX = 184 + i * 184;
             bool selected = _activeTerminalTab == i;
-            bool hovered = mouse.IsHit(tabX, 94, 136, 22);
-            Raylib.DrawRectangle(tabX, 94, 136, 22, selected ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
-            Raylib.DrawRectangleLines(tabX, 94, 136, 22, selected || hovered ? Palette.CrtAmberPrimary : Palette.CrtAmberDimmed);
-            Raylib.DrawText(TerminalTabs[i], tabX + 10, 100, 10, selected ? Palette.CrtAmberPrimary : Palette.ClearanceTeal);
+            bool hovered = mouse.IsHit(tabX, 128, 176, 26);
+            Raylib.DrawRectangle(tabX, 128, 176, 26, selected ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
+            Raylib.DrawRectangleLines(tabX, 128, 176, 26, selected || hovered ? Palette.CrtAmberPrimary : Palette.CrtAmberDimmed);
+            Raylib.DrawText(TerminalTabs[i], tabX + 12, 136, 10, selected ? Palette.CrtAmberPrimary : Palette.ClearanceTeal);
         }
 
-        Raylib.DrawRectangle(122, 124, 716, 322, Palette.DeepSpaceVoid);
-        Raylib.DrawRectangleLines(122, 124, 716, 322, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawRectangle(184, 164, 912, 408, Palette.DeepSpaceVoid);
+        Raylib.DrawRectangleLines(184, 164, 912, 408, Palette.WeatheredGunmetalEdge);
 
         string tabInfo = _activeTerminalTab switch
         {
@@ -213,9 +215,9 @@ public sealed class QuartersScreen : IScreen
             _ => string.Empty
         };
 
-        Raylib.DrawText(tabInfo, 140, 144, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawText(tabInfo, 204, 188, 10, Palette.CrtAmberPrimary);
         Raylib.DrawText($"UNSCRUBBED LOGS: {_gameState.UnauthorizedLogCount} | PASSAGE FUND: {_gameState.IndependentPassageFund}/600 SC",
-            140, 174, 10, Palette.ClearanceTeal);
+            204, 218, 10, Palette.ClearanceTeal);
     }
 
     private static void DrawHotspot(VirtualMouseState mouse, int x, int y, int w, int h, string title, string subtitle)
@@ -223,8 +225,8 @@ public sealed class QuartersScreen : IScreen
         bool hovered = mouse.IsHit(x, y, w, h);
         Raylib.DrawRectangle(x, y, w, h, hovered ? Palette.OxidizedBronzeShadow : Palette.OutlineVoid);
         Raylib.DrawRectangleLines(x, y, w, h, hovered ? Palette.CrtAmberPrimary : Palette.OxidizedBronzeWorn);
-        Raylib.DrawText(title, x + 10, y + 12, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawText(subtitle, x + 10, y + 30, 10, Palette.ClearanceTeal);
+        Raylib.DrawText(title, x + 12, y + 14, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawText(subtitle, x + 12, y + 34, 10, Palette.ClearanceTeal);
     }
 
     private static void DrawButton(VirtualMouseState mouse, int x, int y, int w, int h, string text, Color? fg = null)
@@ -232,7 +234,7 @@ public sealed class QuartersScreen : IScreen
         bool hovered = mouse.IsHit(x, y, w, h);
         Raylib.DrawRectangle(x, y, w, h, hovered ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, w, h, hovered ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText(text, x + 6, y + 3, 10, fg ?? Palette.CrtAmberPrimary);
+        Raylib.DrawText(text, x + 8, y + (h - 10) / 2, 10, fg ?? Palette.CrtAmberPrimary);
     }
 
     public void Unload() { }

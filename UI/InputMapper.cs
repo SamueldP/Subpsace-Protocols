@@ -8,11 +8,14 @@ public readonly struct ViewportTransform
 {
     public int WindowWidth { get; init; }
     public int WindowHeight { get; init; }
-    public int Scale { get; init; }
+    public float Scale { get; init; }
     public int OffsetX { get; init; }
     public int OffsetY { get; init; }
     public int ScaledWidth { get; init; }
     public int ScaledHeight { get; init; }
+
+    public bool IsExactIntegerScale =>
+        Scale >= 1.0f && MathF.Abs(Scale - MathF.Round(Scale)) < 0.001f;
 
     public Rectangle DestinationRect => new(OffsetX, OffsetY, ScaledWidth, ScaledHeight);
 }
@@ -29,7 +32,7 @@ public readonly struct VirtualMouseState
     public bool LeftReleased { get; init; }
     public bool RightPressed { get; init; }
     public float WheelMove { get; init; }
-    public int Scale { get; init; }
+    public float Scale { get; init; }
     public int OffsetX { get; init; }
     public int OffsetY { get; init; }
 
@@ -43,8 +46,8 @@ public readonly struct VirtualMouseState
 }
 
 /// <summary>
-/// Computes integer scaling and black letterbox offsets, and converts desktop window
-/// mouse coordinates accurately into 0..639 x 0..359 virtual coordinates.
+/// Computes aspect-ratio-preserving 16:9 viewport scaling and black letterbox offsets,
+/// and projects desktop window / fullscreen mouse coordinates accurately into 1280x720 virtual coordinates.
 /// </summary>
 public static class InputMapper
 {
@@ -53,15 +56,22 @@ public static class InputMapper
         int safeW = Math.Max(1, windowWidth);
         int safeH = Math.Max(1, windowHeight);
 
-        int scaleX = safeW / Constants.VirtualWidth;
-        int scaleY = safeH / Constants.VirtualHeight;
-        int scale = Math.Max(1, Math.Min(scaleX, scaleY));
+        float scaleX = (float)safeW / Constants.VirtualWidth;
+        float scaleY = (float)safeH / Constants.VirtualHeight;
+        float scale = MathF.Min(scaleX, scaleY);
 
-        int scaledW = Constants.VirtualWidth * scale;
-        int scaledH = Constants.VirtualHeight * scale;
+        // Snap to exact integer when within floating-point epsilon
+        float nearestInt = MathF.Round(scale);
+        if (nearestInt >= 1.0f && MathF.Abs(scale - nearestInt) < 0.001f)
+        {
+            scale = nearestInt;
+        }
 
-        int offsetX = (safeW - scaledW) / 2;
-        int offsetY = (safeH - scaledH) / 2;
+        int scaledW = Math.Clamp((int)MathF.Round(Constants.VirtualWidth * scale), 1, safeW);
+        int scaledH = Math.Clamp((int)MathF.Round(Constants.VirtualHeight * scale), 1, safeH);
+
+        int offsetX = Math.Max(0, (safeW - scaledW) / 2);
+        int offsetY = Math.Max(0, (safeH - scaledH) / 2);
 
         return new ViewportTransform
         {
@@ -86,8 +96,8 @@ public static class InputMapper
         bool inside = relX >= 0 && relX < viewport.ScaledWidth &&
                       relY >= 0 && relY < viewport.ScaledHeight;
 
-        int rawX = (int)Math.Floor((double)relX / viewport.Scale);
-        int rawY = (int)Math.Floor((double)relY / viewport.Scale);
+        int rawX = (int)Math.Floor((double)relX * Constants.VirtualWidth / viewport.ScaledWidth);
+        int rawY = (int)Math.Floor((double)relY * Constants.VirtualHeight / viewport.ScaledHeight);
 
         int clampedX = Math.Clamp(rawX, 0, Constants.VirtualWidth - 1);
         int clampedY = Math.Clamp(rawY, 0, Constants.VirtualHeight - 1);

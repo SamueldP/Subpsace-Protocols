@@ -12,13 +12,15 @@ public static class AudioHooks
 
     public static IReadOnlyList<string> LoggedEvents => RecentEvents;
     public static string LastPlayedSoundId { get; private set; } = "NONE";
+    public static float MasterVolume { get; set; } = 0.80f;
+    public static bool IsMuted { get; set; } = false;
 
     public static void Play(string soundId)
     {
         if (string.IsNullOrWhiteSpace(soundId))
             return;
 
-        LastPlayedSoundId = soundId;
+        LastPlayedSoundId = IsMuted ? $"{soundId} [MUTED]" : soundId;
         if (RecentEvents.Count >= MaxLoggedEvents)
         {
             RecentEvents.RemoveAt(0);

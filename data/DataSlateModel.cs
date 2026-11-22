@@ -13,12 +13,12 @@ public sealed class DataSlateModel
 
     /// <summary>
     /// Full Registration Code combining canonical prefix + random suffix (Part 2.5),
-    /// e.g., "GUV-771-A", "ORN-442819", "KDF-304-V", or "UNR-901-X".
+    /// e.g., "GUV-771-A", "ORN-442819", or "KDF-304-V".
     /// </summary>
     public string RegistrationCode { get; set; } = string.Empty;
 
     /// <summary>
-    /// Canonical 4-character registration prefix (e.g., "GUV-", "KDF-", "BMC-", "FTC-", "UNR-").
+    /// Canonical 4-character registration prefix (e.g., "GUV-", "KDF-", "BMC-", "FTC-").
     /// </summary>
     public string DeclaredPrefix { get; set; } = string.Empty;
 

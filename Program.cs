@@ -59,18 +59,26 @@ public static class Program
     {
         bool isSmokeTest = args.Any(a => a.Equals("--smoke-test", StringComparison.OrdinalIgnoreCase));
         bool isArtTestFlag = args.Any(a => a.Equals("--art-test", StringComparison.OrdinalIgnoreCase));
+        string? dumpFramesDir = args
+            .FirstOrDefault(a => a.StartsWith("--dump-frames=", StringComparison.OrdinalIgnoreCase))
+            ?.Substring("--dump-frames=".Length);
+        if (!string.IsNullOrWhiteSpace(dumpFramesDir))
+        {
+            Directory.CreateDirectory(dumpFramesDir);
+        }
 
         Core.ConfigFlags config = Core.ConfigFlags.Load();
         GameState gameState = new() { SuppressDiskPersistence = isSmokeTest };
         DevDebugState devDebug = new();
 
-        // Resizable desktop window initialized at 960x540 (zero MSAA), then auto-scaled to largest clean integer fit on monitor (e.g., 2x = 1920x1080)
+        // Resizable desktop window initialized at 1280x720 (exact 16:9, zero MSAA)
         Raylib.SetConfigFlags(Raylib_cs.ConfigFlags.ResizableWindow | Raylib_cs.ConfigFlags.VSyncHint);
         Raylib.InitWindow(
             Constants.VirtualWidth,
             Constants.VirtualHeight,
             "Subspace Protocols -- Void Gate 3 (Booth 04)");
-        Raylib.SetWindowMinSize(Constants.VirtualWidth, Constants.VirtualHeight);
+        Raylib.SetExitKey(KeyboardKey.Null); // ESC toggles the CRT Pause Menu, never closes the window
+        Raylib.SetWindowMinSize(640, 360);
         Raylib.SetTargetFPS(60);
 
         // Ensure default Raylib font uses crisp point filtering (zero font smoothing)
@@ -84,15 +92,24 @@ public static class Program
         virtualCanvas.ApplyOptimalMonitorScaling(allowBorderlessFullscreen: !isSmokeTest);
 
         ScreenManager screenManager = new();
+        TutorialOverlay tutorialOverlay = new(gameState);
+        PauseMenuOverlay pauseMenu = new(screenManager, gameState, virtualCanvas, tutorialOverlay.OpenCurrentDaySummary);
+        DebugOverlay debugOverlay = new(screenManager, gameState, config, devDebug, tutorialOverlay.OpenCurrentDaySummary);
 
         screenManager.RegisterScreen(ScreenId.MainMenu, new MainMenuScreen(screenManager, gameState, config));
         screenManager.RegisterScreen(ScreenId.Corridor, new CorridorScreen(screenManager, gameState));
-        screenManager.RegisterScreen(ScreenId.Desk, new DeskScreen(screenManager, gameState, config, devDebug));
+        DeskScreen deskScreen = new(
+            screenManager,
+            gameState,
+            config,
+            devDebug,
+            pauseMenu.Toggle,
+            day => tutorialOverlay.TriggerDayStartHook(day));
+        screenManager.RegisterScreen(ScreenId.Desk, deskScreen);
         screenManager.RegisterScreen(ScreenId.Quarters, new QuartersScreen(screenManager, gameState));
         screenManager.RegisterScreen(ScreenId.ArtTest, new ArtTestScreen(screenManager));
 
         screenManager.SwitchTo(isArtTestFlag ? ScreenId.ArtTest : ScreenId.MainMenu);
-        DebugOverlay debugOverlay = new(screenManager, gameState, config, devDebug);
 
         int smokeFrameCounter = 0;
         ScreenId[] smokeRouteOrder =
@@ -104,7 +121,7 @@ public static class Program
             ScreenId.ArtTest
         ];
 
-        while (!Raylib.WindowShouldClose())
+        while (!Raylib.WindowShouldClose() && !pauseMenu.ShouldQuitApplication)
         {
             float dt = Raylib.GetFrameTime();
 
@@ -113,16 +130,31 @@ public static class Program
 
             VirtualMouseState mouse = InputMapper.SampleMouse(virtualCanvas.CurrentViewport);
 
-            bool debugConsumed = debugOverlay.HandleInput(mouse);
-            VirtualMouseState screenMouse = debugConsumed
-                ? mouse with { LeftPressed = false, LeftDown = false, RightPressed = false }
+            if (screenManager.CurrentScreenId == ScreenId.MainMenu && tutorialOverlay.IsOpen)
+            {
+                tutorialOverlay.ForceCloseSilent();
+            }
+
+            // If Tutorial Card is open, ESC dismisses the tutorial card cleanly instead of stacking Pause on top.
+            bool tutorialConsumed = !pauseMenu.IsOpen && tutorialOverlay.HandleInput(mouse);
+            bool paused = !tutorialConsumed && pauseMenu.HandleInput(mouse);
+            bool debugConsumed = !paused && !tutorialConsumed && debugOverlay.HandleInput(mouse);
+
+            VirtualMouseState screenMouse = (paused || tutorialConsumed || debugConsumed)
+                ? mouse with { IsInsideViewport = false, LeftPressed = false, LeftDown = false, LeftReleased = false, RightPressed = false, WheelMove = 0f }
                 : mouse;
 
-            screenManager.Update(dt, screenMouse);
+            // Freeze the 270-second shift timer and all active animations while the ESC Pause Menu OR Tutorial Card is open
+            if (!paused && !tutorialConsumed)
+            {
+                screenManager.Update(dt, screenMouse);
+            }
 
             virtualCanvas.BeginVirtualDraw();
             screenManager.DrawVirtual(screenMouse);
-            debugOverlay.DrawVirtual(mouse);
+            tutorialOverlay.DrawVirtual(paused ? screenMouse : mouse);
+            debugOverlay.DrawVirtual(paused || tutorialConsumed ? screenMouse : mouse);
+            pauseMenu.DrawVirtual(mouse);
             virtualCanvas.EndVirtualDrawAndBlit();
 
             if (isSmokeTest)
@@ -131,11 +163,39 @@ public static class Program
                 {
                     RunProceduralEngineVerificationSuite();
                     RunWorkShiftAndBranchingVerificationSuite();
+
+                    // Run interactive DeskScreen Prompt 3.7.1 checks on Day 2 and Day 3 even without --dump-frames
+                    gameState.ResetForNewSave(1);
+                    gameState.AdvanceToDay(2);
+                    screenManager.SwitchTo(ScreenId.Desk);
+                    tutorialOverlay.ForceCloseSilent();
+                    deskScreen.SmokeVerifyPrompt371Interactions();
+
+                    gameState.Day3PreShiftHailCompleted = true;
+                    gameState.AdvanceToDay(3);
+                    screenManager.SwitchTo(ScreenId.Desk);
+                    tutorialOverlay.ForceCloseSilent();
+                    deskScreen.SmokeVerifyPrompt371Interactions();
+
+                    if (!string.IsNullOrWhiteSpace(dumpFramesDir))
+                    {
+                        CaptureVisualVerificationFrames(
+                            virtualCanvas,
+                            screenManager,
+                            deskScreen,
+                            tutorialOverlay,
+                            pauseMenu,
+                            debugOverlay,
+                            gameState,
+                            dumpFramesDir);
+                    }
                 }
 
                 if (!isArtTestFlag && smokeFrameCounter < smokeRouteOrder.Length)
                 {
+                    tutorialOverlay.ForceCloseSilent();
                     screenManager.SwitchTo(smokeRouteOrder[smokeFrameCounter]);
+                    tutorialOverlay.ForceCloseSilent();
                 }
                 smokeFrameCounter++;
                 if (smokeFrameCounter > smokeRouteOrder.Length + 2)
@@ -162,15 +222,29 @@ public static class Program
 
     private static void RunProceduralEngineVerificationSuite()
     {
+        // 0. Verify 1280x720 virtual framebuffer & aspect-ratio mouse projection (including 1080p 1.5x & letterboxed resize)
+        if (Constants.VirtualWidth != 1280 || Constants.VirtualHeight != 720)
+            throw new InvalidOperationException("Virtual framebuffer must be 1280x720.");
+
+        ViewportTransform vp1080 = InputMapper.ComputeViewport(1920, 1080);
+        if (vp1080.ScaledWidth != 1920 || vp1080.ScaledHeight != 1080 || vp1080.OffsetX != 0 || vp1080.OffsetY != 0)
+            throw new InvalidOperationException("1080p viewport scaling mismatch.");
+
+        var (vxMid, vyMid, inMid) = InputMapper.ScreenToVirtual(960, 540, vp1080);
+        if (!inMid || vxMid != 640 || vyMid != 360)
+            throw new InvalidOperationException($"1080p mouse center projection failed: ({vxMid},{vyMid})");
+
+        ViewportTransform vpUltra = InputMapper.ComputeViewport(2560, 1080);
+        if (vpUltra.ScaledWidth != 1920 || vpUltra.ScaledHeight != 1080 || vpUltra.OffsetX != 320 || vpUltra.OffsetY != 0)
+            throw new InvalidOperationException("Ultrawide aspect-ratio letterboxing mismatch.");
+
         // 1. Verify DeterministicRng FNV-1a & Mulberry32 repeatability
         DeterministicRng rngA = new("capt-vek-409");
         DeterministicRng rngB = new("capt-vek-409");
         if (rngA.InitialHash != rngB.InitialHash || MathF.Abs(rngA.NextFloat() - rngB.NextFloat()) > 1e-7f)
-        {
             throw new InvalidOperationException("DeterministicRng failed repeatability check.");
-        }
 
-        // 2. Verify all 13 active species & 4 portrait render modes + within-species HOLO seed distinctiveness + GPU texture lifecycle
+        // 2. Verify all 13 active species & 4 portrait render modes + GPU texture lifecycle
         PortraitRenderMode[] modes =
         [
             PortraitRenderMode.Live,
@@ -211,24 +285,16 @@ public static class Program
             });
             int diffPixels = CountDifferingPixels(holoA, holoB);
             if (diffPixels < 25)
-            {
-                throw new InvalidOperationException(
-                    $"Within-species HOLO seed variation too low for {species}: only {diffPixels} differing pixels.");
-            }
+                throw new InvalidOperationException($"Within-species HOLO variation too low for {species}: {diffPixels}");
         }
 
-        // 3. Verify GU decommissioned rule (Civilian & Cargo ONLY; never unscripted Military)
+        // 3. Verify GU decommissioned rule & all 11 ship factions
         if (ShipRenderer.IsDecommissionedEffective(ShipFaction.GalacticUnion, ShipClass.Military, true, false))
-        {
             throw new InvalidOperationException("GU Military ship illegally allowed decommissioned weathering.");
-        }
         if (!ShipRenderer.IsDecommissionedEffective(ShipFaction.GalacticUnion, ShipClass.Civilian, true, false) ||
             !ShipRenderer.IsDecommissionedEffective(ShipFaction.GalacticUnion, ShipClass.Cargo, true, false))
-        {
             throw new InvalidOperationException("GU Civilian/Cargo decommissioned weathering check failed.");
-        }
 
-        // 4. Verify all 11 ship factions/orgs across allowed classes, transparent Live/SPS backgrounds, Manual mode, and GPU disposal
         foreach (ShipFaction faction in ShipRenderer.AllFactions)
         {
             foreach (ShipClass allowedClass in ShipRenderer.GetAllowedClasses(faction))
@@ -252,16 +318,11 @@ public static class Program
                         hp.CargoBay.X is < 0 or >= Constants.ShipWidth ||
                         hp.CargoBay.Y is < 0 or >= Constants.ShipHeight)
                     {
-                        throw new InvalidOperationException(
-                            $"Out-of-bounds ship hardpoint metadata for {faction} {allowedClass}.");
+                        throw new InvalidOperationException($"Out-of-bounds hardpoint metadata for {faction} {allowedClass}.");
                     }
 
-                    // Verify transparent background outside the hull outline
                     if (sBuf.HasPixel(0, 0) || sBuf.HasPixel(Constants.ShipWidth - 1, 0))
-                    {
-                        throw new InvalidOperationException(
-                            $"Expected transparent background pixel on Live/SPS ship buffer for {faction} {allowedClass}.");
-                    }
+                        throw new InvalidOperationException($"Expected transparent background on ship buffer for {faction} {allowedClass}.");
 
                     Texture2D tex = sBuf.ToTexture2D();
                     PixelBuffer.UnloadTexture(ref tex);
@@ -279,237 +340,393 @@ public static class Program
             }
         }
 
-        // 5. Verify Day 3 Pre-Shift Kordani Officer live portrait renders & unloads cleanly
-        PixelBuffer kdfOfficerBuf = PortraitRenderer.RenderBuffer(new PortraitRenderOptions
+        // 4. Verify Dedicated Hardcoded Day 3 Kordani Security Officer portrait (identical across seeds, zero RNG)
+        PixelBuffer kdfOfficerA = PortraitRenderer.RenderBuffer(new PortraitRenderOptions
         {
-            SeedId = Day2And3ScriptedDialogue.Day3KordaniOfficerPortraitSeed,
+            SeedId = "seed-one",
             Species = PortraitSpecies.Kordani,
             Mode = PortraitRenderMode.Live,
-            FactionPrefix = "KDF-"
+            FactionPrefix = "KDF-",
+            IsKordaniSecurityOfficer = true
         });
-        Texture2D kdfTex = kdfOfficerBuf.ToTexture2D();
+        PixelBuffer kdfOfficerB = PortraitRenderer.RenderBuffer(new PortraitRenderOptions
+        {
+            SeedId = "seed-completely-different",
+            Species = PortraitSpecies.Kordani,
+            Mode = PortraitRenderMode.Live,
+            FactionPrefix = "KDF-",
+            IsKordaniSecurityOfficer = true
+        });
+        if (CountDifferingPixels(kdfOfficerA, kdfOfficerB) != 0)
+            throw new InvalidOperationException("Hardcoded Kordani Security Officer portrait must have zero RNG variation.");
+
+        Texture2D kdfTex = kdfOfficerA.ToTexture2D();
         PixelBuffer.UnloadTexture(ref kdfTex);
     }
 
     private static void RunWorkShiftAndBranchingVerificationSuite()
     {
+        if (Constants.BasePayPerShipScrip != 10)
+            throw new InvalidOperationException($"Expected default BasePayPerShipScrip == 10, found {Constants.BasePayPerShipScrip}.");
+
+        // Verify DevDebugState live tuners (Pay Per Ship + Animation Speed Multiplier)
+        DevDebugState dbg = new();
+        if (dbg.PayPerShipScrip != 10 || MathF.Abs(dbg.AnimationSpeedMultiplier - 1.0f) > 0.001f)
+            throw new InvalidOperationException("DevDebugState default pay (10 SC) or anim speed (1.0x) mismatch.");
+        dbg.StepPayPerShip(1);
+        dbg.StepAnimationSpeed(2);
+        if (dbg.PayPerShipScrip != 15 || MathF.Abs(dbg.AnimationSpeedMultiplier - 1.5f) > 0.001f)
+            throw new InvalidOperationException("DevDebugState pay/speed steppers failed.");
+
         GameState simState = new() { SuppressDiskPersistence = true };
         ShipGenerator generator = new();
         ValidationEngine validator = new();
         WorldSim worldSim = new();
         ShiftController shift = new();
 
-        // 0. Verify New Save Slot Reset initializes strictly on Day 1 with offline spectrometer
-        simState.Day = 7;
-        simState.PactScrip = 190;
-        simState.ClericalWarningsThisShift = 2;
-        simState.SecurityStrikes = 2;
-        simState.QuestFlags["Day3_SpectrometerRepaired"] = true;
         simState.ResetForNewSave(1);
-        if (simState.Day != 1 || simState.PactScrip != 45 || simState.ClericalWarningsThisShift != 0 ||
-            simState.SecurityStrikes != 0 || simState.QuestFlags["Day3_SpectrometerRepaired"])
-        {
+        int runSeedA = simState.RunSeed;
+        if (simState.Day != 1 || simState.PactScrip != 45 || simState.BasePayPerShipScrip != 10 || runSeedA <= 0)
             throw new InvalidOperationException("ResetForNewSave(1) failed strict Day 1 initialization check.");
-        }
 
+        // Pre-generated 16 queue determinism + random overflow beyond 16
         shift.StartNewShift(simState);
-        IReadOnlyList<ExpectedShipEntry> expectedList = generator.InitializeDaySchedule(1, 777u);
-        if (expectedList.Count != Constants.ExpectedShipsPerDay)
+        IReadOnlyList<ShipSpec> queueA1 = shift.PrepareDailyQueue(simState, generator);
+        ShiftController shiftReload = new();
+        shiftReload.StartNewShift(simState);
+        IReadOnlyList<ShipSpec> queueA2 = shiftReload.PrepareDailyQueue(simState, generator);
+        if (queueA1.Count != 16 || queueA2.Count != 16)
+            throw new InvalidOperationException($"Expected 16 pre-generated daily ships, got {queueA1.Count}.");
+
+        for (int i = 0; i < 16; i++)
         {
-            throw new InvalidOperationException($"Expected 10 priority arrivals on Expected Ship List, got {expectedList.Count}.");
+            if (queueA1[i].Slate.RegistrationCode != queueA2[i].Slate.RegistrationCode)
+                throw new InvalidOperationException("Pre-generated 16-vessel queue was not deterministic for same (RunSeed, Day).");
         }
 
-        // 1. Verify Day 1 rules purity (NO shield/weapon compliance refusals on Day 1) & 2-3 Expected Ships in first 5
-        int expectedInFirstFive = 0;
-        int validCount = 0;
-        const int totalSample = 60;
-        (int curYear, int curMonth) = Constants.GetStationCycle(1);
-
-        for (int i = 0; i < totalSample; i++)
+        // Pull all 16 + 3 overflow ships
+        for (int i = 0; i < 19; i++)
         {
-            ShipSpec spec = generator.GenerateNextShip(simState, i, 777u);
-            if (string.IsNullOrWhiteSpace(spec.Slate.ShipName) ||
-                string.IsNullOrWhiteSpace(spec.Slate.RegistrationCode) ||
-                string.IsNullOrWhiteSpace(spec.Slate.DeclaredCaptainName) ||
-                string.IsNullOrWhiteSpace(spec.Slate.OriginSystem) ||
-                string.IsNullOrWhiteSpace(spec.Slate.DestinationSystem) ||
-                string.IsNullOrWhiteSpace(spec.Slate.CargoManifest) ||
-                !spec.Slate.RegistrationExpiryDisplay.StartsWith("CYC ") ||
-                spec.Slate.DeclaredTonnage <= 0)
-            {
-                throw new InvalidOperationException("DataSlateModel missing required inspectable fields.");
-            }
-
-            if (spec.GroundTruth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.RefusedShieldsOrWeaponsCompliance))
-            {
-                throw new InvalidOperationException("Day 1 ship must NEVER generate RefusedShieldsOrWeaponsCompliance (locked to Day 14+ / rep <= -9).");
-            }
-
-            if (spec.GroundTruth.IsValid)
-            {
-                if (Constants.CompareCycle(spec.Slate.RegistrationExpiryYear, spec.Slate.RegistrationExpiryMonth, curYear, curMonth) <= 0)
-                    throw new InvalidOperationException("Valid Day 1 ship spawned with expired registration.");
-                if (!ShipGenerator.IsSpeciesValidForPrefix(spec.Slate.DeclaredPrefix, spec.Slate.DeclaredCaptainSpecies))
-                    throw new InvalidOperationException("Valid Day 1 ship spawned with invalid species for restricted prefix.");
-                if (spec.GroundTruth.RelayStatus is RelayPingStatus.AlertReportedStolen or RelayPingStatus.AlertHullDecommissioned)
-                    throw new InvalidOperationException("Valid Day 1 ship spawned with a Relay Alert flag.");
-                if (spec.GroundTruth.TamperedField != PacketTamperField.None || spec.GroundTruth.ActualCargoPowerDraw)
-                    throw new InvalidOperationException("Valid Day 1 ship spawned with tampering or unexplained cargo power.");
-            }
-
-            if (i < 5 && spec.GroundTruth.IsExpectedShip)
-                expectedInFirstFive++;
-
-            if (spec.GroundTruth.IsValid)
-                validCount++;
+            ShipSpec s = shift.TakeNextShip(simState, generator);
+            if (string.IsNullOrWhiteSpace(s.Slate.RegistrationCode))
+                throw new InvalidOperationException("Overflow ship missing registration code.");
         }
+        if (!shift.IsInRandomOverflow)
+            throw new InvalidOperationException("ShiftController did not enter random overflow after 16 ships.");
 
-        // 1b. Verify all expanded Day 1 procedural infraction types generate cleanly with ground truth & citation text
-        HashSet<ShipInfractionType> seenDay1Infractions = [];
-        bool seenTamperedOrg = false;
-        bool seenTamperedOrigin = false;
-        bool seenRelayStolen = false;
-        bool seenRelayDecomm = false;
-        ShipGenerator day1InfGen = new();
-        day1InfGen.InitializeDaySchedule(1, 909u);
-        for (int i = 0; i < 160; i++)
+        // 1. Verify Day 1 Simplified Single Rule (ONLY TransponderIdMismatch, NO shields/weapons, NO typos)
+        for (int i = 0; i < 60; i++)
         {
-            ShipSpec inv = day1InfGen.GenerateNextShip(simState, i, 909u, DebugSpawnValidityMode.ForceInvalid);
-            if (inv.GroundTruth.ActiveInfractions.Count == 0 || string.IsNullOrWhiteSpace(inv.GroundTruth.ActiveInfractions[0].CitationReason))
-                throw new InvalidOperationException("ForceInvalid ship missing active infraction or citation reason.");
+            ShipSpec day1Ship = generator.GenerateShipForSlot(simState, i);
+            if (day1Ship.GroundTruth.ActualShieldsUp || day1Ship.GroundTruth.ActualWeaponsHot)
+                throw new InvalidOperationException("Day 1 ship must spawn with shields down & weapons cold.");
 
-            ShipInfractionType t = inv.GroundTruth.ActiveInfractions[0].Type;
-            seenDay1Infractions.Add(t);
-            if (t == ShipInfractionType.PacketTamperingMisspelling)
+            if (!day1Ship.IsValid)
             {
-                if (inv.GroundTruth.TamperedField == PacketTamperField.Organization) seenTamperedOrg = true;
-                if (inv.GroundTruth.TamperedField == PacketTamperField.Origin) seenTamperedOrigin = true;
-            }
-            if (t == ShipInfractionType.RelayRegistryAlert)
-            {
-                if (inv.GroundTruth.RelayStatus == RelayPingStatus.AlertReportedStolen) seenRelayStolen = true;
-                if (inv.GroundTruth.RelayStatus == RelayPingStatus.AlertHullDecommissioned) seenRelayDecomm = true;
+                if (day1Ship.GroundTruth.ActiveInfractions.Count != 1 ||
+                    day1Ship.GroundTruth.ActiveInfractions[0].Type != ShipInfractionType.TransponderIdMismatch)
+                {
+                    throw new InvalidOperationException(
+                        $"Day 1 generated disallowed infraction: {day1Ship.GroundTruth.ActiveInfractions[0].Type}");
+                }
+                if (string.Equals(day1Ship.GroundTruth.RawTransponderId, day1Ship.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Day 1 TransponderIdMismatch had matching IDs.");
             }
         }
 
-        ShipInfractionType[] requiredDay1Infractions =
-        [
-            ShipInfractionType.ExpiredRegistration,
-            ShipInfractionType.PrefixOrganizationMismatch,
-            ShipInfractionType.PrefixSpeciesMismatch,
-            ShipInfractionType.PacketTamperingMisspelling,
-            ShipInfractionType.PrefixHullSilhouetteMismatch,
-            ShipInfractionType.UnregisteredPrefix,
-            ShipInfractionType.SpoofedWeaponsHot,
-            ShipInfractionType.UnexplainedCargoPowerDraw,
-            ShipInfractionType.RelayRegistryAlert
-        ];
-        foreach (ShipInfractionType req in requiredDay1Infractions)
+        // Day 1 Detain on invalid ship succeeds WITHOUT requiring Protocol Review (+10 SC)
         {
-            if (!seenDay1Infractions.Contains(req))
-                throw new InvalidOperationException($"Expected Day 1 infraction '{req}' did not appear in 160 invalid samples.");
-        }
-        if (!seenTamperedOrg || !seenTamperedOrigin || !seenRelayStolen || !seenRelayDecomm)
-        {
-            throw new InvalidOperationException("Expected all Day 1 Packet Tampering (Org/Origin) and Relay Alert (Stolen/Decomm) sub-variants to generate.");
+            GameState d1State = new() { Day = 1, PactScrip = 45, SuppressDiskPersistence = true };
+            ShipSpec d1Inv = generator.GenerateShipForSlot(d1State, 0, forceValidity: DebugSpawnValidityMode.ForceInvalid);
+            d1Inv.ProtocolReviewVerified = false;
+            DecisionEvaluationResult d1Detain = validator.EvaluateDecision(d1State, d1Inv, PlayerDecision.Detain, worldSim);
+            if (!d1Detain.IsAccurate || d1Detain.IsCitation || d1Detain.ScripDelta != 10)
+                throw new InvalidOperationException("Day 1 Detain on invalid ship should succeed (+10 SC) without Protocol Review.");
         }
 
-        if (expectedInFirstFive is < 2 or > 3)
-            throw new InvalidOperationException($"Expected 2-3 priority ships in first 5 arrivals, found {expectedInFirstFive}.");
+        // 2. Verify Day 2 Escalation (ONLY TransponderIdMismatch + SpoofedWeaponsHot, plus Ghost Route slot 1)
+        GameState d2State = new() { Day = 2, PactScrip = 45, SuppressDiskPersistence = true };
+        HashSet<ShipInfractionType> seenD2 = [];
+        for (int i = 0; i < 60; i++)
+        {
+            ShipSpec inv2 = generator.GenerateShipForSlot(d2State, i, reseedNonce: 4u, DebugSpawnValidityMode.ForceInvalid);
+            ShipInfractionType t = inv2.GroundTruth.ActiveInfractions[0].Type;
+            seenD2.Add(t);
+            if (t is not (ShipInfractionType.TransponderIdMismatch or ShipInfractionType.SpoofedWeaponsHot))
+                throw new InvalidOperationException($"Day 2 generated disallowed infraction: {t}");
+        }
+        if (!seenD2.Contains(ShipInfractionType.TransponderIdMismatch) || !seenD2.Contains(ShipInfractionType.SpoofedWeaponsHot))
+            throw new InvalidOperationException("Day 2 must generate both TransponderIdMismatch and SpoofedWeaponsHot.");
 
-        if (validCount is < 27 or > 50)
-            throw new InvalidOperationException($"Unexpected Day 1 valid ship ratio: {validCount}/{totalSample}.");
+        ShipSpec ghostSuspect = generator.GenerateShipForSlot(d2State, ShipGenerator.Day2GhostRouteQueueSlot);
+        if (!ghostSuspect.GroundTruth.IsDay2GhostRouteSuspect)
+            throw new InvalidOperationException("Day 2 Ghost Route suspect must spawn on slot 1.");
 
-        // 2. Verify Hold Timer Until First Hail & 270s shift_horn trigger
-        shift.Tick(30.0f);
-        if (shift.ElapsedShiftSeconds > 0.001f)
+        // 3. Verify Day 3 Escalation (Protocol Review required, Security Strikes active, full pool without typos)
+        GameState d3State = new() { Day = 3, PactScrip = 45, SuppressDiskPersistence = true };
+        ShipSpec d3Valid = generator.GenerateShipForSlot(d3State, 0, forceValidity: DebugSpawnValidityMode.ForceValid);
+        d3Valid.GroundTruth.ActualShieldsUp = false;
+        d3Valid.GroundTruth.ActualWeaponsHot = false;
+        ShipSpec d3Invalid = generator.GenerateShipForSlot(d3State, 1, forceValidity: DebugSpawnValidityMode.ForceInvalid);
+
+        // Case 1: Valid + Grant Access -> +10 SC
+        DecisionEvaluationResult c1 = validator.EvaluateDecision(d3State, d3Valid, PlayerDecision.GrantAccess, worldSim);
+        if (!c1.IsAccurate || c1.IsCitation || c1.ScripDelta != 10)
+            throw new InvalidOperationException("Day 3 Case 1 (Valid + GrantAccess) failed.");
+
+        // Case 4: Day 3 Invalid + Detain + ProtocolReviewVerified == false -> Citation!
+        d3Invalid.ProtocolReviewVerified = false;
+        DecisionEvaluationResult c4 = validator.EvaluateDecision(d3State, d3Invalid, PlayerDecision.Detain, worldSim);
+        if (c4.IsAccurate || !c4.IsCitation || c4.ViolationReason != "UNVERIFIED DETAINMENT -- PROTOCOL REVIEW NOT COMPLETED")
+            throw new InvalidOperationException("Day 3 Case 4 (Unverified Detain) failed.");
+
+        // Case 5: Day 3 Invalid + Detain + ProtocolReviewVerified == true -> Accurate (+10 SC)
+        d3Invalid.ProtocolReviewVerified = true;
+        DecisionEvaluationResult c5 = validator.EvaluateDecision(d3State, d3Invalid, PlayerDecision.Detain, worldSim);
+        if (!c5.IsAccurate || c5.IsCitation || c5.ScripDelta != 10)
+            throw new InvalidOperationException("Day 3 Case 5 (Verified Detain) failed.");
+
+        // Verify live Pay Per Ship tuner changes payout immediately
+        d3State.BasePayPerShipScrip = 15;
+        DecisionEvaluationResult cPay15 = validator.EvaluateDecision(d3State, d3Valid, PlayerDecision.GrantAccess, worldSim);
+        if (!cPay15.IsAccurate || cPay15.ScripDelta != 15)
+            throw new InvalidOperationException("Live BasePayPerShipScrip tuner (15 SC) did not affect ValidationEngine payout.");
+
+        // Verify Day 3 Live Kordani Hail lines for BOTH Branch A and Branch B
+        string[] branchA = Day2And3ScriptedDialogue.BuildDay3KordaniHailLines(true, "ORN-442-K", "Oruun-4");
+        string[] branchB = Day2And3ScriptedDialogue.BuildDay3KordaniHailLines(false, "ORN-442-K", "Oruun-4");
+        if (branchA.Length < 3 || branchB.Length < 3)
+            throw new InvalidOperationException("Day 3 Kordani Live Hail lines missing for Branch A or Branch B.");
+
+        // Verify Hold Timer Until First Hail & 270s shift_horn trigger
+        ShiftController timerShift = new();
+        timerShift.StartNewShift(simState);
+        timerShift.Tick(30.0f);
+        if (timerShift.ElapsedShiftSeconds > 0.001f)
             throw new InvalidOperationException("ShiftController must hold timer at t = 0 until first Next Hail.");
-
-        shift.NotifyFirstHailTriggered();
-        shift.Tick(270.0f);
-        if (!shift.IsShiftTimerExpired || !string.Equals(AudioHooks.LastPlayedSoundId, "shift_horn", StringComparison.Ordinal))
+        timerShift.NotifyFirstHailTriggered();
+        timerShift.Tick(270.0f);
+        if (!timerShift.IsShiftTimerExpired || !string.Equals(AudioHooks.LastPlayedSoundId, "shift_horn", StringComparison.Ordinal))
             throw new InvalidOperationException("ShiftController failed to fire 'shift_horn' at t = 270s.");
 
-        // 3. Verify Strict 5-Case ValidationEngine Truth Table (IsValid x Decision x ProtocolReviewVerified)
+        // Verify Prompt 3.7: Unified transfer duration constant
+        if (MathF.Abs(ShiftController.StandardTransferDurationSeconds - 1.80f) > 0.001f)
+            throw new InvalidOperationException("ShiftController.StandardTransferDurationSeconds mismatch.");
+
+        // Verify Prompt 3.7: 6-system smooth harmonic WarpSignatureGenerator
+        if (WarpSignatureGenerator.SectorSystems.Length != 6)
+            throw new InvalidOperationException($"Expected 6 warp star systems, found {WarpSignatureGenerator.SectorSystems.Length}.");
+        if (!WarpSignatureGenerator.IsRestrictedOrigin("The Ashen Rift") || !WarpSignatureGenerator.IsRestrictedOrigin("Ashen Rift"))
+            throw new InvalidOperationException("WarpSignatureGenerator failed restricted Ashen Rift normalization.");
+
+        for (int a = 0; a < WarpSignatureGenerator.SectorSystems.Length; a++)
         {
-            GameState ttState = new() { Day = 1, PactScrip = 45, SuppressDiskPersistence = true };
-            ShipGenerator ttGen = new();
-            ttGen.InitializeDaySchedule(1, 555u);
+            string keyA = WarpSignatureGenerator.SectorSystems[a].Key;
+            float selfDev = WarpSignatureGenerator.ComputeMeanPixelDeviation(keyA, keyA);
+            if (selfDev > 0.001f)
+                throw new InvalidOperationException($"WarpSignatureGenerator self-deviation must be 0 for {keyA}.");
 
-            ShipSpec validShip = ttGen.GenerateNextShip(ttState, 0, 555u, DebugSpawnValidityMode.ForceValid);
-            validShip.GroundTruth.IsExpectedShip = false;
-            ShipSpec invalidShip = ttGen.GenerateNextShip(ttState, 1, 555u, DebugSpawnValidityMode.ForceInvalid);
-            invalidShip.GroundTruth.IsExpectedShip = false;
-
-            // Case 1: IsValid == true + Grant Access -> Accurate (+15 SC, no citation)
-            DecisionEvaluationResult c1 = validator.EvaluateDecision(ttState, validShip, PlayerDecision.GrantAccess, worldSim);
-            if (!c1.IsAccurate || c1.IsCitation || c1.ScripDelta != Constants.BasePayPerShipScrip)
-                throw new InvalidOperationException("Truth Table Case 1 (Valid + GrantAccess) failed.");
-
-            // Case 2: IsValid == true + Detain -> Mistake ("UNJUSTIFIED DETAINMENT -- VESSEL WAS COMPLIANT")
-            DecisionEvaluationResult c2 = validator.EvaluateDecision(ttState, validShip, PlayerDecision.Detain, worldSim);
-            if (c2.IsAccurate || !c2.IsCitation || !c2.ViolationReason.Contains("UNJUSTIFIED DETAINMENT -- VESSEL WAS COMPLIANT"))
-                throw new InvalidOperationException("Truth Table Case 2 (Valid + Detain) failed.");
-
-            // Case 3: IsValid == false + Grant Access -> Mistake (exact missed violation)
-            DecisionEvaluationResult c3 = validator.EvaluateDecision(ttState, invalidShip, PlayerDecision.GrantAccess, worldSim);
-            if (c3.IsAccurate || !c3.IsCitation || !c3.ViolationReason.Contains("CLEARED INVALID VESSEL --"))
-                throw new InvalidOperationException("Truth Table Case 3 (Invalid + GrantAccess) failed.");
-
-            // Case 4: IsValid == false + Detain + ProtocolReviewVerified == false -> Mistake ("UNVERIFIED DETAINMENT -- PROTOCOL REVIEW NOT COMPLETED", no +15 SC)
-            invalidShip.ProtocolReviewVerified = false;
-            DecisionEvaluationResult c4 = validator.EvaluateDecision(ttState, invalidShip, PlayerDecision.Detain, worldSim);
-            if (c4.IsAccurate || !c4.IsCitation || c4.ScripDelta > 0 ||
-                c4.ViolationReason != "UNVERIFIED DETAINMENT -- PROTOCOL REVIEW NOT COMPLETED")
-                throw new InvalidOperationException("Truth Table Case 4 (Invalid + Detain + Unverified) failed.");
-
-            // Case 5: IsValid == false + Detain + ProtocolReviewVerified == true -> Accurate (+15 SC, no citation)
-            invalidShip.ProtocolReviewVerified = true;
-            DecisionEvaluationResult c5 = validator.EvaluateDecision(ttState, invalidShip, PlayerDecision.Detain, worldSim);
-            if (!c5.IsAccurate || c5.IsCitation || c5.ScripDelta != Constants.BasePayPerShipScrip)
-                throw new InvalidOperationException("Truth Table Case 5 (Invalid + Detain + Verified) failed.");
+            for (int b = a + 1; b < WarpSignatureGenerator.SectorSystems.Length; b++)
+            {
+                string keyB = WarpSignatureGenerator.SectorSystems[b].Key;
+                float dev = WarpSignatureGenerator.ComputeMeanPixelDeviation(keyA, keyB);
+                if (dev < 3.0f)
+                    throw new InvalidOperationException($"Warp waveforms for {keyA} and {keyB} are too similar (mean dev {dev:0.00}px).");
+            }
         }
 
-        // 4. Verify ValidationEngine economy & Day 2 Ghost Route suspect branching
-        GameState evalState = new() { Day = 2, PactScrip = 45, SuppressDiskPersistence = true };
-        ShipGenerator day2Gen = new();
-        IReadOnlyList<ExpectedShipEntry> day2Expected = day2Gen.InitializeDaySchedule(2, 888u);
-        ShipSpec ghostSuspect = day2Gen.GenerateNextShip(evalState, ShipGenerator.Day2GhostRouteQueueSlot, 888u);
-
-        if (!ghostSuspect.GroundTruth.IsDay2GhostRouteSuspect || ghostSuspect.GroundTruth.IsExpectedShip)
-            throw new InvalidOperationException("Day 2 Ghost Route suspect must be flagged and excluded from the Expected Ship List.");
-
-        if (day2Expected.Any(e => e.RegistrationCode.Equals(ghostSuspect.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("Day 2 Ghost Route suspect registration collided with Expected Ship List.");
-
-        // Detaining the Day 2 suspect -> clerical warning 1/2, 0 SC payout, -2 suspect faction rep, 0 strikes
-        string suspectPrefix = ghostSuspect.Slate.DeclaredPrefix;
-        DecisionEvaluationResult d2Detain = validator.EvaluateDecision(evalState, ghostSuspect, PlayerDecision.Detain, worldSim);
-        if (d2Detain.IsAccurate || !d2Detain.IsCitation || d2Detain.IsSecurityStrike ||
-            !evalState.Day2SuspectDetained || evalState.PactScrip != 45 ||
-            evalState.ClericalWarningsThisShift != 1 || evalState.SecurityStrikes != 0 ||
-            evalState.GetRep(suspectPrefix) != -2)
+        // Verify Prompt 3.7: TutorialFlags lifecycle & persistence clone
+        simState.ResetForNewSave(1);
+        if (!simState.TutorialFlags.TutorialsEnabled ||
+            simState.TutorialFlags.HasSeen(TutorialEventHook.OnDay1Start) ||
+            simState.TutorialFlags.HasSeen(TutorialEventHook.OnDay2Start) ||
+            simState.TutorialFlags.HasSeen(TutorialEventHook.OnDay3Start))
         {
-            throw new InvalidOperationException("Day 2 Ghost Route suspect Detain evaluation failed required rules.");
+            throw new InvalidOperationException("TutorialFlags did not reset cleanly on ResetForNewSave.");
+        }
+        simState.TutorialFlags.MarkSeen(TutorialEventHook.OnDay1Start);
+        GameState clonedState = new() { SuppressDiskPersistence = true };
+        clonedState.CopyFrom(simState);
+        if (!clonedState.TutorialFlags.HasSeen(TutorialEventHook.OnDay1Start) ||
+            clonedState.TutorialFlags.HasSeen(TutorialEventHook.OnDay2Start))
+        {
+            throw new InvalidOperationException("TutorialFlags did not copy cleanly in GameState.CopyFrom.");
         }
 
-        // Advance overnight to Day 3 -> resets clerical warnings to 0, activates spectrometer, silently adds +2 KDF rep
-        int kdfRepBefore = evalState.GetRep("KDF-");
-        evalState.AdvanceToDay(3);
-        if (evalState.Day != 3 || evalState.ClericalWarningsThisShift != 0 ||
-            !evalState.QuestFlags["Day3_SpectrometerRepaired"] ||
-            evalState.GetRep("KDF-") != kdfRepBefore + 2)
+        // Verify Prompt 3.7.1: ZERO UNR- vessels across Days 1-3 (240 generated ships)
+        HashSet<string> validPrefixes = new(Constants.AllTrackedPrefixes, StringComparer.OrdinalIgnoreCase);
+        for (int day = 1; day <= 3; day++)
         {
-            throw new InvalidOperationException("Overnight transition to Day 3 after Day 2 Detain failed.");
+            GameState prefixState = new() { Day = day, PactScrip = 45, SuppressDiskPersistence = true };
+            for (int slot = 0; slot < 80; slot++)
+            {
+                DebugSpawnValidityMode mode = (slot % 2 == 0) ? DebugSpawnValidityMode.ForceInvalid : DebugSpawnValidityMode.Auto;
+                ShipSpec s = generator.GenerateShipForSlot(prefixState, slot, reseedNonce: 11u, forceValidity: mode);
+                if (s.Slate.DeclaredPrefix.Equals("UNR-", StringComparison.OrdinalIgnoreCase) ||
+                    s.Slate.RegistrationCode.StartsWith("UNR-", StringComparison.OrdinalIgnoreCase) ||
+                    s.GroundTruth.RawTransponderId.StartsWith("UNR-", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Disallowed UNR- vessel generated on Day {day}, slot {slot}: {s.Slate.RegistrationCode}");
+                }
+                if (!validPrefixes.Contains(s.Slate.DeclaredPrefix))
+                {
+                    throw new InvalidOperationException($"Unexpected non-standard prefix '{s.Slate.DeclaredPrefix}' on Day {day}.");
+                }
+            }
         }
 
-        // Verify both Day 3 Shift Directive variants format cleanly
-        string[] varA = Day2And3ScriptedDialogue.BuildDay3ShiftDirectiveLines(false, evalState.Day2SuspectRegistration, evalState.Day2SuspectDeclaredOrigin);
-        string[] varB = Day2And3ScriptedDialogue.BuildDay3ShiftDirectiveLines(true, evalState.Day2SuspectRegistration, evalState.Day2SuspectDeclaredOrigin);
-        if (!string.Join("\n", varA).Contains("[KDF-SEC-09]") || !string.Join("\n", varB).Contains("[KDF-SEC-09B]"))
+        // Verify Prompt 3.7.1: Mid-transfer interrupt window (1%-99% true, 100% false)
+        if (!ShiftController.CanInterruptTransfer(0.50f) ||
+            !ShiftController.CanInterruptTransfer(ShiftController.StandardTransferDurationSeconds - 0.01f) ||
+            ShiftController.CanInterruptTransfer(ShiftController.StandardTransferDurationSeconds))
         {
-            throw new InvalidOperationException("Day 3 Shift Directive Variant A / Variant B text verification failed.");
+            throw new InvalidOperationException("ShiftController.CanInterruptTransfer boundary check failed.");
         }
+
+        // Verify Prompt 3.7.1: SPS detects BOTH honest armed ships AND spoofed weapon ships, and cools on compliance
+        {
+            GameState spsState = new() { Day = 2, PactScrip = 45, SuppressDiskPersistence = true };
+            ShipSpec honestArmed = generator.GenerateShipForSlot(spsState, 0, forceValidity: DebugSpawnValidityMode.ForceValid);
+            honestArmed.GroundTruth.ActualShieldsUp = false;
+            honestArmed.GroundTruth.ActualWeaponsHot = true;
+            honestArmed.GroundTruth.HasSpoofedWeapons = false;
+            honestArmed.Slate.DeclaredWeaponsStatus = "ARMED";
+
+            if (!ShiftController.ShouldSpsDetectHotWeapons(honestArmed))
+                throw new InvalidOperationException("SPS failed to detect hot weapons on an honest armed vessel.");
+
+            ComplianceOrderOutcome honestOutcome = ShiftController.ResolveWeaponsOrder(spsState, honestArmed);
+            if (honestOutcome != ComplianceOrderOutcome.Complied ||
+                honestArmed.GroundTruth.ActualWeaponsHot ||
+                ShiftController.ShouldSpsDetectHotWeapons(honestArmed))
+            {
+                throw new InvalidOperationException("Honest armed vessel failed to power down & cool SPS weapons on PWR DOWN WPN.");
+            }
+
+            ShipSpec spoofedLiars = generator.GenerateShipForSlot(spsState, 1, forceValidity: DebugSpawnValidityMode.ForceInvalid);
+            spoofedLiars.GroundTruth.ActualShieldsUp = false;
+            spoofedLiars.GroundTruth.ActualWeaponsHot = true;
+            spoofedLiars.GroundTruth.HasSpoofedWeapons = true;
+            spoofedLiars.Slate.DeclaredWeaponsStatus = "OFFLINE";
+
+            if (!ShiftController.ShouldSpsDetectHotWeapons(spoofedLiars))
+                throw new InvalidOperationException("SPS failed to detect hot weapons on a spoofed vessel.");
+
+            ComplianceOrderOutcome spoofOutcome = ShiftController.ResolveWeaponsOrder(spsState, spoofedLiars);
+            if (spoofOutcome != ComplianceOrderOutcome.SpoofedDeflection ||
+                !spoofedLiars.GroundTruth.ActualWeaponsHot ||
+                !ShiftController.ShouldSpsDetectHotWeapons(spoofedLiars))
+            {
+                throw new InvalidOperationException("Spoofed weapon vessel failed to stay hot in SPS after verbal deflection.");
+            }
+        }
+    }
+
+    private static void CaptureVisualVerificationFrames(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        string outDir)
+    {
+        VirtualMouseState idleMouse = new() { X = 310, Y = 165, IsInsideViewport = true, Scale = 1.0f };
+
+        void RenderAndSave(string filename)
+        {
+            canvas.BeginVirtualDraw();
+            screenManager.DrawVirtual(idleMouse);
+            tutorialOverlay.DrawVirtual(idleMouse);
+            debugOverlay.DrawVirtual(idleMouse);
+            pauseMenu.DrawVirtual(idleMouse);
+            canvas.EndVirtualDrawAndBlit();
+            canvas.ExportVirtualFramePng(Path.Combine(outDir, filename));
+        }
+
+        // 1. Main Menu (1280x720)
+        tutorialOverlay.ForceCloseSilent();
+        pauseMenu.Close();
+        screenManager.SwitchTo(ScreenId.MainMenu);
+        RenderAndSave("01_main_menu.png");
+
+        // 2. Day 1 Tutorial Popup (triggered cleanly by OnDay1Start hook)
+        gameState.ResetForNewSave(1);
+        screenManager.SwitchTo(ScreenId.Desk);
+        RenderAndSave("02a_day1_tutorial_popup.png");
+        tutorialOverlay.Dismiss(markSeen: true);
+
+        // 3. Day 1 Desk: Exact 8px-gutter grid, [PLAYTEST] inactive labels, inert conduit, visible Wafer Wipe Feed Slot
+        deskScreen.SmokeStageShipLoadedAndInspecting(enableSps: false);
+        deskScreen.Update(0.05f, idleMouse);
+        RenderAndSave("02b_day1_desk_ship_loaded.png");
+
+        // 4. Day 1 Visible Docked 184x216 Data Slate inside Clearance Upload Dock (1080, 384, 184, 216) + encryption bar
+        deskScreen.SmokeStageDockedClearanceSlate(encryptionProgress: 0.65f);
+        deskScreen.Update(0.02f, idleMouse);
+        RenderAndSave("02c_day1_docked_clearance_slate.png");
+
+        // 5. Day 1 Physical Detain Clamps Snapped onto Ship
+        deskScreen.SmokeStageShipLoadedAndInspecting(enableSps: false, triggerDetainClamps: true);
+        deskScreen.Update(0.02f, idleMouse);
+        RenderAndSave("03_day1_detain_clamps.png");
+
+        // 6. Day 2 Desk: Honest Armed Ship with Hot Orange SPS Mount Logged + Cooled After PWR DOWN WPN
+        gameState.AdvanceToDay(2);
+        screenManager.SwitchTo(ScreenId.Desk);
+        RenderAndSave("04a_day2_tutorial_popup.png");
+        tutorialOverlay.Dismiss(markSeen: true);
+
+        (int wpnX, int wpnY) = deskScreen.SmokeStageHonestArmedShipWithSps(applyWeaponsPowerDown: false);
+        VirtualMouseState spsAimMouse = new() { X = wpnX, Y = wpnY, IsInsideViewport = true, Scale = 1.0f };
+        canvas.BeginVirtualDraw();
+        screenManager.DrawVirtual(spsAimMouse);
+        canvas.EndVirtualDrawAndBlit();
+        canvas.ExportVirtualFramePng(Path.Combine(outDir, "04b_day2_sps_honest_armed_hot.png"));
+
+        deskScreen.SmokeStageHonestArmedShipWithSps(applyWeaponsPowerDown: true);
+        canvas.BeginVirtualDraw();
+        screenManager.DrawVirtual(spsAimMouse);
+        canvas.EndVirtualDrawAndBlit();
+        canvas.ExportVirtualFramePng(Path.Combine(outDir, "04c_day2_sps_honest_armed_cooled.png"));
+
+        pauseMenu.Open();
+        RenderAndSave("04d_pause_menu_rules_btn.png");
+        pauseMenu.Close();
+
+        debugOverlay.IsVisible = true;
+        RenderAndSave("05_f1_debug_tuners.png");
+        debugOverlay.IsVisible = false;
+
+        // 7. Day 3 Live Kordani Officer Viewscreen Hail
+        gameState.Day2SuspectDetained = true;
+        gameState.Day3PreShiftHailCompleted = false;
+        gameState.AdvanceToDay(3);
+        screenManager.SwitchTo(ScreenId.Desk);
+        for (int i = 0; i < 6; i++)
+        {
+            deskScreen.Update(1.0f, idleMouse);
+        }
+        RenderAndSave("06_day3_kordani_live_hail.png");
+
+        // 8. Day 3 Tightened Manual (Tab 1: 2. HULLS, zero PING RELAY) + Warp Checker RED MISMATCH BLEED
+        deskScreen.SmokeStageShipLoadedAndInspecting(enableSps: false);
+        deskScreen.SmokeSetManualTab(1);
+        deskScreen.SmokeStageWarpStripOnChecker(refSystemIndex: 0, forcedActualOrigin: "Ashen Rift"); // Veridia ref vs Ashen Rift strip -> vivid RED bleed!
+        deskScreen.Update(0.05f, idleMouse);
+        RenderAndSave("07_day3_manual_hulls_and_warp_mismatch.png");
+
+        // 9. Day 3 Tightened Manual (Tab 0: 1. PREFIXES, zero UNR- & zero PING RELAY) + Warp Checker MATCH
+        deskScreen.SmokeSetManualTab(0);
+        deskScreen.SmokeStageWarpStripOnChecker(refSystemIndex: 5, forcedActualOrigin: "Ashen Rift"); // Ashen Rift ref vs Ashen Rift strip -> warm amber/white glow!
+        deskScreen.Update(0.05f, idleMouse);
+        RenderAndSave("08_day3_manual_prefixes_and_warp_match.png");
+
+        // 10. Day 3 Tutorial Popup
+        tutorialOverlay.OnDay3Start(force: true);
+        RenderAndSave("09_day3_tutorial_popup.png");
+        tutorialOverlay.ForceCloseSilent();
     }
 
     private static int CountDifferingPixels(PixelBuffer a, PixelBuffer b)

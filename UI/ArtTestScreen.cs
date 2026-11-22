@@ -127,10 +127,12 @@ public sealed class ArtTestScreen : IScreen
         }
 
         HandleKeyboardShortcuts();
+        int offsetX = (Constants.VirtualWidth - 640) / 2;
+        int offsetY = (Constants.VirtualHeight - 360) / 2;
         VirtualMouseState centeredMouse = mouse with
         {
-            X = mouse.X - 160,
-            Y = mouse.Y - 90
+            X = mouse.X - offsetX,
+            Y = mouse.Y - offsetY
         };
         HandleMouseInput(centeredMouse);
 
@@ -578,17 +580,20 @@ public sealed class ArtTestScreen : IScreen
 
     public void DrawVirtual(VirtualMouseState mouse)
     {
+        int offsetX = (Constants.VirtualWidth - 640) / 2;
+        int offsetY = (Constants.VirtualHeight - 360) / 2;
+
         Raylib.ClearBackground(Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(158, 88, 644, 364, Palette.OxidizedBronzeWorn);
+        Raylib.DrawRectangleLines(offsetX - 2, offsetY - 2, 644, 364, Palette.OxidizedBronzeWorn);
 
         VirtualMouseState centeredMouse = mouse with
         {
-            X = mouse.X - 160,
-            Y = mouse.Y - 90
+            X = mouse.X - offsetX,
+            Y = mouse.Y - offsetY
         };
 
         Rlgl.PushMatrix();
-        Rlgl.Translatef(160, 90, 0);
+        Rlgl.Translatef(offsetX, offsetY, 0);
 
         Raylib.DrawRectangle(0, 0, 640, 360, Palette.DeepSpaceVoid);
 

@@ -49,6 +49,8 @@ public static class Palette
     public const string HexSpsHullDimDark = "#0c141d";
     public const string HexSpsHullDimLight = "#1c2b3a";
     public const string HexSpsWeaponsHot = "#ef4444";
+    public const string HexSpsWeaponsHotOrange = "#f97316";
+    public const string HexSpsWeaponsHotCore = "#fdba74";
     public const string HexSpsHardpointOffline = "#1e293b";
     public const string HexSpsWarpPrimed = "#f59e0b";
     public const string HexSpsWarpIdle = "#115e59";
@@ -61,6 +63,8 @@ public static class Palette
     public static readonly Color SpsHullDimDark = FromHex(HexSpsHullDimDark);
     public static readonly Color SpsHullDimLight = FromHex(HexSpsHullDimLight);
     public static readonly Color SpsWeaponsHot = FromHex(HexSpsWeaponsHot);
+    public static readonly Color SpsWeaponsHotOrange = FromHex(HexSpsWeaponsHotOrange);
+    public static readonly Color SpsWeaponsHotCore = FromHex(HexSpsWeaponsHotCore);
     public static readonly Color SpsHardpointOffline = FromHex(HexSpsHardpointOffline);
     public static readonly Color SpsWarpPrimed = FromHex(HexSpsWarpPrimed);
     public static readonly Color SpsWarpIdle = FromHex(HexSpsWarpIdle);

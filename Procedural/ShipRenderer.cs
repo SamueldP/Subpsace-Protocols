@@ -2178,8 +2178,26 @@ public static class ShipRenderer
         }
 
         // Step 2: Draw 1px Bresenham conduit lines with animated pulse pips from Reactor Core to the 4 dynamic class hardpoints
-        string weaponConduitCol = options.WeaponsHot ? Palette.HexSpsWeaponsHot : Palette.HexSpsHardpointOffline;
+        // Hot/armed weapons (both honest declared AND spoofed) visibly render hot orange conduits & glowing weapon mounts inside SPS!
+        string weaponConduitCol = options.WeaponsHot ? Palette.HexSpsWeaponsHotOrange : Palette.HexSpsHardpointOffline;
         DrawSpsConduitWithPips(viewportBuf, hp.ReactorCore, hp.ForwardWeapons, weaponConduitCol, options.WeaponsHot, animBucket);
+        if (options.WeaponsHot)
+        {
+            // Vivid hot-orange glowing weapon mount thermal signature at ForwardWeapons hardpoint
+            int wx = hp.ForwardWeapons.X;
+            int wy = hp.ForwardWeapons.Y;
+            bool pulseBright = (animBucket % 2) == 0;
+            viewportBuf.FillRect(wx - 2, wy - 2, 5, 5, Palette.HexSpsWeaponsHot);
+            viewportBuf.FillRect(wx - 1, wy - 1, 3, 3, Palette.HexSpsWeaponsHotOrange);
+            viewportBuf.Set(wx, wy, pulseBright ? "#fef08a" : Palette.HexSpsWeaponsHotCore);
+            if (pulseBright)
+            {
+                viewportBuf.Set(wx - 3, wy, Palette.HexSpsWeaponsHotOrange);
+                viewportBuf.Set(wx + 3, wy, Palette.HexSpsWeaponsHotOrange);
+                viewportBuf.Set(wx, wy - 3, Palette.HexSpsWeaponsHotOrange);
+                viewportBuf.Set(wx, wy + 3, Palette.HexSpsWeaponsHotOrange);
+            }
+        }
 
         string warpConduitCol = options.WarpPrimed ? Palette.HexSpsWarpPrimed : Palette.HexSpsWarpIdle;
         DrawSpsConduitWithPips(viewportBuf, hp.ReactorCore, hp.WarpPylons, warpConduitCol, options.WarpPrimed, animBucket);

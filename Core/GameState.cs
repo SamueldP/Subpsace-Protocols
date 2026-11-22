@@ -39,11 +39,79 @@ public sealed class ContrabandPocketItem
     public bool IsEncrypted { get; set; }
 }
 
+public enum TutorialEventHook
+{
+    None = 0,
+    OnDay1Start = 1,
+    OnDay2Start = 2,
+    OnDay3Start = 3
+}
+
+/// <summary>
+/// Persisted per-save tutorial progression tracker keyed by reusable shift-start event hooks
+/// (OnDay1Start, OnDay2Start, OnDay3Start) so playtest CRT tutorial cards can be swapped cleanly
+/// into in-character comms dialogue in Milestone 4 without rewriting trigger sites.
+/// </summary>
+public sealed class TutorialFlags
+{
+    public bool TutorialsEnabled { get; set; } = true;
+    public bool Day1StartSeen { get; set; } = false;
+    public bool Day2StartSeen { get; set; } = false;
+    public bool Day3StartSeen { get; set; } = false;
+
+    public bool HasSeen(TutorialEventHook hook) => hook switch
+    {
+        TutorialEventHook.OnDay1Start => Day1StartSeen,
+        TutorialEventHook.OnDay2Start => Day2StartSeen,
+        TutorialEventHook.OnDay3Start => Day3StartSeen,
+        _ => true
+    };
+
+    public void MarkSeen(TutorialEventHook hook)
+    {
+        switch (hook)
+        {
+            case TutorialEventHook.OnDay1Start:
+                Day1StartSeen = true;
+                break;
+            case TutorialEventHook.OnDay2Start:
+                Day2StartSeen = true;
+                break;
+            case TutorialEventHook.OnDay3Start:
+                Day3StartSeen = true;
+                break;
+        }
+    }
+
+    public void ResetSeenFlags()
+    {
+        Day1StartSeen = false;
+        Day2StartSeen = false;
+        Day3StartSeen = false;
+    }
+
+    public TutorialFlags Clone() => new()
+    {
+        TutorialsEnabled = TutorialsEnabled,
+        Day1StartSeen = Day1StartSeen,
+        Day2StartSeen = Day2StartSeen,
+        Day3StartSeen = Day3StartSeen
+    };
+
+    public static TutorialEventHook GetHookForDay(int day) => day switch
+    {
+        <= 1 => TutorialEventHook.OnDay1Start,
+        2 => TutorialEventHook.OnDay2Start,
+        _ => TutorialEventHook.OnDay3Start
+    };
+}
+
 public sealed class SaveSlotSummary
 {
     public int SlotNumber { get; init; }
     public bool Exists { get; init; }
     public int Day { get; init; }
+    public int RunSeed { get; init; }
     public int PactScrip { get; init; }
     public int SecurityStrikes { get; init; }
     public bool Day2SuspectDetained { get; init; }
@@ -66,8 +134,9 @@ public sealed class GameState
         WriteIndented = true
     };
 
-    // Active Save Slot (1..3) and runtime test flag so --smoke-test never overwrites real saves
+    // Active Save Slot (1..3), Per-Save Random RunSeed, and runtime test flag so --smoke-test never overwrites real saves
     public int ActiveSaveSlot { get; set; } = 1;
+    public int RunSeed { get; set; } = 0;
 
     [JsonIgnore]
     public bool SuppressDiskPersistence { get; set; } = false;
@@ -90,6 +159,8 @@ public sealed class GameState
 
     // 2. Currency (Pact Scrip / SC), Power Units (PU) & Living Fees
     public int PactScrip { get; set; } = 45;
+    [JsonIgnore]
+    public int BasePayPerShipScrip { get; set; } = Constants.BasePayPerShipScrip;
     public int PowerUnits { get; set; } = 0;
     public int MissedBerthLeaseCount { get; set; } = 0;
     public int IndependentPassageFund { get; set; } = 0;
@@ -132,9 +203,27 @@ public sealed class GameState
     public int BrengopKordaniTensionMeter { get; set; } = 0;
     public bool HasKordaniMilitaryInsigniaOnDesk { get; set; } = false;
 
+    // 11. Reusable Playtest Tutorial Event Hook Tracker (persisted per save, reset on New Game)
+    public TutorialFlags TutorialFlags { get; set; } = new();
+
     public GameState()
     {
+        RunSeed = GenerateFreshRunSeed(0);
         InitializeDefaultScores();
+    }
+
+    public static int GenerateFreshRunSeed(int previousSeed)
+    {
+        int candidate = Random.Shared.Next(1, int.MaxValue);
+        if (candidate == previousSeed)
+        {
+            candidate = Random.Shared.Next(1, int.MaxValue);
+            if (candidate == previousSeed)
+            {
+                candidate = previousSeed == int.MaxValue - 1 ? 1 : previousSeed + 1;
+            }
+        }
+        return candidate;
     }
 
     public void InitializeDefaultScores()
@@ -195,6 +284,8 @@ public sealed class GameState
             Day2SuspectPrefix = "ORN-";
         if (string.IsNullOrWhiteSpace(Day2SuspectShipName))
             Day2SuspectShipName = "LITHOS MONOLITH";
+
+        TutorialFlags ??= new TutorialFlags();
     }
 
     public int GetRep(string prefix) =>
@@ -204,12 +295,14 @@ public sealed class GameState
         PowerScore.TryGetValue(prefix, out int val) ? val : 0;
 
     /// <summary>
-    /// Strictly initializes a brand-new save strictly on Day 1, resetting Scrip, warnings,
-    /// strikes, spectrometer state, and shift flags cleanly before persisting to save_slot_N.json.
+    /// Strictly initializes a brand-new save on Day 1 with a fresh random RunSeed,
+    /// resetting Scrip, warnings, strikes, spectrometer state, and shift flags cleanly
+    /// before persisting to save_slot_N.json.
     /// </summary>
     public void ResetForNewSave(int slotNumber)
     {
         ActiveSaveSlot = Math.Clamp(slotNumber, 1, TotalSaveSlots);
+        RunSeed = GenerateFreshRunSeed(RunSeed);
         Day = 1;
         ShipsProcessedToday = 0;
         BribeOfferedThisShift = false;
@@ -218,7 +311,7 @@ public sealed class GameState
         Day2SuspectDetained = false;
         Day2SuspectRegistration = "ORN-442-K";
         Day2SuspectDeclaredOrigin = "Oruun-4";
-        Day2SuspectActualOrigin = "The Ashen Rift";
+        Day2SuspectActualOrigin = "Ashen Rift";
         Day2SuspectPrefix = "ORN-";
         Day2SuspectShipName = "LITHOS MONOLITH";
         Day3KordaniOvernightRepApplied = false;
@@ -249,6 +342,7 @@ public sealed class GameState
         CovertTasksCompleted = 0;
         BrengopKordaniTensionMeter = 0;
         HasKordaniMilitaryInsigniaOnDesk = false;
+        TutorialFlags = new TutorialFlags();
 
         RepScore.Clear();
         PowerScore.Clear();
@@ -264,6 +358,7 @@ public sealed class GameState
     public void CopyFrom(GameState src)
     {
         ActiveSaveSlot = Math.Clamp(src.ActiveSaveSlot, 1, TotalSaveSlots);
+        RunSeed = src.RunSeed != 0 ? src.RunSeed : GenerateFreshRunSeed(RunSeed);
         Day = Math.Max(1, src.Day);
         ShipsProcessedToday = src.ShipsProcessedToday;
         BribeOfferedThisShift = src.BribeOfferedThisShift;
@@ -303,6 +398,7 @@ public sealed class GameState
         CovertTasksCompleted = src.CovertTasksCompleted;
         BrengopKordaniTensionMeter = src.BrengopKordaniTensionMeter;
         HasKordaniMilitaryInsigniaOnDesk = src.HasKordaniMilitaryInsigniaOnDesk;
+        TutorialFlags = (src.TutorialFlags ?? new TutorialFlags()).Clone();
 
         RepScore = new Dictionary<string, int>(src.RepScore, StringComparer.OrdinalIgnoreCase);
         PowerScore = new Dictionary<string, int>(src.PowerScore, StringComparer.OrdinalIgnoreCase);
@@ -384,6 +480,7 @@ public sealed class GameState
                         SlotNumber = slot,
                         Exists = true,
                         Day = Math.Max(1, loaded.Day),
+                        RunSeed = loaded.RunSeed,
                         PactScrip = loaded.PactScrip,
                         SecurityStrikes = loaded.SecurityStrikes,
                         Day2SuspectDetained = loaded.Day2SuspectDetained
@@ -414,8 +511,13 @@ public sealed class GameState
             GameState? loaded = JsonSerializer.Deserialize<GameState>(json, SaveJsonOptions);
             if (loaded != null)
             {
+                bool needsSeedBackfill = loaded.RunSeed == 0;
                 loaded.ActiveSaveSlot = slot;
                 CopyFrom(loaded);
+                if (needsSeedBackfill)
+                {
+                    SaveToDisk();
+                }
                 return true;
             }
         }

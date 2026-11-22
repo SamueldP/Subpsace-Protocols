@@ -3,14 +3,14 @@ using SubspaceProtocols.Core;
 namespace SubspaceProtocols.Simulation;
 
 /// <summary>
-/// Foundational economy engine handling shift pay (15 SC/ship), Berth Lease (30 SC),
+/// Foundational economy engine handling shift pay (default 10 SC/ship), Berth Lease (30 SC),
 /// Power Unit conversion (5 SC/PU), 3-tier food system, and Multi-Buyer Intel sales.
 /// Strictly decoupled from Raylib.
 /// </summary>
 public sealed class EconomyEngine
 {
-    public int CalculateBaseShiftPay(int accuratelyProcessedShips) =>
-        Math.Max(0, accuratelyProcessedShips) * Constants.BasePayPerShipScrip;
+    public int CalculateBaseShiftPay(int accuratelyProcessedShips, int payPerShipScrip = Constants.BasePayPerShipScrip) =>
+        Math.Max(0, accuratelyProcessedShips) * Math.Max(1, payPerShipScrip);
 
     public bool TryPayBerthLease(GameState state)
     {

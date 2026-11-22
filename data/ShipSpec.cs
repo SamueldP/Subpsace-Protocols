@@ -5,7 +5,6 @@ namespace SubspaceProtocols.Data;
 public enum ShipInfractionType
 {
     None = 0,
-    UnregisteredPrefix = 1,
     PrefixHullSilhouetteMismatch = 2,
     SpoofedWeaponsHot = 3,
     RefusedShieldsOrWeaponsCompliance = 4,
@@ -17,24 +16,8 @@ public enum ShipInfractionType
     ExpiredRegistration = 10,
     PrefixOrganizationMismatch = 11,
     PrefixSpeciesMismatch = 12,
-    PacketTamperingMisspelling = 13,
-    RelayRegistryAlert = 14,
-    UnexplainedCargoPowerDraw = 15
-}
-
-public enum RelayPingStatus
-{
-    ActiveClear = 0,
-    NoResponseInterference = 1,
-    AlertReportedStolen = 2,
-    AlertHullDecommissioned = 3
-}
-
-public enum PacketTamperField
-{
-    None = 0,
-    Organization = 1,
-    Origin = 2
+    UnexplainedCargoPowerDraw = 15,
+    TransponderIdMismatch = 16
 }
 
 public sealed class ShipInfraction
@@ -58,12 +41,12 @@ public sealed class ShipGroundTruth
     public bool ActualCargoPowerDraw { get; set; } = false;
     public bool ActualCommsPowered { get; set; } = true;
 
-    // Physical hull & mass truth
+    // Physical hull, raw transponder & mass truth
+    public string RawTransponderId { get; set; } = string.Empty;
     public ShipFaction ActualVisualFaction { get; set; } = ShipFaction.GalacticUnion;
     public ShipClass ActualShipClass { get; set; } = ShipClass.Civilian;
+    public bool IsClassSilhouetteMismatch { get; set; } = false;
     public int ActualMass { get; set; } = 420;
-    public bool IsExpectedShip { get; set; } = false;
-    public int ExpectedShipSlotIndex { get; set; } = -1;
 
     // Hull & viewscreen visual states
     public bool IsDecommissionedHull { get; set; } = false;
@@ -79,11 +62,6 @@ public sealed class ShipGroundTruth
     public PortraitSpecies ActualCaptainSpecies { get; set; } = PortraitSpecies.Human;
     public string ActualOriginSystem { get; set; } = "Veridia";
     public bool IsDay2GhostRouteSuspect { get; set; } = false;
-
-    // Day 1 Verification Ground Truth (Subspace Relay Ping & Packet Tampering)
-    public RelayPingStatus RelayStatus { get; set; } = RelayPingStatus.ActiveClear;
-    public PacketTamperField TamperedField { get; set; } = PacketTamperField.None;
-    public string UntamperedExpectedValue { get; set; } = string.Empty;
 
     /// <summary>
     /// Exact list of active infractions on this vessel.
@@ -102,31 +80,10 @@ public sealed class ShipGroundTruth
     public bool ExteriorWeaponsGlowVisible => ActualWeaponsHot && !HasSpoofedWeapons;
 
     /// <summary>
-    /// True once exterior shields are down and any visible exterior weapon glow is powered off,
-    /// allowing subspace protocol download ("Send subspace protocols.").
+    /// True when exterior shields are up or honest exterior weapons are still active.
+    /// Does NOT block subspace protocol download; must be cleared before Grant Access.
     /// </summary>
-    public bool IsPreClearanceSatisfied => !ActualShieldsUp && !ExteriorWeaponsGlowVisible;
-}
-
-/// <summary>
-/// Represents one of the 10 daily Expected Ship List priority arrivals
-/// issued by Brengop Mercantile Operations.
-/// </summary>
-public sealed class ExpectedShipEntry
-{
-    public int SlotNumber { get; set; }
-    public string RegistrationCode { get; set; } = string.Empty;
-    public string ShipName { get; set; } = string.Empty;
-    public string FactionPrefix { get; set; } = string.Empty;
-    public string FactionShortName { get; set; } = string.Empty;
-    public ShipFaction DeclaredFaction { get; set; } = ShipFaction.GalacticUnion;
-    public ShipClass DeclaredClass { get; set; } = ShipClass.Civilian;
-    public string OriginSystem { get; set; } = string.Empty;
-    public string DestinationSystem { get; set; } = "VG-3 DOCK";
-
-    public bool HasArrived { get; set; } = false;
-    public bool WasResolved { get; set; } = false;
-    public string ResolutionTag { get; set; } = "SCHED";
+    public bool HasActiveShieldsOrHonestWeapons => ActualShieldsUp || ExteriorWeaponsGlowVisible;
 }
 
 /// <summary>
@@ -143,7 +100,7 @@ public sealed class ShipSpec
     public bool IsValid => GroundTruth.IsValid;
     public bool ProtocolReviewVerified { get; set; } = false;
 
-    // Rep-tier compliance timing delay (High >= +6: 0.20s, Mid: 0.55s, Low <= -5: 1.40s)
+    // Rep-tier compliance timing delay (High >= +6: 0.20s, Mid: 0.55s, Low <= -5: 1.35s)
     public float ComplianceDelaySeconds { get; set; } = 0.50f;
 
     // Modular Dialogue Transcript Lines
@@ -153,21 +110,21 @@ public sealed class ShipSpec
     public string RefusalLine { get; set; } = string.Empty;
     public string SpoofedWeaponsDeflectionLine { get; set; } = string.Empty;
     public string SubspaceUploadLine { get; set; } = string.Empty;
+    public string ReTransmitAnnoyedLine { get; set; } = string.Empty;
     public string AutoInterrogationReplyLine { get; set; } = string.Empty;
     public string SuspectRoutePushbackPromptLine { get; set; } = string.Empty;
     public string SuspectRouteDeflectionLine { get; set; } = string.Empty;
 
-    // Protocol Audit Confrontation / Interrogation Responses
+    // Protocol Review Confrontation / Interrogation Responses
     public string ConfrontationGuiltyExcuseHull { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseClassMismatch { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseWeapons { get; set; } = string.Empty;
-    public string ConfrontationGuiltyExcuseUnregistered { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseOrigin { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseExpired { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseOrgMismatch { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseSpeciesMismatch { get; set; } = string.Empty;
-    public string ConfrontationGuiltyExcusePacketTamper { get; set; } = string.Empty;
-    public string ConfrontationGuiltyExcuseRelayAlert { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseCargoPower { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseTransponderId { get; set; } = string.Empty;
     public string ConfrontationInnocentProtest { get; set; } = string.Empty;
 
     public ShipRenderOptions BuildLiveShipRenderOptions(bool spsEnabled, int animTick) =>

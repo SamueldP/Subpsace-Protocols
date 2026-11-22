@@ -4,7 +4,7 @@ using SubspaceProtocols.Core;
 namespace SubspaceProtocols.UI;
 
 /// <summary>
-/// 21:9 Ultrawide Panoramic Cutaway (960 x 411) non-interactive Walk-to-Work Corridor Strip
+/// 21:9 Ultrawide Panoramic Cutaway (1280 x 548) non-interactive Walk-to-Work Corridor Strip
 /// transition screen between Quarters and Booth 04 (Desk).
 /// </summary>
 public sealed class CorridorScreen : IScreen
@@ -55,33 +55,39 @@ public sealed class CorridorScreen : IScreen
             Palette.OxidizedBronzeWorn,
             string.Empty);
 
-        // Industrial bulkhead stanchions and Brown Dwarf infrared porthole slits
-        for (int i = 0; i < 8; i++)
+        // Industrial bulkhead stanchions and Brown Dwarf infrared porthole slits across 1280px
+        for (int i = 0; i < 10; i++)
         {
-            int bx = 28 + i * 118;
-            Raylib.DrawRectangle(bx, stripY + 34, 18, Constants.CorridorHeight - 68, Palette.WeatheredGunmetalEdge);
-            Raylib.DrawRectangle(bx + 30, stripY + 84, 68, 120, Palette.BrownDwarfGlowDeep);
-            Raylib.DrawRectangleLines(bx + 30, stripY + 84, 68, 120, Palette.BrownDwarfGlowRim);
+            int bx = 32 + i * 124;
+            Raylib.DrawRectangle(bx, stripY + 40, 20, Constants.CorridorHeight - 80, Palette.WeatheredGunmetalEdge);
+            Raylib.DrawRectangle(bx + 32, stripY + 104, 72, 160, Palette.BrownDwarfGlowDeep);
+            Raylib.DrawRectangleLines(bx + 32, stripY + 104, 72, 160, Palette.BrownDwarfGlowRim);
         }
 
         float progress = Math.Clamp(_elapsedSeconds / TransitionDurationSeconds, 0f, 1f);
-        int barW = (int)(360 * progress);
+        const int boxW = 460;
+        const int boxH = 68;
+        int boxX = (Constants.VirtualWidth - boxW) / 2;
+        int boxY = stripY + Constants.CorridorHeight - 110;
+        const int barMaxW = 420;
+        int barW = (int)(barMaxW * progress);
 
-        Raylib.DrawRectangle(280, stripY + 290, 400, 58, Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(280, stripY + 290, 400, 58, Palette.CrtAmberDimmed);
+        Raylib.DrawRectangle(boxX, boxY, boxW, boxH, Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(boxX, boxY, boxW, boxH, Palette.CrtAmberDimmed);
 
         string destLabel = _screenManager.NextCorridorDestination == ScreenId.Desk
             ? $"TRANSIT: BERTH QUARTERS -> BOOTH 04 (DAY {_gameState.Day:D2})"
             : $"TRANSIT: CORRIDOR -> {_screenManager.NextCorridorDestination.ToString().ToUpperInvariant()}";
 
-        Raylib.DrawText(destLabel, 298, stripY + 302, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawRectangle(300, stripY + 324, 360, 12, Palette.WeatheredGunmetalMid);
-        Raylib.DrawRectangle(300, stripY + 324, barW, 12, Palette.CrtAmberPrimary);
-        Raylib.DrawRectangleLines(300, stripY + 324, 360, 12, Palette.CrtAmberDimmed);
+        int labelW = Raylib.MeasureText(destLabel, 10);
+        Raylib.DrawText(destLabel, boxX + (boxW - labelW) / 2, boxY + 14, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawRectangle(boxX + 20, boxY + 38, barMaxW, 14, Palette.WeatheredGunmetalMid);
+        Raylib.DrawRectangle(boxX + 20, boxY + 38, barW, 14, Palette.CrtAmberPrimary);
+        Raylib.DrawRectangleLines(boxX + 20, boxY + 38, barMaxW, 14, Palette.CrtAmberDimmed);
 
-        Raylib.DrawText(
-            $"DAY {_gameState.Day:D2} // VOID GATE 3 SECTOR TRANSIT (CLICK OR SPACE TO SKIP)",
-            286, Constants.VirtualHeight - 28, 10, Palette.CrtAmberDimmed);
+        string footer = $"DAY {_gameState.Day:D2} // VOID GATE 3 SECTOR TRANSIT (CLICK OR SPACE TO SKIP)";
+        int footerW = Raylib.MeasureText(footer, 10);
+        Raylib.DrawText(footer, (Constants.VirtualWidth - footerW) / 2, Constants.VirtualHeight - 36, 10, Palette.CrtAmberDimmed);
     }
 
     public void Unload() { }

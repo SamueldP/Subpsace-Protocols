@@ -2,15 +2,15 @@ namespace SubspaceProtocols.Core;
 
 public static class Constants
 {
-    // Virtual Framebuffer & Window Dimensions (Exact 16:9 -> 2x Integer Scale = 1920x1080)
-    public const int VirtualWidth = 960;
-    public const int VirtualHeight = 540;
-    public const int DefaultWindowWidth = 1920;
-    public const int DefaultWindowHeight = 1080;
+    // Virtual Framebuffer & Window Dimensions (Exact 16:9 -> 1280x720 Native)
+    public const int VirtualWidth = 1280;
+    public const int VirtualHeight = 720;
+    public const int DefaultWindowWidth = 1280;
+    public const int DefaultWindowHeight = 720;
 
     // Static Aspect-Ratio Sub-Views
-    public const int CorridorWidth = 960;
-    public const int CorridorHeight = 411; // 21:9 Walk-to-Work Corridor Strip
+    public const int CorridorWidth = 1280;
+    public const int CorridorHeight = 548; // 21:9 Walk-to-Work Corridor Strip inside 1280x720
 
     // Procedural Buffer Grids
     public const int PortraitWidth = 64;
@@ -20,7 +20,7 @@ public static class Constants
 
     // Shift Timing & Station Cycle Calendar (CYC YYYY.MM)
     public const float ShiftDurationSeconds = 270.0f; // 4m 30s diegetic Brown Dwarf arc
-    public const int ExpectedShipsPerDay = 10;
+    public const int PreGeneratedQueueSize = 16;      // Pre-loaded deterministic daily shift queue
     public const int BaseStationCycleYear = 2409;
     public const int BaseStationCycleMonth = 4;
 
@@ -37,8 +37,8 @@ public static class Constants
     public static int CompareCycle(int yearA, int monthA, int yearB, int monthB) =>
         (yearA * 12 + monthA).CompareTo(yearB * 12 + monthB);
 
-    // Economy & Penalties (00_System_Index/_State_Variables.md & 03_Gameplay_Rules)
-    public const int BasePayPerShipScrip = 15;
+    // Economy & Penalties (Prompt 3.6 baseline: 10 SC default base pay per accurately processed ship)
+    public const int BasePayPerShipScrip = 10;
     public const int ScripPerPowerUnit = 5;
     public const int BerthLeaseNightlyScrip = 30;
     public const int MaxMissedBerthLeaseNights = 2;
@@ -81,6 +81,4 @@ public static class Constants
         "MNG-", // Mining Guild (High Traffic)
         "ZNI-"  // Zenith Interstellar (Mid Traffic)
     ];
-
-    public const string UnregisteredPrefix = "UNR-";
 }
