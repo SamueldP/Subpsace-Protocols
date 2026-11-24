@@ -26,14 +26,16 @@ public sealed class TutorialOverlay
         string FooterTip);
 
     private readonly GameState _gameState;
+    private readonly Core.ConfigFlags _config;
 
     public bool IsOpen { get; private set; }
     public TutorialEventHook ActiveHook { get; private set; } = TutorialEventHook.None;
     public bool OpenedFromPauseSummary { get; private set; }
 
-    public TutorialOverlay(GameState gameState)
+    public TutorialOverlay(GameState gameState, Core.ConfigFlags? config = null)
     {
         _gameState = gameState;
+        _config = config ?? new Core.ConfigFlags();
     }
 
     // =========================================================================
@@ -44,6 +46,10 @@ public sealed class TutorialOverlay
     public void OnDay2Start(bool force = false) => TryOpenHook(TutorialEventHook.OnDay2Start, force);
 
     public void OnDay3Start(bool force = false) => TryOpenHook(TutorialEventHook.OnDay3Start, force);
+
+    public void OnFirstMorningQuarters(bool force = false) => TryOpenHook(TutorialEventHook.OnFirstMorningQuarters, force);
+
+    public void OnFirstEveningQuarters(bool force = false) => TryOpenHook(TutorialEventHook.OnFirstEveningQuarters, force);
 
     public void TriggerDayStartHook(int day, bool force = false)
     {
@@ -62,11 +68,17 @@ public sealed class TutorialOverlay
     }
 
     /// <summary>
-    /// Re-opens the current day's rules & controls card at any time (e.g., from ESC Pause Menu [?]).
+    /// Re-opens the context-appropriate rules &amp; controls card at any time (e.g., from ESC Pause Menu [?]).
     /// </summary>
-    public void OpenCurrentDaySummary()
+    public void OpenCurrentDaySummary() => OpenSummaryForScreen(ScreenId.Desk);
+
+    public void OpenSummaryForScreen(ScreenId currentScreen)
     {
-        TutorialEventHook hook = TutorialFlags.GetHookForDay(_gameState.Day);
+        TutorialEventHook hook = currentScreen == ScreenId.Quarters
+            ? (_gameState.QuartersPhase == QuartersPhase.Morning
+                ? TutorialEventHook.OnFirstMorningQuarters
+                : TutorialEventHook.OnFirstEveningQuarters)
+            : TutorialFlags.GetHookForDay(_gameState.Day);
         ActiveHook = hook;
         OpenedFromPauseSummary = true;
         IsOpen = true;
@@ -154,7 +166,7 @@ public sealed class TutorialOverlay
         if (!IsOpen || ActiveHook == TutorialEventHook.None)
             return;
 
-        TutorialCardContent card = BuildContent(ActiveHook);
+        TutorialCardContent card = BuildContent(ActiveHook, _gameState.TerminalHackedUnlocked, _config);
 
         // Dim CRT backdrop with subtle scanlines
         Raylib.DrawRectangle(0, 0, Constants.VirtualWidth, Constants.VirtualHeight, new Color(8, 11, 16, 198));
@@ -231,12 +243,16 @@ public sealed class TutorialOverlay
         Raylib.DrawText(escNote, bx + (CardW - nw) / 2, by + CardH - 18, 10, Palette.WeatheredGunmetalEdge);
     }
 
-    private static TutorialCardContent BuildContent(TutorialEventHook hook) =>
-        hook switch
+    private static TutorialCardContent BuildContent(TutorialEventHook hook, bool terminalHackedUnlocked, Core.ConfigFlags config)
+    {
+        int manualPart1 = config.DayUnlockManualPart1;
+        int manualHulls = config.DayUnlockManualHulls;
+
+        return hook switch
         {
             TutorialEventHook.OnDay1Start => new TutorialCardContent(
                 "DAY 01 RULES & CONTROLS // BOOTH 04 ORIENTATION [PLAYTEST]",
-                "SHIFT TIMER FROZEN  |  SINGLE DAY 01 CHECK: REGISTRATION MATCH",
+                "SHIFT TIMER FROZEN  |  DAY 01 CHECK: REGISTRATION MATCH + PROTOCOL REVIEW",
                 [
                     new TutorialSection(
                         "1. DAY 01 RULE -- TRANSPONDER ID vs. DATA SLATE REG CODE",
@@ -247,8 +263,8 @@ public sealed class TutorialOverlay
                         "Click [NEXT HAIL] to bring a vessel into the bay and download its packet onto the Data Slate. If IDs match, drag the Data Slate into the right-side CLEARANCE DOCK, wait for encryption, then drag the cleared slate back up to the SLATE BUS to transmit clearance.",
                         Palette.ClearanceTeal),
                     new TutorialSection(
-                        "3. DETAINING VIOLATORS (IF IDS DO NOT MATCH)",
-                        "If TRANSPONDER ID and REG CODE conflict, pull the red DETAIN lever on the far left of the viewport to lock station clamps and wipe the Data Slate.",
+                        "3. PROTOCOL REVIEW BEFORE DETAINING (IF IDS CONFLICT)",
+                        "If TRANSPONDER ID and REG CODE conflict, click [PROTOCOL REVIEW], select both conflicting fields to confirm the fault, then pull the red DETAIN lever. Pulling DETAIN without confirming via PROTOCOL REVIEW first triggers a Brengop Clerical Warning.",
                         Palette.AlertCrimson)
                 ],
                 "TIP: 2 free clerical warnings per shift; mistakes beyond 2 deduct 10 SC."),
@@ -263,34 +279,77 @@ public sealed class TutorialOverlay
                         Palette.CrtAmberPrimary),
                     new TutorialSection(
                         "2. SPS PROBE ARM & SWAYING RETICLE",
-                        "Click [SPS PROBE] beside the viewport to extend the sensor arm. Move the swaying reticle across the hull to inspect internal power conduits.",
+                        "Click [SPS PROBE] beside the viewport to extend the sensor arm. Move the swaying reticle across the hull to inspect internal power conduits and log [!] HOT WPN anomalies.",
                         Palette.SpsCommsActive),
                     new TutorialSection(
-                        "3. DETECTING HOT WEAPONS & CATCHING LIARS WITH SPS",
-                        "All armed ships show glowing hot orange weapon mounts inside the swaying SPS lens. Hover 0.5s to log [!] HOT WPN in the SPS LOG, then press [PWR DOWN WPN] under Comms. Honest captains cool down immediately; if a liar claiming WPN: OFFLINE stays hot, pull DETAIN.",
+                        "3. WEAPONS COMPLIANCE BLUFF & CATCHING LIARS",
+                        "Honest armed ships power down cleanly on the 1st [PWR DOWN WPN] command. Deceptive ships claiming WPN: OFFLINE bluff compliance on the 1st command while staying hot in SPS, then refuse on the 2nd -- pair [!] HOT WPN vs WPN: OFFLINE in [PROTOCOL REVIEW] before pulling DETAIN.",
                         Palette.AlertCrimson)
                 ],
-                "TIP: Day 01 Transponder ID checks remain active alongside Day 02 SPS checks."),
+                "TIP: Day 01 Transponder ID & Protocol Review checks remain active alongside Day 02 SPS checks."),
 
-            _ => new TutorialCardContent(
-                "DAY 03 RULES & CONTROLS // PROTOCOL REVIEW, STRIKES & WARP CHECKER [PLAYTEST]",
-                "SHIFT TIMER FROZEN  |  FULL INSPECTION SUITE & SECURITY STRIKES ONLINE",
+            TutorialEventHook.OnFirstMorningQuarters => new TutorialCardContent(
+                "MORNING QUARTERS // PRE-SHIFT PREPARATION [PLAYTEST]",
+                "SHIFT CLOCK OFF  |  PREPARE BEFORE WALKING CORRIDOR TO BOOTH 04",
                 [
                     new TutorialSection(
-                        "1. MANDATORY PROTOCOL REVIEW & KORDANI SECURITY STRIKES",
-                        "Before pulling DETAIN, click [PROTOCOL REVIEW] and pair the conflicting Claim (Data Slate field) with Reality (Transponder ID, Viewport Hull, Station Cycle, SPS LOG [!] HOT WPN / Cargo Draw, or Warp Strip). Security Strikes are active (3 = audit; 5 = detainment).",
+                        "1. PERSONAL TERMINAL & DAY 2+ MORNING SHIP ROSTER",
+                        "Click your Personal Terminal on the back-left desk. On Day 1 Morning the amber Unread LED blinks with your Brengop reassignment contract; from Day 2 Morning onward, check MESSAGES for the 10-ship Morning Ship Roster (1-3 actually arrive in your shift; rostered ships can still carry violations!).",
+                        Palette.ClearanceTeal),
+                    new TutorialSection(
+                        "2. 0500 SERVICE CHUTE, COAT POCKET & UNDER-DESK VENT STASH",
+                        "Overnight carryable orders arrive in the left-wall Service Chute at 0500. Click items in the Chute to pack your bottom Coat Pocket tray (synced with Booth 04's Lap Pocket), or click Coat Pocket items to hide contraband inside the Under-Desk Vent Stash.",
+                        Palette.CrtAmberPrimary),
+                    new TutorialSection(
+                        "3. LEFT-WALL DOOR -> WALK TO BOOTH 04",
+                        "Hover room objects for clean highlights and tooltips. When ready for your shift, click the Left-Wall Door to walk the Habitat Ring corridor into Booth 04.",
+                        Palette.CrtAmberPrimary)
+                ],
+                "TIP: Press [ESC] anytime to close the Terminal or open the Pause Menu."),
+
+            TutorialEventHook.OnFirstEveningQuarters => new TutorialCardContent(
+                "EVENING QUARTERS // SURVIVAL, INTEL & SLEEP [PLAYTEST]",
+                "BERTH LEASE AUTO-SETTLED AT CLOCK-OUT  |  PURE PACT SCRIP (SC) ECONOMY",
+                [
+                    new TutorialSection(
+                        "1. PACT REQ (FLAT-SC RATIONS & LIVE SCRIP BALANCE)",
+                        "Open your Personal Terminal -> PACT REQ to order tonight's rations using Pact Scrip (Dry Bricks 10 SC, Nutrient Paste 20 SC, High-Tier 30 SC). Food rations are the sole driver of next-shift SPS cursor sway.",
+                        Palette.FromHex("#bdb040")),
+                    new TutorialSection(
+                        terminalHackedUnlocked
+                            ? "2. CRYPTO / LOGS & DECK 4 (COVERT CONTRACTS & LOG SCRUBBING)"
+                            : "2. MESSAGES, FORUM & STATION STANDING",
+                        terminalHackedUnlocked
+                            ? "Accept Delivery or Intercept contracts and order gear on DECK 4 (Audit Deferral clears 1 Strike for 50 SC). In CRYPTO / LOGS, DECRYPT [0 SC] and mission [TRANSMIT] write hex traces -- run SCRUB LOGS (15 SC) to keep your Vent Stash safe!"
+                            : "Check MESSAGES for incoming transmissions and browse the Station FORUM for sector rumors and traffic developments. All official station tabs operate on your live Pact Scrip balance.",
+                        Palette.CrtAmberPrimary),
+                    new TutorialSection(
+                        "3. BED -> SLEEP & TWO-TIER KORDANI BERTH RAID",
+                        "Click the Bed to sleep into Morning Quarters. At 3/3 Security Strikes (Day 3+), Kordani raids your berth: Coat Frisk confiscates unshielded coat contraband (1 item safe with Lining); clean logs keep the Under-Desk Vent safe, while dirty logs trigger a Deep Sweep!",
+                        Palette.AlertCrimson)
+                ],
+                "TIP: Hide contraband slates in the Vent Stash and scrub hex logs before sleeping at 3/3 Strikes."),
+
+            _ => new TutorialCardContent(
+                "DAY 03 RULES & CONTROLS // STRIKES & GLOWING WARP CHECKER [PLAYTEST]",
+                "SHIFT TIMER FROZEN  |  WARP SPECTROMETER & SECURITY STRIKES (0/3) ONLINE",
+                [
+                    new TutorialSection(
+                        "1. KORDANI SECURITY STRIKES (0/3) & PROTOCOL REVIEW",
+                        "Security Strikes activate today (3/3 triggers a Kordani Berth Audit on sleep). Continue confirming every fault via [PROTOCOL REVIEW] before detaining: Transponder ID, SPS Hot Weapons, or Falsified Origin Waveform.",
                         Palette.AlertCrimson),
                     new TutorialSection(
                         "2. WARP PRINTER & TRANSLUCENT GLOWING WARP CHECKER",
                         "After shields drop, click [SCAN WARP], drag to tear off the magnetic strip, and lay it 1:1 over the Glowing Warp Checker glass. Cycle < REF: SYSTEM >: matching curves glow bright amber/white; deviating segments bleed RED.",
                         Palette.CrtAmberPrimary),
                     new TutorialSection(
-                        "3. DESK REFERENCE MANUAL (1. PREFIXES & 2. HULLS)",
-                        "Use the Reference Manual to cross-check Prefix/Organization pairings, permitted Captain Species, and Faction Hull & Class silhouettes against the Data Slate and Space Viewport.",
+                        $"3. STAGGERED MANUAL ROLLOUT (DAYS {manualPart1:D2} & {manualHulls:D2})",
+                        $"Day 04 is a routine watch; the Kordani Reference Manual Tablet unlocks on Day {manualPart1:D2} (Registration Expiry & Prefix vs. Org/Species), followed by Hull Silhouette & Ship Class enforcement on Day {manualHulls:D2}.",
                         Palette.ClearanceTeal)
                 ],
-                "TIP: Unverified detainments issue clerical citations -- always run Protocol Review first.")
+                "TIP: Unverified detainments issue Brengop Clerical Warnings -- confirm faults first.")
         };
+    }
 
     private static List<string> WrapTextByPixelWidth(string text, int fontSize, int maxPixelWidth)
     {

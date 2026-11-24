@@ -9,6 +9,7 @@ public sealed class DevDebugState
     public static readonly float[] TimeScalePresets = [1.0f, 2.0f, 5.0f, 10.0f];
     public static readonly int[] PayPerShipPresets = [5, 8, 10, 15];
     public static readonly float[] AnimationSpeedPresets = [0.75f, 1.0f, 1.25f, 1.5f, 2.0f];
+    public static readonly float[] PriceScalePresets = [0.5f, 0.75f, 1.0f, 1.25f, 1.5f];
 
     public int TimeScalePresetIndex { get; set; } = 0;
     public float ShiftTimeScale => TimeScalePresets[Math.Clamp(TimeScalePresetIndex, 0, TimeScalePresets.Length - 1)];
@@ -27,10 +28,23 @@ public sealed class DevDebugState
         AnimationSpeedPresets[Math.Clamp(AnimationSpeedPresetIndex, 0, AnimationSpeedPresets.Length - 1)];
 
     /// <summary>
+    /// Live runtime price scale multiplier (0.5x / 0.75x / 1.0x / 1.25x / 1.5x) mutating ConfigFlags in memory.
+    /// </summary>
+    public int PriceScalePresetIndex { get; set; } = 2; // 1.0x
+    public float PriceScaleMultiplier =>
+        PriceScalePresets[Math.Clamp(PriceScalePresetIndex, 0, PriceScalePresets.Length - 1)];
+
+    /// <summary>
     /// Controls whether the dev-only [SYNC] shortcut button is visible inside the Desk Reference Manual.
     /// Hidden by default during normal gameplay.
     /// </summary>
     public bool DevManualSyncEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Live B1/B2 Hailing Viewscreen portrait scale toggle in F1 Dev Debug Overlay:
+    /// true = 3x (192x192 crisp nearest-neighbor), false = 2x (128x128 framed with LIVE FEED / AUDIO ONLY bar).
+    /// </summary>
+    public bool Use3xPortraitInLayoutB { get; set; } = true;
 
     /// <summary>
     /// 0 = Auto (~65% valid / ~35% invalid), 1 = Force Valid, 2 = Force Invalid
@@ -54,6 +68,22 @@ public sealed class DevDebugState
     public void StepAnimationSpeed(int delta)
     {
         AnimationSpeedPresetIndex = Math.Clamp(AnimationSpeedPresetIndex + delta, 0, AnimationSpeedPresets.Length - 1);
+    }
+
+    public void StepPriceScale(int delta, ConfigFlags config)
+    {
+        PriceScalePresetIndex = Math.Clamp(PriceScalePresetIndex + delta, 0, PriceScalePresets.Length - 1);
+        config.ApplyRuntimePriceScale(PriceScaleMultiplier);
+    }
+
+    public void TogglePortraitScaleB()
+    {
+        Use3xPortraitInLayoutB = !Use3xPortraitInLayoutB;
+    }
+
+    public static void SetDeskUpperLayoutMode(DeskUpperLayoutMode mode, ConfigFlags config)
+    {
+        config.DeskUpperLayoutMode = mode;
     }
 
     public void CycleSpawnValidityMode()

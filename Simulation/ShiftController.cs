@@ -7,12 +7,13 @@ public enum ComplianceOrderOutcome
 {
     AlreadyCompliant = 0,
     Complied = 1,
-    SpoofedDeflection = 2,
-    RefusedOutright = 3
+    SpoofedBluff = 2,
+    SpoofedDeflection = 3,
+    RefusedOutright = 4
 }
 
 /// <summary>
-/// Manages the 4-minute 30-second (270s) shift timer, Brown Dwarf orbital progress (0..1),
+/// Manages the variable shift timer (210s-285s configurable via ConfigFlags), Brown Dwarf orbital progress (0..1),
 /// pre-generated 16-vessel daily ship queue seeded from (RunSeed, Day) plus unscripted random
 /// overflow spawning if a fast player clears all 16 before the bell rings, unified compliance
 /// resolution, hold-until-first-hail rule, pre-shift pause state, debug TimeScale, and shift-end horn trigger.
@@ -20,6 +21,12 @@ public enum ComplianceOrderOutcome
 /// </summary>
 public sealed class ShiftController
 {
+    private readonly Core.ConfigFlags? _config;
+
+    public ShiftController(Core.ConfigFlags? config = null)
+    {
+        _config = config;
+    }
     /// <summary>
     /// Unified deliberate base duration (seconds at 1.0x AnimationSpeedMultiplier) shared across:
     /// - Slate Bus incoming protocol download (RX PACKET)
@@ -31,6 +38,18 @@ public sealed class ShiftController
     public const float DetainClampImpactFraction = 0.35f; // Clamps slam shut on hull
     public const float DetainSlateWipeFraction = 0.65f;   // Telemetry wipes cleanly after clamp lock
     public const float UnplugMidTransferDragThresholdPx = 8.0f;
+
+    /// <summary>
+    /// Deliberate non-blocking CRT Comms Dialogue typewriter timing constants (at 1.0x AnimationSpeedMultiplier).
+    /// </summary>
+    public const float DefaultDialogueCharsPerSec = 65.0f;
+    public const float TypewriterCommaPauseSeconds = 0.06f;
+    public const float TypewriterSentencePauseSeconds = 0.15f;
+    public const float TypewriterEllipsisPauseSeconds = 0.25f;
+    public const float SubspaceReceivingLagMinSeconds = 0.55f;
+    public const float SubspaceReceivingLagMaxSeconds = 0.65f;
+    public const float SubspaceReceivingLagSeconds = 0.60f; // 0.55-0.65s dead-air [RECEIVING...] beat (+0.20s bump)
+    public const float ProtocolFaultBeatSeconds = 0.50f;
 
     /// <summary>
     /// Evaluates whether a mid-transfer Data Slate unplug (1%-99% progress) should cleanly abort & reset to 0%.
@@ -53,9 +72,10 @@ public sealed class ShiftController
     private readonly HashSet<string> _usedQueueRegs = new(StringComparer.OrdinalIgnoreCase);
     private int _nextQueueIndex;
 
+    public float ActiveShiftDurationSeconds { get; private set; } = Constants.ShiftDurationSeconds;
     public float ElapsedShiftSeconds { get; private set; }
     public bool HasShiftTimerStarted { get; private set; }
-    public bool IsShiftTimerExpired => ElapsedShiftSeconds >= Constants.ShiftDurationSeconds;
+    public bool IsShiftTimerExpired => ElapsedShiftSeconds >= ActiveShiftDurationSeconds;
     public bool HasActiveShipInBay { get; set; }
     public bool IsPreShiftSequenceActive { get; set; }
     public float TimeScale { get; set; } = 1.0f;
@@ -65,13 +85,17 @@ public sealed class ShiftController
     public bool IsInRandomOverflow => _nextQueueIndex > _dailyQueue.Count;
 
     public float BrownDwarfArcProgress =>
-        Math.Clamp(ElapsedShiftSeconds / Constants.ShiftDurationSeconds, 0.0f, 1.0f);
+        ActiveShiftDurationSeconds > 0f
+            ? Math.Clamp(ElapsedShiftSeconds / ActiveShiftDurationSeconds, 0.0f, 1.0f)
+            : 1.0f;
 
     public bool CanTriggerNextHail => !IsShiftTimerExpired && !HasActiveShipInBay && !IsPreShiftSequenceActive;
     public bool CanEndShift => IsShiftTimerExpired && !HasActiveShipInBay && !IsPreShiftSequenceActive;
 
-    public void StartNewShift(GameState state)
+    public void StartNewShift(GameState state, Core.ConfigFlags? config = null)
     {
+        int durSec = (config ?? _config ?? new Core.ConfigFlags()).GetShiftDurationSeconds(state.Day);
+        ActiveShiftDurationSeconds = Math.Max(1f, durSec);
         ElapsedShiftSeconds = 0.0f;
         HasShiftTimerStarted = false; // Hold timer at t = 0 until player clicks "Next Hail" for first ship
         HasActiveShipInBay = false;
@@ -81,9 +105,13 @@ public sealed class ShiftController
         _usedQueueRegs.Clear();
         _nextQueueIndex = 0;
 
-        // Cleanly reset daily clerical warning counter (2 free grace warnings/shift) at the start of every shift
+        // Cleanly reset daily clerical warning counter (2 free grace warnings/shift) & shift ledger accumulators
         state.ShipsProcessedToday = 0;
         state.ClericalWarningsThisShift = 0;
+        state.ShiftStartScrip = state.PactScrip;
+        state.ShiftGrossPayEarned = 0;
+        state.ShiftClericalFinesPaid = 0;
+        state.StokerOverloadedToday = false;
         state.BribeOfferedThisShift = false;
     }
 
@@ -94,12 +122,13 @@ public sealed class ShiftController
         GameState state,
         ShipGenerator generator,
         int queueSize = Constants.PreGeneratedQueueSize,
-        uint reseedNonce = 0)
+        uint reseedNonce = 0,
+        Core.ConfigFlags? config = null)
     {
         _dailyQueue.Clear();
         _usedQueueRegs.Clear();
         _nextQueueIndex = 0;
-        List<ShipSpec> generated = generator.GenerateDailyQueue(state, queueSize, reseedNonce);
+        List<ShipSpec> generated = generator.GenerateDailyQueue(state, queueSize, reseedNonce, config);
         _dailyQueue.AddRange(generated);
         foreach (ShipSpec ship in generated)
         {
@@ -117,7 +146,8 @@ public sealed class ShiftController
         GameState state,
         ShipGenerator generator,
         DebugSpawnValidityMode forceValidity = DebugSpawnValidityMode.Auto,
-        uint reseedNonce = 0)
+        uint reseedNonce = 0,
+        Core.ConfigFlags? config = null)
     {
         int slotIndex = _nextQueueIndex++;
 
@@ -133,19 +163,20 @@ public sealed class ShiftController
             ? reseedNonce
             : (uint)Random.Shared.Next(1, int.MaxValue);
 
-        return generator.GenerateShipForSlot(state, slotIndex, effectiveNonce, forceValidity, _usedQueueRegs);
+        return generator.GenerateShipForSlot(state, slotIndex, effectiveNonce, forceValidity, _usedQueueRegs, config);
     }
 
     /// <summary>
     /// Resolves an officer's LOWER SHIELDS order.
-    /// On Days 1-13, captains ALWAYS comply. Outright refusal is strictly gated to Day 14+ & rep_score <= -9.
+    /// On Days 1-13, captains ALWAYS comply. Outright refusal is strictly gated to Day 14+ &amp; rep_score &lt;= -9.
     /// </summary>
-    public static ComplianceOrderOutcome ResolveShieldsOrder(GameState state, ShipSpec ship)
+    public static ComplianceOrderOutcome ResolveShieldsOrder(GameState state, ShipSpec ship, Core.ConfigFlags? config = null)
     {
         if (!ship.GroundTruth.ActualShieldsUp)
             return ComplianceOrderOutcome.AlreadyCompliant;
 
-        bool canRefuse = state.Day >= 14 &&
+        int hostilityDay = config?.DayUnlockHostilityDestroy ?? Constants.DefaultDayUnlockHostilityDestroy;
+        bool canRefuse = state.Day >= hostilityDay &&
                          state.GetRep(ship.Slate.DeclaredPrefix) <= Constants.RepExtremeHostileThreshold &&
                          ship.GroundTruth.WillRefuseShieldsCompliance;
 
@@ -159,19 +190,27 @@ public sealed class ShiftController
 
     /// <summary>
     /// Resolves an officer's POWER DOWN WPN order.
-    /// Honest armed ships ALWAYS comply on Days 1-13. Liars claiming WPN: OFFLINE with spoofed hot
-    /// weapons deflect verbally without triggering a refusal lock (must be caught via swaying SPS lens).
-    /// Outright refusal is strictly gated to Day 14+ & rep_score <= -9.
+    /// Honest armed ships ALWAYS comply cleanly on the 1st command on Days 1-13.
+    /// Deceptive ships claiming WPN: OFFLINE with spoofed hot weapons bluff compliance on the 1st command
+    /// while remaining visibly hot in SPS, then give their defensive refusal/excuse on the 2nd+ command.
+    /// Outright refusal is strictly gated to Day 14+ &amp; rep_score &lt;= -9.
     /// </summary>
-    public static ComplianceOrderOutcome ResolveWeaponsOrder(GameState state, ShipSpec ship)
+    public static ComplianceOrderOutcome ResolveWeaponsOrder(GameState state, ShipSpec ship, Core.ConfigFlags? config = null)
     {
         if (!ship.GroundTruth.ActualWeaponsHot)
             return ComplianceOrderOutcome.AlreadyCompliant;
 
-        if (ship.GroundTruth.HasSpoofedWeapons)
-            return ComplianceOrderOutcome.SpoofedDeflection;
+        ship.WeaponsPowerDownOrdersIssued++;
 
-        bool canRefuse = state.Day >= 14 &&
+        if (ship.GroundTruth.HasSpoofedWeapons)
+        {
+            return ship.WeaponsPowerDownOrdersIssued == 1
+                ? ComplianceOrderOutcome.SpoofedBluff
+                : ComplianceOrderOutcome.SpoofedDeflection;
+        }
+
+        int hostilityDay = config?.DayUnlockHostilityDestroy ?? Constants.DefaultDayUnlockHostilityDestroy;
+        bool canRefuse = state.Day >= hostilityDay &&
                          state.GetRep(ship.Slate.DeclaredPrefix) <= Constants.RepExtremeHostileThreshold &&
                          ship.GroundTruth.WillRefuseWeaponsCompliance;
 
@@ -184,7 +223,7 @@ public sealed class ShiftController
     }
 
     /// <summary>
-    /// Starts the 270-second shift timer when the player triggers "Next Hail" for the first vessel of the shift.
+    /// Starts the active day's shift timer when the player triggers "Next Hail" for the first vessel of the shift.
     /// </summary>
     public void NotifyFirstHailTriggered()
     {
@@ -201,7 +240,7 @@ public sealed class ShiftController
 
         float scaledDelta = deltaSeconds * Math.Clamp(TimeScale, 0.1f, 20.0f);
         bool wasExpired = IsShiftTimerExpired;
-        ElapsedShiftSeconds = Math.Min(Constants.ShiftDurationSeconds, ElapsedShiftSeconds + scaledDelta);
+        ElapsedShiftSeconds = Math.Min(ActiveShiftDurationSeconds, ElapsedShiftSeconds + scaledDelta);
 
         if (!wasExpired && IsShiftTimerExpired && !_shiftHornPlayed)
         {
@@ -217,7 +256,7 @@ public sealed class ShiftController
     {
         HasShiftTimerStarted = true;
         bool wasExpired = IsShiftTimerExpired;
-        ElapsedShiftSeconds = Math.Clamp(seconds, 0f, Constants.ShiftDurationSeconds);
+        ElapsedShiftSeconds = Math.Clamp(seconds, 0f, ActiveShiftDurationSeconds);
         if (!wasExpired && IsShiftTimerExpired && !_shiftHornPlayed)
         {
             _shiftHornPlayed = true;
@@ -227,6 +266,6 @@ public sealed class ShiftController
 
     public void ForceEndShiftNow()
     {
-        ForceSetElapsedSeconds(Constants.ShiftDurationSeconds);
+        ForceSetElapsedSeconds(ActiveShiftDurationSeconds);
     }
 }

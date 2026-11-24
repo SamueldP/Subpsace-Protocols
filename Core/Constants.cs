@@ -19,7 +19,13 @@ public static class Constants
     public const int ShipHeight = 56;
 
     // Shift Timing & Station Cycle Calendar (CYC YYYY.MM)
-    public const float ShiftDurationSeconds = 270.0f; // 4m 30s diegetic Brown Dwarf arc
+    public const float ShiftDurationSeconds = 270.0f; // Stage 4 baseline fallback
+    public const int DefaultShiftDurationDay1 = 210;       // 3m 30s
+    public const int DefaultShiftDurationDays2To4 = 240;   // 4m 00s
+    public const int DefaultShiftDurationDays5To9 = 255;   // 4m 15s
+    public const int DefaultShiftDurationDays10To15 = 270; // 4m 30s
+    public const int DefaultShiftDurationDays16Plus = 285; // 4m 45s
+    public const int MaxCampaignDay = 25;
     public const int PreGeneratedQueueSize = 16;      // Pre-loaded deterministic daily shift queue
     public const int BaseStationCycleYear = 2409;
     public const int BaseStationCycleMonth = 4;
@@ -37,33 +43,46 @@ public static class Constants
     public static int CompareCycle(int yearA, int monthA, int yearB, int monthB) =>
         (yearA * 12 + monthA).CompareTo(yearB * 12 + monthB);
 
-    // Economy & Penalties (Prompt 3.6 baseline: 10 SC default base pay per accurately processed ship)
+    // Economy & Penalties (Pure Pact Scrip / SC Economy; 10 SC default base pay per accurately processed ship)
     public const int BasePayPerShipScrip = 10;
-    public const int ScripPerPowerUnit = 5;
     public const int BerthLeaseNightlyScrip = 30;
     public const int MaxMissedBerthLeaseNights = 2;
 
     public const int FreeClericalWarningsPerShift = 2;
     public const int ClericalErrorFineScrip = 10;
     public const int SecurityStrikesAuditThreshold = 3;
-    public const int DefaultMaxSecurityStrikes = 5;
 
-    public const int NutrientPasteCostPU = 4;      // 20 SC
-    public const int HighTierRationsCostPU = 6;    // 30 SC
-    public const int DecryptMessageCostPU = 3;     // 15 SC
-    public const int EncryptAndSendDataCostPU = 4; // 20 SC
-    public const int ScrubSecurityLogsCostPU = 5;  // 25 SC
+    public const int DryRationBricksCostScrip = 10;
+    public const int NutrientPasteCostScrip = 20;
+    public const int HighTierRationsCostScrip = 30;
+    public const int ScrubSecurityLogsCostScrip = 15;
 
     public const int BlankDataSlateCostScrip = 15;
     public const int ShieldedPocketLiningCostScrip = 90;
     public const int BrengopAuditDeferralCostScrip = 50;
-    public const int IndependentPassageFundTargetScrip = 600;
+    public const int IndependentPassageFundTarget = 1000;
+    public const int IndependentPassageFundTargetScrip = IndependentPassageFundTarget;
 
     // Reputation Thresholds
     public const int RepLowThreshold = -5;
     public const int RepExtremeHostileThreshold = -9;
     public const int RepHighThreshold = 6;
     public const int RepKordaniDestroyUnlock = 8;
+
+    // Progressive Rule Escalation & Hardware Unlock Days
+    public const int DayUnlockSpsAndCombat = 2;
+    public const int DayUnlockWarpAndStrikes = 3;
+    public const int DefaultDayUnlockManualPart1 = 5;
+    public const int DefaultDayUnlockManualHulls = 7;
+    public const int DefaultDayUnlockWaferCargo = 10;
+    public const int DefaultDayUnlockStoker = 13;
+    public const int DefaultDayUnlockFaceBribes = 16;
+    public const int DefaultDayUnlockCargoBioScan = 19;
+    public const int DefaultDayUnlockHostilityDestroy = 20;
+    public const int DefaultDayUnlockTransitPass = 22;
+    public const int DefaultDayPactClimax = 23;
+    public const int DefaultPocketUpgrade2MinDay = 6;
+    public const int DefaultPocketUpgrade3MinDay = 13;
 
     // Canonical Ship Registration Prefixes (03_Gameplay_Rules/Documents_and_Data/Data_Slate_and_Telemetry.md)
     public static readonly string[] AllTrackedPrefixes =

@@ -1,11 +1,6 @@
 {
   "universeNameTodo": "[TODO: Select final Universe Name from _Project_Overview.md]",
-  "maxSecurityStrikesGameOverThreshold": 5,
   "securityAuditStrikeThreshold": 3,
-  "unregisteredPrefixRulesTodo": {
-    "prefix": "UNR-",
-    "status": "[TODO: Define inspection/detainment rules and hull schematic pool for UNR- vessels]"
-  },
   "day17ConflictingDirectivesTodo": {
     "day": 17,
     "kordaniDirective": "[TODO: Finalize Kordani Security morning shift directive for Day 17]",
@@ -16,6 +11,6 @@
     "pathB_Kordani": "[TODO: Author 5 Kordani Security quest milestones for The Kordani Coup]",
     "pathC_Brengop": "[TODO: Author Brengop Mercantile quest milestones for The Buyout]",
     "pathD_MastersAndDopples": "[TODO: Author Masters/Dopples discovery triggers and quest milestones for The Quiet Return]",
-    "pathE_IndependentEscape": "Out into the Dark (600 SC Independent Passage Fund + FTV-/FTC- rep_score >= +6)"
+    "pathE_IndependentEscape": "Out into the Dark (1,000 SC live Pact Scrip balance + FTV-/FTC- rep_score >= +6)"
   }
 }

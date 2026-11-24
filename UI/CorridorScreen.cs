@@ -1,18 +1,25 @@
 using Raylib_cs;
 using SubspaceProtocols.Core;
+using SubspaceProtocols.Simulation;
 
 namespace SubspaceProtocols.UI;
 
 /// <summary>
-/// 21:9 Ultrawide Panoramic Cutaway (1280 x 548) non-interactive Walk-to-Work Corridor Strip
-/// transition screen between Quarters and Booth 04 (Desk).
+/// Dynamic 21:9 Ultrawide Panoramic Walk-to-Work Corridor Strip (1280x548 letterboxed inside 1280x720)
+/// transitioning between Morning Quarters and Booth 04 (Desk) at the start of each shift.
+/// NOT static: visually changes each day based on GameState variables (Stoker brownout flickering
+/// lights, Kordani patrol security markers, Brengop debt notices, Mining Guild dust/grit, Day 3+
+/// salvaged Deck 4 conduit runs). Skippable on click/Space/Enter after a brief fade-in.
+/// [TODO: Fill in manually - exact 21:9 visual state variations]
 /// </summary>
 public sealed class CorridorScreen : IScreen
 {
     private readonly ScreenManager _screenManager;
     private readonly GameState _gameState;
     private float _elapsedSeconds;
-    private const float TransitionDurationSeconds = 2.0f;
+
+    private const float FadeInDurationSeconds = 0.35f;
+    private const float TransitionDurationSeconds = 2.6f;
 
     public CorridorScreen(ScreenManager screenManager, GameState gameState)
     {
@@ -32,10 +39,12 @@ public sealed class CorridorScreen : IScreen
     {
         _elapsedSeconds += deltaTime;
 
-        if (mouse.LeftPressed ||
-            Raylib.IsKeyPressed(KeyboardKey.Space) ||
-            Raylib.IsKeyPressed(KeyboardKey.Enter) ||
-            _elapsedSeconds >= TransitionDurationSeconds)
+        bool canSkip = _elapsedSeconds >= FadeInDurationSeconds;
+        bool skipInput = mouse.LeftPressed ||
+                         Raylib.IsKeyPressed(KeyboardKey.Space) ||
+                         Raylib.IsKeyPressed(KeyboardKey.Enter);
+
+        if ((canSkip && skipInput) || _elapsedSeconds >= TransitionDurationSeconds)
         {
             AudioHooks.Play("bulkhead_door_lock");
             _screenManager.SwitchTo(_screenManager.NextCorridorDestination);
@@ -46,48 +55,193 @@ public sealed class CorridorScreen : IScreen
     {
         Raylib.ClearBackground(Palette.OutlineVoid);
 
-        int stripY = (Constants.VirtualHeight - Constants.CorridorHeight) / 2;
+        int stripY = (Constants.VirtualHeight - Constants.CorridorHeight) / 2; // y = 86 (exact 21:9 framing)
+        int stripH = Constants.CorridorHeight; // 548
 
+        // Dynamic game-state environmental modifiers
+        // [TODO: Fill in manually - exact 21:9 visual state variations]
+        bool stokerBrownout = _gameState.NextDayPowerBrownout || _gameState.StokerOverloadedToday;
+        bool kordaniHeavyPresence = _gameState.SecurityStrikes >= 1 ||
+            WorldSim.EvaluateTrafficPowerState("KDF-", _gameState.GetPower("KDF-")) is TrafficPowerState.Dominant or TrafficPowerState.Crisis;
+        bool brengopDebtNotice = _gameState.MissedBerthLeaseCount >= 1 ||
+            WorldSim.EvaluateTrafficPowerState("BMC-", _gameState.GetPower("BMC-")) is TrafficPowerState.Dominant or TrafficPowerState.Crisis;
+        bool mngGrit = WorldSim.EvaluateTrafficPowerState("MNG-", _gameState.GetPower("MNG-")) is TrafficPowerState.Dominant or TrafficPowerState.Crisis;
+        bool salvagedCoilInstalled = _gameState.Day >= 3;
+
+        // Periodic crisp pixel flicker when Stellar Stoker overloaded
+        bool lightsFlickerOff = false;
+        if (stokerBrownout)
+        {
+            int tick = (int)(_elapsedSeconds * 16f);
+            lightsFlickerOff = (tick % 11) is 2 or 3 or 7;
+        }
+
+        // Subtle walking parallax & footstep bob
+        float walkProgress = Math.Clamp(_elapsedSeconds / TransitionDurationSeconds, 0f, 1f);
+        int scrollShift = (int)MathF.Round(walkProgress * 96f);
+        int stepBobY = (int)MathF.Round(MathF.Sin(_elapsedSeconds * 9.5f) * 2.0f);
+
+        // Clip strictly to the 21:9 letterbox strip (0, 86, 1280, 548)
+        Raylib.BeginScissorMode(0, stripY, Constants.CorridorWidth, stripH);
+
+        // Backdrop (or optional art override)
+        Color wallBase = lightsFlickerOff
+            ? new Color(14, 16, 20, 255)
+            : new Color(28, 34, 42, 255);
         AssetManager.DrawImageOrPlaceholder(
             "locations/corridor_strip.png",
-            0, stripY, Constants.CorridorWidth, Constants.CorridorHeight,
-            Palette.WeatheredGunmetalMid,
+            0, stripY, Constants.CorridorWidth, stripH,
+            wallBase,
             Palette.OxidizedBronzeWorn,
             string.Empty);
 
-        // Industrial bulkhead stanchions and Brown Dwarf infrared porthole slits across 1280px
-        for (int i = 0; i < 10; i++)
+        // Ceiling conduit bay + industrial floor decking
+        int ceilH = 84;
+        int floorY = stripY + stripH - 128;
+        Raylib.DrawRectangle(0, stripY, Constants.CorridorWidth, ceilH, lightsFlickerOff ? new Color(10, 12, 16, 255) : new Color(20, 24, 30, 255));
+        Raylib.DrawLine(0, stripY + ceilH, Constants.CorridorWidth, stripY + ceilH, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawRectangle(0, floorY, Constants.CorridorWidth, 128, lightsFlickerOff ? new Color(12, 14, 18, 255) : new Color(22, 26, 32, 255));
+        Raylib.DrawLine(0, floorY, Constants.CorridorWidth, floorY, Palette.OxidizedBronzeShadow);
+
+        // Horizontal floor grate stripes
+        for (int fy = floorY + 12; fy < stripY + stripH; fy += 14)
         {
-            int bx = 32 + i * 124;
-            Raylib.DrawRectangle(bx, stripY + 40, 20, Constants.CorridorHeight - 80, Palette.WeatheredGunmetalEdge);
-            Raylib.DrawRectangle(bx + 32, stripY + 104, 72, 160, Palette.BrownDwarfGlowDeep);
-            Raylib.DrawRectangleLines(bx + 32, stripY + 104, 72, 160, Palette.BrownDwarfGlowRim);
+            Raylib.DrawLine(0, fy, Constants.CorridorWidth, fy, new Color(16, 20, 26, 255));
         }
 
-        float progress = Math.Clamp(_elapsedSeconds / TransitionDurationSeconds, 0f, 1f);
-        const int boxW = 460;
-        const int boxH = 68;
-        int boxX = (Constants.VirtualWidth - boxW) / 2;
-        int boxY = stripY + Constants.CorridorHeight - 110;
-        const int barMaxW = 420;
-        int barW = (int)(barMaxW * progress);
+        // Day 3+: Salvaged Deck 4 heavy amber/copper conduit pipes strapped along upper corridor wall
+        if (salvagedCoilInstalled)
+        {
+            int pipeY = stripY + ceilH + 14 + stepBobY;
+            Raylib.DrawRectangle(0, pipeY, Constants.CorridorWidth, 8, Palette.OxidizedBronzeShadow);
+            Raylib.DrawLine(0, pipeY, Constants.CorridorWidth, pipeY, Palette.OxidizedBronzeWorn);
+            Raylib.DrawLine(0, pipeY + 8, Constants.CorridorWidth, pipeY + 8, Palette.OutlineVoid);
+        }
 
-        Raylib.DrawRectangle(boxX, boxY, boxW, boxH, Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(boxX, boxY, boxW, boxH, Palette.CrtAmberDimmed);
+        // Repeating corridor bays: stanchions, Brown Dwarf portholes, overhead amber strip lights, dynamic props
+        for (int i = -1; i < 11; i++)
+        {
+            int bx = 32 + i * 136 - (scrollShift % 136);
+            int bayTop = stripY + ceilH + stepBobY;
+            int bayH = floorY - bayTop;
+
+            // Vertical steel bulkhead rib
+            Color ribCol = lightsFlickerOff ? new Color(22, 27, 34, 255) : Palette.WeatheredGunmetalEdge;
+            Raylib.DrawRectangle(bx, bayTop, 22, bayH, ribCol);
+            Raylib.DrawRectangleLines(bx, bayTop, 22, bayH, Palette.OutlineVoid);
+
+            // Overhead corridor light strip (flickers during Stoker brownout!)
+            Color lampCol = lightsFlickerOff
+                ? new Color(40, 26, 12, 255)
+                : (stokerBrownout ? Palette.CrtAmberDimmed : Palette.CrtAmberPrimary);
+            Raylib.DrawRectangle(bx + 34, stripY + ceilH - 12, 80, 6, lampCol);
+            if (!lightsFlickerOff)
+            {
+                // Subtle downward pixel light cone
+                Raylib.DrawRectangle(bx + 42, stripY + ceilH + 1, 64, 34, new Color(255, 184, 77, 16));
+            }
+
+            // Brown Dwarf external observation porthole
+            int portX = bx + 36;
+            int portY = bayTop + 42;
+            int portW = 76;
+            int portH = 148;
+            Raylib.DrawRectangle(portX, portY, portW, portH, Palette.DeepSpaceVoid);
+            // Warm rust-red Brown Dwarf horizon bleed through porthole (shifts subtly with Day)
+            int glowH = 68 + ((_gameState.Day * 7) % 32);
+            Raylib.DrawRectangle(portX + 2, portY + portH - glowH, portW - 4, glowH - 2, Palette.BrownDwarfGlowDeep);
+            Raylib.DrawLine(portX + 2, portY + portH - glowH, portX + portW - 3, portY + portH - glowH, Palette.BrownDwarfGlowRim);
+            // Faint deterministic stars inside porthole
+            Raylib.DrawPixel(portX + 18, portY + 24, new Color(200, 210, 224, 255));
+            Raylib.DrawPixel(portX + 52, portY + 38, new Color(255, 210, 168, 255));
+            Raylib.DrawRectangleLines(portX, portY, portW, portH, Palette.OxidizedBronzeWorn);
+            Raylib.DrawRectangleLines(portX - 2, portY - 2, portW + 4, portH + 4, Palette.OutlineVoid);
+
+            // Dynamic State Variation 1: Kordani security wall cameras & patrol notices
+            if (kordaniHeavyPresence && (i % 2 == 0))
+            {
+                int camX = bx + 4;
+                int camY = bayTop + 14;
+                Raylib.DrawRectangle(camX, camY, 14, 8, Palette.OutlineVoid);
+                bool camBlink = ((int)(_elapsedSeconds * 4f) + i) % 2 == 0;
+                Raylib.DrawRectangle(camX + 9, camY + 2, 3, 3, camBlink ? Palette.AlertCrimson : Palette.BrownDwarfGlowRim);
+            }
+
+            // Dynamic State Variation 2: Brengop corporate debt / quota yellow posters on lower stanchion
+            if (brengopDebtNotice && (i % 3 == 1))
+            {
+                int postX = bx + 38;
+                int postY = bayTop + 206;
+                Raylib.DrawRectangle(postX, postY, 72, 48, new Color(58, 52, 18, 255));
+                Raylib.DrawRectangleLines(postX, postY, 72, 48, Palette.FromHex("#bdb040"));
+                Raylib.DrawText("BMC NOTICE", postX + 6, postY + 8, 10, Palette.FromHex("#bdb040"));
+                Raylib.DrawText("LEASE DUE", postX + 8, postY + 24, 10, Palette.AlertCrimson);
+            }
+
+            // Dynamic State Variation 3: Mining Guild hazard stripe / ore grit along base skirting
+            if (mngGrit)
+            {
+                for (int hx = bx + 24; hx < bx + 132; hx += 16)
+                {
+                    Raylib.DrawRectangle(hx, floorY - 8, 8, 6, Palette.FromHex("#a67b11"));
+                }
+            }
+        }
+
+        // Centered Transit Status Banner inside bottom of 21:9 strip
+        const int boxW = 540;
+        const int boxH = 74;
+        int boxX = (Constants.VirtualWidth - boxW) / 2;
+        int boxY = stripY + stripH - 104;
+        const int barMaxW = 500;
+        int barW = (int)(barMaxW * walkProgress);
+
+        Raylib.DrawRectangle(boxX, boxY, boxW, boxH, new Color(8, 11, 16, 236));
+        Raylib.DrawRectangleLines(boxX, boxY, boxW, boxH, stokerBrownout ? Palette.AlertCrimson : Palette.CrtAmberDimmed);
 
         string destLabel = _screenManager.NextCorridorDestination == ScreenId.Desk
-            ? $"TRANSIT: BERTH QUARTERS -> BOOTH 04 (DAY {_gameState.Day:D2})"
-            : $"TRANSIT: CORRIDOR -> {_screenManager.NextCorridorDestination.ToString().ToUpperInvariant()}";
+            ? $"WALK TO WORK // BERTH 04 -> CUSTOMS BOOTH 04 (DAY {_gameState.Day:D2})"
+            : $"SECTOR CORRIDOR // -> {_screenManager.NextCorridorDestination.ToString().ToUpperInvariant()}";
 
         int labelW = Raylib.MeasureText(destLabel, 10);
-        Raylib.DrawText(destLabel, boxX + (boxW - labelW) / 2, boxY + 14, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawRectangle(boxX + 20, boxY + 38, barMaxW, 14, Palette.WeatheredGunmetalMid);
-        Raylib.DrawRectangle(boxX + 20, boxY + 38, barW, 14, Palette.CrtAmberPrimary);
-        Raylib.DrawRectangleLines(boxX + 20, boxY + 38, barMaxW, 14, Palette.CrtAmberDimmed);
+        Raylib.DrawText(destLabel, boxX + (boxW - labelW) / 2, boxY + 10, 10, Palette.CrtAmberPrimary);
 
-        string footer = $"DAY {_gameState.Day:D2} // VOID GATE 3 SECTOR TRANSIT (CLICK OR SPACE TO SKIP)";
+        string statusSub = stokerBrownout
+            ? "ALERT: STELLAR STOKER GRID UNSTABLE -- CORRIDOR LIGHTS FLICKERING"
+            : (kordaniHeavyPresence
+                ? "SECURITY NOTICE: KORDANI GARRISON PATROLS ACTIVE ON RING B"
+                : (brengopDebtNotice
+                    ? "BRENGOP NOTICE: HABITAT LEASE AUDIT IN EFFECT"
+                    : "VOID GATE 3 // HABITAT RING B ACCESS CORRIDOR"));
+        int subW = Raylib.MeasureText(statusSub, 10);
+        Raylib.DrawText(statusSub, boxX + (boxW - subW) / 2, boxY + 26, 10,
+            stokerBrownout ? Palette.AlertCrimson : Palette.ClearanceTeal);
+
+        Raylib.DrawRectangle(boxX + 20, boxY + 46, barMaxW, 14, Palette.WeatheredGunmetalMid);
+        Raylib.DrawRectangle(boxX + 20, boxY + 46, barW, 14, stokerBrownout ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
+        Raylib.DrawRectangleLines(boxX + 20, boxY + 46, barMaxW, 14, Palette.CrtAmberDimmed);
+
+        // Brief fade-in veil over the 21:9 strip
+        if (_elapsedSeconds < FadeInDurationSeconds)
+        {
+            float alpha = 1.0f - (_elapsedSeconds / FadeInDurationSeconds);
+            Raylib.DrawRectangle(0, stripY, Constants.CorridorWidth, stripH, new Color((byte)8, (byte)11, (byte)16, (byte)(alpha * 255f)));
+        }
+
+        Raylib.EndScissorMode();
+
+        // Crisp 21:9 Letterbox Border Lines & Footer Text
+        Raylib.DrawLine(0, stripY, Constants.VirtualWidth, stripY, Palette.OxidizedBronzeWorn);
+        Raylib.DrawLine(0, stripY + stripH, Constants.VirtualWidth, stripY + stripH, Palette.OxidizedBronzeWorn);
+
+        string topText = $"DAY {_gameState.Day:D2} // MORNING TRANSIT  |  SCRIP: {_gameState.PactScrip} SC  |  POCKET: {_gameState.PocketItems.Count}/{_gameState.PocketCapacity}";
+        Raylib.DrawText(topText, 16, 36, 10, Palette.CrtAmberDimmed);
+
+        string footer = _elapsedSeconds >= FadeInDurationSeconds
+            ? "CLICK OR PRESS [SPACE] TO ENTER BOOTH 04  |  [ESC] PAUSE"
+            : "TRANSITING HABITAT RING B...";
         int footerW = Raylib.MeasureText(footer, 10);
-        Raylib.DrawText(footer, (Constants.VirtualWidth - footerW) / 2, Constants.VirtualHeight - 36, 10, Palette.CrtAmberDimmed);
+        Raylib.DrawText(footer, (Constants.VirtualWidth - footerW) / 2, Constants.VirtualHeight - 44, 10, Palette.CrtAmberDimmed);
     }
 
     public void Unload() { }

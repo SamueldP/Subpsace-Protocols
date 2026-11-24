@@ -44,6 +44,7 @@ public sealed record ShipRenderOptions
     public bool WeaponsHot { get; init; } = false;
     public bool IsDecommissioned { get; init; } = false;
     public bool WarpPrimed { get; init; } = true;
+    public bool UncannyWarpPylonPulse { get; init; } = false;
     public bool CommsBroken { get; init; } = false;
     public bool CargoHighDraw { get; init; } = false;
     public bool HasDownstreamHullScorch { get; init; } = false;
@@ -2200,7 +2201,30 @@ public static class ShipRenderer
         }
 
         string warpConduitCol = options.WarpPrimed ? Palette.HexSpsWarpPrimed : Palette.HexSpsWarpIdle;
-        DrawSpsConduitWithPips(viewportBuf, hp.ReactorCore, hp.WarpPylons, warpConduitCol, options.WarpPrimed, animBucket);
+        DrawSpsConduitWithPips(viewportBuf, hp.ReactorCore, hp.WarpPylons, warpConduitCol, options.WarpPrimed || options.UncannyWarpPylonPulse, animBucket);
+        if (options.UncannyWarpPylonPulse)
+        {
+            // Day 2 Ghost Route uncanny non-violating sensor cue: abnormally hot, erratically pulsing amber Warp Pylons
+            int px = hp.WarpPylons.X;
+            int py = hp.WarpPylons.Y;
+            bool erraticHigh = (animBucket % 3) != 1;
+            viewportBuf.FillRect(px - 3, py - 3, 7, 7, "#b45309");
+            viewportBuf.FillRect(px - 2, py - 2, 5, 5, Palette.HexSpsWarpPrimed);
+            viewportBuf.FillRect(px - 1, py - 1, 3, 3, erraticHigh ? "#fef08a" : "#fbbf24");
+            viewportBuf.Set(px, py, "#ffffff");
+            if (erraticHigh)
+            {
+                viewportBuf.Set(px - 4, py, "#fbbf24");
+                viewportBuf.Set(px + 4, py, "#fbbf24");
+                viewportBuf.Set(px, py - 4, "#fbbf24");
+                viewportBuf.Set(px, py + 4, "#fbbf24");
+            }
+            foreach (var eg in hp.EngineGlowRects)
+            {
+                viewportBuf.FillRect(Math.Max(1, eg.X - 2), Math.Max(1, eg.Y - 1), eg.W + 2, eg.H + 2,
+                    erraticHigh ? "#fbbf24" : Palette.HexSpsWarpPrimed);
+            }
+        }
 
         string commsConduitCol = !options.CommsBroken ? Palette.HexSpsCommsActive : Palette.HexSpsCommsBroken;
         DrawSpsConduitWithPips(viewportBuf, hp.ReactorCore, hp.BridgeComms, commsConduitCol, !options.CommsBroken, animBucket);

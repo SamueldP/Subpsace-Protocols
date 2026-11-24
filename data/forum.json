@@ -1,0 +1,270 @@
+{
+  "_todoNote": "// TODO: USER DIALOGUE PASS -- Replace placeholder forum thread bodies and handles with final authored writing from /design/09_Dialogue_and_Writing/Quarters_Message_Board_Posts.md",
+  "boardName": "VG3-NET // STATION COMMUNAL FORUM v1.4",
+  "threads": [
+    {
+      "id": "d1_spectrometer_outage",
+      "title": "Booth 04 warp spectrometer STILL dark?",
+      "boardTag": "OPS",
+      "minDay": 1,
+      "maxDay": 2,
+      "requiredFlags": [],
+      "posts": [
+        {
+          "handle": "dock_hand_maren",
+          "roleTag": "DECK 3 BAY CREW",
+          "timestamp": "CYC 2409.04 // 06:12",
+          "body": "Three shifts running and the thermal coil in Booth 04 is still tagged MAINTENANCE PENDING. Brengop factor says replacement coils eat into quarterly bonus margins. [TODO: USER DIALOGUE PASS]"
+        },
+        {
+          "handle": "ftc_wrench_88",
+          "roleTag": "EX-FTC TECH",
+          "timestamp": "CYC 2409.04 // 08:44",
+          "body": "That infrared surge off the Brown Dwarf cooked two coils last cycle. If Kordani doesn't force a salvage pull from Deck 4, customs is flying blind on jump origins."
+        }
+      ]
+    },
+    {
+      "id": "d1_ration_paste",
+      "title": "Replicator nutrient paste tastes like coolant",
+      "boardTag": "GENERAL",
+      "minDay": 1,
+      "maxDay": 4,
+      "requiredFlags": [],
+      "posts": [
+        {
+          "handle": "berth_11_joss",
+          "roleTag": "NIGHT LOADER",
+          "timestamp": "CYC 2409.04 // 21:05",
+          "body": "Anyone else living on SKU-014 dry bricks to make berth lease? Hands were shaking so bad on crane alignment today I nearly clipped a Mining Guild barge. [TODO: USER DIALOGUE PASS]"
+        },
+        {
+          "handle": "med_tech_tala",
+          "roleTag": "INFIRMARY",
+          "timestamp": "CYC 2409.04 // 22:18",
+          "body": "Two consecutive nights on dry bricks craters fine motor steadiness. Spend the 20 SC on paste if you run precision consoles."
+        }
+      ]
+    },
+    {
+      "id": "d2_lower_deck_rumors",
+      "title": "Deck 4 vent relay humming again at 0400",
+      "boardTag": "DECK4",
+      "minDay": 6,
+      "maxDay": 6,
+      "requiredFlags": [],
+      "posts": [
+        {
+          "handle": "vent_rat_09",
+          "roleTag": "UNVERIFIED",
+          "timestamp": "CYC 2409.04 // 04:19",
+          "body": "Reminder for new berth tenants: official PACT REQ leaves paper trails. Whatever gets dropped in your 0500 service chute off the lower vent relay stays off Brengop ledgers -- just scrub your local hex logs before Kordani walks the hall."
+        }
+      ]
+    },
+    {
+      "id": "d3_coil_repaired_cleared",
+      "title": "KDF security alert -- unlogged vector out of VG-3",
+      "boardTag": "SECTOR",
+      "minDay": 3,
+      "maxDay": 5,
+      "requiredFlags": ["day2_cleared"],
+      "posts": [
+        {
+          "handle": "nav_watch_soren",
+          "roleTag": "PERIMETER RELAY",
+          "timestamp": "CYC 2409.04 // 03:40",
+          "body": "Perimeter dishes lit up at 0214 -- a vessel cleared yesterday jumped out on a completely falsified vector. Kordani marched straight into Deck 4 salvage and ripped a replacement warp coil out for Booth 04. [TODO: USER DIALOGUE PASS]"
+        },
+        {
+          "handle": "dock_hand_maren",
+          "roleTag": "DECK 3 BAY CREW",
+          "timestamp": "CYC 2409.04 // 05:11",
+          "body": "Heard Kordani activated formal Security Strikes across customs too. Three strikes and they toss your berth while you sleep."
+        }
+      ]
+    },
+    {
+      "id": "d3_coil_repaired_detained",
+      "title": "Boarding team found falsified logs in Detain Bay 2",
+      "boardTag": "SECTOR",
+      "minDay": 3,
+      "maxDay": 5,
+      "requiredFlags": ["day2_detained"],
+      "posts": [
+        {
+          "handle": "nav_watch_soren",
+          "roleTag": "PERIMETER RELAY",
+          "timestamp": "CYC 2409.04 // 04:02",
+          "body": "Word is Booth 04 clamped a clean-paper hauler yesterday on pure gut instinct and KDF boarding teams actually found cooked jump logs inside. Kordani forced Brengop to repair the warp spectrometer immediately anyway. [TODO: USER DIALOGUE PASS]"
+        },
+        {
+          "handle": "ftc_wrench_88",
+          "roleTag": "EX-FTC TECH",
+          "timestamp": "CYC 2409.04 // 05:25",
+          "body": "Salvaged coil runs hotter than a Stoker baffle, and KDF turned Security Strikes live starting this watch. Play it by the book."
+        }
+      ]
+    },
+    {
+      "id": "d4_d7_early_sector_chatter",
+      "title": "Post-war registries still a mess out on the rim",
+      "boardTag": "GENERAL",
+      "minDay": 4,
+      "maxDay": 9,
+      "requiredFlags": [],
+      "posts": [
+        {
+          "handle": "hauler_kess",
+          "roleTag": "FREE TRADER",
+          "timestamp": "CYC 2409.04 // 19:50",
+          "body": "Half the hulls passing Void Gate 3 were patched together after the Concord war. Kordani's new reference tablets are strict on prefix-to-hull matching, so double check silhouettes before stamping anything. [TODO: USER DIALOGUE PASS]"
+        },
+        {
+          "handle": "berth_11_joss",
+          "roleTag": "NIGHT LOADER",
+          "timestamp": "CYC 2409.04 // 20:32",
+          "body": "And watch out for anyone asking about the Ashen Rift. Nobody comes out of that red nebula with clean warp residue."
+        }
+      ]
+    },
+    {
+      "id": "evt_stoker_overload_brownout",
+      "title": "WHO OVERLOADED THE STELLAR STOKER?! Corridor lights keep dying!",
+      "boardTag": "OPS",
+      "minDay": 1,
+      "maxDay": 30,
+      "requiredFlags": ["stoker_overload"],
+      "posts": [
+        {
+          "handle": "ftc_wrench_88",
+          "roleTag": "EX-FTC TECH",
+          "timestamp": "STATION ALERT // LIVE",
+          "body": "Gravity anchor coils took a shear spike above 100% strain! Corridor lamps and berth amber strips are flickering across the entire customs ring. Expect rolling power brownouts next shift. [TODO: USER DIALOGUE PASS]"
+        },
+        {
+          "handle": "dock_hand_maren",
+          "roleTag": "DECK 3 BAY CREW",
+          "timestamp": "STATION ALERT // +14m",
+          "body": "Kordani patrol squads just locked down the officer quarters wing looking for orbital sabotage. Hope whoever let undeclared tonnage into the Stoker has clean logs."
+        }
+      ]
+    },
+    {
+      "id": "evt_berth_search_rumors",
+      "title": "KDF boots in the quarters corridor at 0300",
+      "boardTag": "RUMORS",
+      "minDay": 1,
+      "maxDay": 30,
+      "requiredFlags": ["berth_search"],
+      "posts": [
+        {
+          "handle": "berth_11_joss",
+          "roleTag": "NIGHT LOADER",
+          "timestamp": "CYC 2409.04 // 05:08",
+          "body": "Heard magnetic lock breakers down by Berth 04 before wake bell. Kordani audit teams check terminal I/O buffers first and coat pockets second. Never sleep with unscrubbed [UNAUTH_IO] flags. [TODO: USER DIALOGUE PASS]"
+        }
+      ]
+    },
+    {
+      "id": "evt_missed_berth_lease",
+      "title": "Brengop Factor posting foreclosure slips on Habitat Ring B",
+      "boardTag": "GENERAL",
+      "minDay": 1,
+      "maxDay": 30,
+      "requiredFlags": ["missed_lease"],
+      "posts": [
+        {
+          "handle": "berth_11_joss",
+          "roleTag": "NIGHT LOADER",
+          "timestamp": "CYC 2409.04 // 22:40",
+          "body": "Reminder: Brengop gives you ONE deferred lease night with a red flag. Miss two nights of 30 SC berth rent and they strip your badge and drop you onto the lower reactor decks. [TODO: USER DIALOGUE PASS]"
+        }
+      ]
+    },
+    {
+      "id": "evt_deck4_chatter",
+      "title": "Runner drops running tight before 0500 shift change",
+      "boardTag": "DECK4",
+      "minDay": 1,
+      "maxDay": 30,
+      "requiredFlags": ["deck4_used"],
+      "posts": [
+        {
+          "handle": "vent_rat_09",
+          "roleTag": "D4 RELAY",
+          "timestamp": "CYC 2409.04 // 04:55",
+          "body": "Chute drop confirmed on Habitat Ring. Keep fake slates tucked under the desk vent grate if heat climbs -- and never feed a covert payload into a Pact cruiser's Slate Bus. [TODO: USER DIALOGUE PASS]"
+        }
+      ]
+    },
+    {
+      "id": "power_kdf_dominant",
+      "title": "Kordani patrol cruisers stacking double at the outer buoy",
+      "boardTag": "SECTOR",
+      "minDay": 2,
+      "maxDay": 30,
+      "requiredFlags": [],
+      "powerScoreCondition": { "prefix": "KDF-", "state": "Dominant" },
+      "posts": [
+        {
+          "handle": "hauler_kess",
+          "roleTag": "FREE TRADER",
+          "timestamp": "SECTOR WIRE // LIVE",
+          "body": "KDF throughput is way up this cycle. Non-Pact captains are sweating bullets in the approach lane with Kordani hulls parked outside the gate. [TODO: USER DIALOGUE PASS]"
+        }
+      ]
+    },
+    {
+      "id": "power_mng_dominant",
+      "title": "Mining Guild escorts pushing Free Traders off the outer belt",
+      "boardTag": "SECTOR",
+      "minDay": 2,
+      "maxDay": 30,
+      "requiredFlags": [],
+      "powerScoreCondition": { "prefix": "MNG-", "state": "Dominant" },
+      "posts": [
+        {
+          "handle": "hauler_kess",
+          "roleTag": "FREE TRADER",
+          "timestamp": "SECTOR WIRE // LIVE",
+          "body": "Half our FTV rigs docked with plasma scorch along their flanks today. Mining Guild's flush with traffic and acting like they own every asteroid lane. [TODO: USER DIALOGUE PASS]"
+        }
+      ]
+    },
+    {
+      "id": "power_bmc_dominant",
+      "title": "Brengop Mercantile raising dockside docking surcharges again",
+      "boardTag": "SECTOR",
+      "minDay": 2,
+      "maxDay": 30,
+      "requiredFlags": [],
+      "powerScoreCondition": { "prefix": "BMC-", "state": "Dominant" },
+      "posts": [
+        {
+          "handle": "dock_hand_maren",
+          "roleTag": "DECK 3 BAY CREW",
+          "timestamp": "SECTOR WIRE // LIVE",
+          "body": "Consortium freight volume is through the roof and they STILL won't fix the broken auxiliary units in officer berths. Classic Brengop. [TODO: USER DIALOGUE PASS]"
+        }
+      ]
+    },
+    {
+      "id": "power_guv_dominant",
+      "title": "Galactic Union envoys spotted near the observation deck",
+      "boardTag": "SECTOR",
+      "minDay": 2,
+      "maxDay": 30,
+      "requiredFlags": [],
+      "powerScoreCondition": { "prefix": "GUV-", "state": "Dominant" },
+      "posts": [
+        {
+          "handle": "nav_watch_soren",
+          "roleTag": "PERIMETER RELAY",
+          "timestamp": "SECTOR WIRE // LIVE",
+          "body": "More GUV- transponders clearing the gate lately. Kordani Command hates seeing Union hulls this close to the Brown Dwarf. [TODO: USER DIALOGUE PASS]"
+        }
+      ]
+    }
+  ]
+}

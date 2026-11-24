@@ -332,7 +332,12 @@ public static class PortraitRenderer
         // =====================================================================
         if (options.Mode == PortraitRenderMode.Holo)
         {
-            return ComposeHoloMode(charBuf, options.HoloAmber);
+            PixelBuffer holo = ComposeHoloMode(charBuf, options.HoloAmber);
+            if (isCrayon)
+            {
+                ApplyCrudeCrayonOverlay(holo, jitterRng);
+            }
+            return holo;
         }
 
         PixelBuffer finalBuf = new(Constants.PortraitWidth, Constants.PortraitHeight);
@@ -2338,32 +2343,33 @@ public static class PortraitRenderer
             py == 18 && px >= 22 && px <= 40 ? coatRamp[2] : (py <= 19 ? coatRamp[0] : Palette.HexOutlineVoid));
         charBuf.DrawLine(21, 19, 36, 19, coatRamp[3]); // Crisp glossy visor catch-light
 
-        // 4. Crisp Golden Winged Bird Insignia centered on top front of Peaked Cap (x = 23..41, y = 5..14)
+        // 4. Crisp Silver Winged Bird Insignia centered on top front of Peaked Cap (x = 23..41, y = 5..14)
+        string[] silverRamp = Palette.ThaneTitaniumWhiteRamp;
         // Dark backing crest for contrast
         charBuf.FillRect(29, 7, 7, 7, Palette.HexOutlineVoid);
         // Bird head & beak facing left
-        charBuf.FillRect(31, 6, 3, 2, goldRamp[3]);
-        charBuf.Set(30, 6, goldRamp[2]); // Beak
+        charBuf.FillRect(31, 6, 3, 2, silverRamp[3]);
+        charBuf.Set(30, 6, silverRamp[2]); // Beak
         // Central body & breast shield
-        charBuf.FillRect(31, 8, 3, 4, goldRamp[2]);
-        charBuf.Set(32, 9, goldRamp[3]);
+        charBuf.FillRect(31, 8, 3, 4, silverRamp[2]);
+        charBuf.Set(32, 9, silverRamp[3]);
         // Tail chevron
-        charBuf.DrawLine(30, 13, 34, 13, goldRamp[1]);
-        charBuf.DrawLine(31, 12, 33, 12, goldRamp[2]);
+        charBuf.DrawLine(30, 13, 34, 13, silverRamp[1]);
+        charBuf.DrawLine(31, 12, 33, 12, silverRamp[2]);
         // Symmetrical swept authoritarian wings (left: x = 23..30, right: x = 34..41)
-        // Top wing bar (bright gold highlight)
-        charBuf.DrawLine(23, 7, 30, 8, goldRamp[3]);
-        charBuf.DrawLine(34, 8, 41, 7, goldRamp[3]);
-        // Mid wing feathers (gold base)
-        charBuf.DrawLine(24, 8, 30, 9, goldRamp[2]);
-        charBuf.DrawLine(34, 9, 40, 8, goldRamp[2]);
-        charBuf.DrawLine(25, 9, 30, 10, goldRamp[2]);
-        charBuf.DrawLine(34, 10, 39, 9, goldRamp[2]);
-        // Lower notched wing tips (gold shadow)
-        charBuf.DrawLine(26, 10, 29, 11, goldRamp[1]);
-        charBuf.DrawLine(35, 11, 38, 10, goldRamp[1]);
-        charBuf.Set(27, 11, goldRamp[0]);
-        charBuf.Set(37, 11, goldRamp[0]);
+        // Top wing bar (bright silver highlight)
+        charBuf.DrawLine(23, 7, 30, 8, silverRamp[3]);
+        charBuf.DrawLine(34, 8, 41, 7, silverRamp[3]);
+        // Mid wing feathers (silver base)
+        charBuf.DrawLine(24, 8, 30, 9, silverRamp[2]);
+        charBuf.DrawLine(34, 9, 40, 8, silverRamp[2]);
+        charBuf.DrawLine(25, 9, 30, 10, silverRamp[2]);
+        charBuf.DrawLine(34, 10, 39, 9, silverRamp[2]);
+        // Lower notched wing tips (silver shadow)
+        charBuf.DrawLine(26, 10, 29, 11, silverRamp[1]);
+        charBuf.DrawLine(35, 11, 38, 10, silverRamp[1]);
+        charBuf.Set(27, 11, silverRamp[0]);
+        charBuf.Set(37, 11, silverRamp[0]);
 
         // 5. Final 1px dark silhouette outline
         charBuf.ApplyOutline(Palette.HexOutlineVoid);

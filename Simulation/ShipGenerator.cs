@@ -21,7 +21,30 @@ public enum DebugSpawnValidityMode
 /// </summary>
 public sealed class ShipGenerator
 {
-    public const int Day2GhostRouteQueueSlot = 1; // 2nd ship on Day 2 (after 1 normal ship)
+    public const int CovertMissionTargetQueueSlot = 2;      // 3rd ship inside pre-gen 16 when a covert delivery mission is scheduled today
+    public const int Day6MiningGuildGuaranteeSlot = 2;      // Guaranteed Day 6 Mining Guild (MNG-) target inside pre-gen 16
+    public const int ActiveInterceptTargetGuaranteeSlot = 3; // Early slot for Day 7+ active intercept contract prefix target
+
+    private readonly Core.ConfigFlags _config;
+
+    public ShipGenerator(Core.ConfigFlags? config = null)
+    {
+        _config = config ?? new Core.ConfigFlags();
+    }
+
+    /// <summary>
+    /// Deterministically chooses the Day 2 "Ghost Route" suspect's queue position between
+    /// slot index 1 or 2 (2nd or 3rd ship) from RunSeed.
+    /// </summary>
+    public static int GetDay2GhostRouteQueueSlot(int runSeed)
+    {
+        int safeSeed = runSeed != 0 ? runSeed : 1;
+        uint hash = DeterministicRng.HashSeedFnv1a($"run{safeSeed}-day2-ghost-slot");
+        return (hash & 1u) == 0u ? 1 : 2;
+    }
+
+    public static int GetDay2GhostRouteQueueSlot(GameState state) =>
+        GetDay2GhostRouteQueueSlot(state.RunSeed);
 
     // The 12 public declared captain species (strictly excludes unlisted Dopples)
     private static readonly PortraitSpecies[] AllDeclaredCaptainSpecies =
@@ -93,7 +116,8 @@ public sealed class ShipGenerator
     public List<ShipSpec> GenerateDailyQueue(
         GameState state,
         int count = Constants.PreGeneratedQueueSize,
-        uint reseedNonce = 0)
+        uint reseedNonce = 0,
+        Core.ConfigFlags? config = null)
     {
         int safeCount = Math.Max(1, count);
         List<ShipSpec> queue = new(safeCount);
@@ -101,7 +125,7 @@ public sealed class ShipGenerator
 
         for (int i = 0; i < safeCount; i++)
         {
-            queue.Add(GenerateShipForSlot(state, i, reseedNonce, DebugSpawnValidityMode.Auto, usedRegs));
+            queue.Add(GenerateShipForSlot(state, i, reseedNonce, DebugSpawnValidityMode.Auto, usedRegs, config));
         }
 
         return queue;
@@ -109,27 +133,61 @@ public sealed class ShipGenerator
 
     /// <summary>
     /// Generates a deterministic vessel for the given (RunSeed, Day, queueIndex) slot.
-    /// Injects the hardcoded "Ghost Route" suspect on Day 2 slot 1.
-    /// Outright shield/weapon compliance refusals are strictly locked to Day 14+ & rep_score <= -9.
+    /// Injects the hardcoded "Ghost Route" suspect on Day 2 slot 1 or 2 (derived from RunSeed).
+    /// Outright shield/weapon compliance refusals are strictly locked to Day 14+ &amp; rep_score &lt;= -9.
     /// </summary>
     public ShipSpec GenerateShipForSlot(
         GameState state,
         int queueIndex,
         uint reseedNonce = 0,
         DebugSpawnValidityMode forceValidity = DebugSpawnValidityMode.Auto,
-        HashSet<string>? usedRegs = null)
+        HashSet<string>? usedRegs = null,
+        Core.ConfigFlags? config = null)
     {
+        Core.ConfigFlags cfg = config ?? _config;
         int runSeed = state.RunSeed != 0 ? state.RunSeed : 1;
 
-        if (state.Day == 2 && queueIndex == Day2GhostRouteQueueSlot && forceValidity == DebugSpawnValidityMode.Auto)
+        if (state.Day == Constants.DayUnlockSpsAndCombat && queueIndex == GetDay2GhostRouteQueueSlot(runSeed) && forceValidity == DebugSpawnValidityMode.Auto)
         {
             return GenerateDay2GhostRouteSuspect(state, queueIndex, reseedNonce, usedRegs);
+        }
+
+        if (queueIndex == CovertMissionTargetQueueSlot &&
+            forceValidity == DebugSpawnValidityMode.Auto &&
+            !string.IsNullOrWhiteSpace(state.ActiveCovertMissionId) &&
+            state.ActiveCovertDeliveryDay == state.Day &&
+            !state.DeliveredCovertMissionIds.Contains(state.ActiveCovertMissionId))
+        {
+            return GenerateCovertMissionTargetShip(state, queueIndex, reseedNonce, usedRegs);
         }
 
         string slotSeedKey = $"run{runSeed}-day{state.Day}-q{queueIndex}-n{reseedNonce}";
         DeterministicRng rng = new(slotSeedKey);
 
         string declaredPrefix = PickWeightedPrefix(rng.Fork("prefix"));
+        if (forceValidity == DebugSpawnValidityMode.Auto)
+        {
+            if (state.Day == 6 && queueIndex == Day6MiningGuildGuaranteeSlot)
+            {
+                // Guaranteed Mining Guild (MNG-) vessel inside Day 6's 16-ship pre-generated queue
+                declaredPrefix = "MNG-";
+            }
+            else if (state.Day >= 7 &&
+                     queueIndex == ActiveInterceptTargetGuaranteeSlot &&
+                     state.ActiveInterceptMissionIds.Count > 0)
+            {
+                CovertMissionDatabase missionDb = CovertMissionDatabase.Load();
+                string? activePrefix = state.ActiveInterceptMissionIds
+                    .Select(id => missionDb.Missions.FirstOrDefault(
+                        m => m.IsInterceptMission && m.MissionId.Equals(id, StringComparison.OrdinalIgnoreCase)))
+                    .FirstOrDefault(m => m != null && !string.IsNullOrWhiteSpace(m.TargetPrefix))
+                    ?.TargetPrefix;
+                if (!string.IsNullOrWhiteSpace(activePrefix))
+                {
+                    declaredPrefix = activePrefix;
+                }
+            }
+        }
         ShipFaction declaredVisualFaction = ShipRenderer.ParseFactionFromPrefix(declaredPrefix);
         IReadOnlyList<ShipClass> allowedClasses = ShipRenderer.GetAllowedClasses(declaredVisualFaction);
         ShipClass declaredClass = rng.Fork("class").Pick(allowedClasses);
@@ -167,8 +225,8 @@ public sealed class ShipGenerator
 
         // Day 1 simplification: shields & weapons controls + SPS are powered down on Day 1,
         // so Day 1 vessels arrive shields-down & weapons-cold for pure registration checks.
-        bool initialShieldsUp = state.Day >= 2 && rng.Fork("init_shields").NextFloat() < 0.34f;
-        bool initialWeaponsHot = state.Day >= 2 && rng.Fork("init_weapons").NextFloat() < 0.28f;
+        bool initialShieldsUp = state.Day >= Constants.DayUnlockSpsAndCombat && rng.Fork("init_shields").NextFloat() < 0.34f;
+        bool initialWeaponsHot = state.Day >= Constants.DayUnlockSpsAndCombat && rng.Fork("init_weapons").NextFloat() < 0.28f;
         bool actualCargoPowerDraw = false;
         bool willRefuseShields = false;
         bool willRefuseWeapons = false;
@@ -178,47 +236,51 @@ public sealed class ShipGenerator
 
         if (!isValidShip)
         {
-            // Staggered Daily Rule Escalation (UNR- & Relay Ping removed):
+            // Staggered Daily Rule Escalation (driven by ConfigFlags unlock days):
             // - Day 1:  ONLY Transponder ID (under Viewscreen) vs. Data Slate REG CODE mismatch.
             // - Day 2:  Transponder ID mismatch + Spoofed Weapons Hot (SPS probe unlocked).
-            // - Day 3+: Full inspection pool (Transponder ID, Expiry, Prefix/Org, Prefix/Species,
-            //           Hull/Class, Spoofed Weapons Hot, Cargo Power Draw, Falsified Origin Waveform).
-            // - Day 14+ & rep_score <= -9 ONLY: Adds Outright Shield/Weapon Compliance Refusal.
-            List<ShipInfractionType> eligibleInfractions;
-            if (state.Day == 1)
+            // - Day 3:  Adds Falsified Origin Waveform (Warp Residue Printer + Glowing Warp Checker; Warp Speed Class Limits NOT active).
+            // - DayUnlockManualPart1 (Day 4): Unlocks Kordani Reference Manual Tablet (1. PREFIXES & 2. HULLS). Enforces ExpiredRegistration + PrefixOrganizationMismatch + PrefixSpeciesMismatch (Hull Silhouettes NOT enforced yet).
+            // - DayUnlockManualHulls (Day 5): Enforces Hull Silhouette & Ship Class mismatches (PrefixHullSilhouetteMismatch).
+            // - Day 6:  Breather / Espionage Day (no new infraction added).
+            // - DayUnlockWaferCargo (Day 7+): Adds UnexplainedCargoPowerDraw (SPS Violet Cargo Bay).
+            // - DayUnlockHostilityDestroy (Day 14+) & rep_score <= -9 ONLY: Adds Outright Shield/Weapon Compliance Refusal.
+            List<ShipInfractionType> eligibleInfractions = [ShipInfractionType.TransponderIdMismatch];
+
+            if (state.Day >= Constants.DayUnlockSpsAndCombat)
             {
-                eligibleInfractions = [ShipInfractionType.TransponderIdMismatch];
+                eligibleInfractions.Add(ShipInfractionType.SpoofedWeaponsHot);
             }
-            else if (state.Day == 2)
+
+            if (state.Day >= Constants.DayUnlockWarpAndStrikes)
             {
-                eligibleInfractions =
-                [
-                    ShipInfractionType.TransponderIdMismatch,
-                    ShipInfractionType.SpoofedWeaponsHot
-                ];
+                eligibleInfractions.Add(ShipInfractionType.FalsifiedOriginWaveform);
             }
-            else
+
+            if (state.Day >= cfg.DayUnlockManualPart1)
             {
-                eligibleInfractions =
-                [
-                    ShipInfractionType.TransponderIdMismatch,
-                    ShipInfractionType.ExpiredRegistration,
-                    ShipInfractionType.PrefixOrganizationMismatch,
-                    ShipInfractionType.PrefixHullSilhouetteMismatch,
-                    ShipInfractionType.SpoofedWeaponsHot,
-                    ShipInfractionType.UnexplainedCargoPowerDraw,
-                    ShipInfractionType.FalsifiedOriginWaveform
-                ];
+                eligibleInfractions.Add(ShipInfractionType.ExpiredRegistration);
+                eligibleInfractions.Add(ShipInfractionType.PrefixOrganizationMismatch);
 
                 if (IsSpeciesRestrictedPrefix(declaredPrefix))
                 {
                     eligibleInfractions.Add(ShipInfractionType.PrefixSpeciesMismatch);
                 }
+            }
 
-                if (state.Day >= 14 && factionRep <= Constants.RepExtremeHostileThreshold)
-                {
-                    eligibleInfractions.Add(ShipInfractionType.RefusedShieldsOrWeaponsCompliance);
-                }
+            if (state.Day >= cfg.DayUnlockManualHulls)
+            {
+                eligibleInfractions.Add(ShipInfractionType.PrefixHullSilhouetteMismatch);
+            }
+
+            if (state.Day >= cfg.DayUnlockWaferCargo)
+            {
+                eligibleInfractions.Add(ShipInfractionType.UnexplainedCargoPowerDraw);
+            }
+
+            if (state.Day >= cfg.DayUnlockHostilityDestroy && factionRep <= Constants.RepExtremeHostileThreshold)
+            {
+                eligibleInfractions.Add(ShipInfractionType.RefusedShieldsOrWeaponsCompliance);
             }
 
             ShipInfractionType chosenInfraction = rng.Fork("infraction_type").Pick(eligibleInfractions);
@@ -713,8 +775,16 @@ public sealed class ShipGenerator
             _ => "Negative, Booth 04! We are not dropping our defenses in this sector. Open the gate or lock clamps!"
         };
 
+        spec.SpoofedWeaponsBluffLine = prefix switch
+        {
+            "KRW-" => "Complying, Booth 04. Forward weapons cycling cold now.",
+            "BMC-" => "Acknowledged, Booth 04. Weapon banks cycling cold -- keep the lane moving.",
+            "PRJ-" => "Sure thing, Officer! Flipping weapons cold right now -- totally powered down!",
+            _ => "Complying, Booth 04. Weapons cycling cold."
+        };
+
         spec.SpoofedWeaponsDeflectionLine =
-            "Check your slate, Officer -- our telemetry packet reads weapons OFFLINE. Must be ghost bleed on your antique scanner!";
+            "My board reads green -- your SPS probe must be faulty. Check our slate, it clearly says WPN: OFFLINE!";
 
         spec.SubspaceUploadLine = prefix switch
         {
@@ -1048,4 +1118,248 @@ public sealed class ShipGenerator
             "ZNI-" => "ZENITH INT",
             _ => "UNKNOWN"
         };
+
+    /// <summary>
+    /// Generates a deterministic covert delivery target ship inside the pre-generated 16-ship queue
+    /// when the player has decrypted a covert mission briefing scheduled for today.
+    /// </summary>
+    public ShipSpec GenerateCovertMissionTargetShip(
+        GameState state,
+        int queueIndex,
+        uint reseedNonce = 0,
+        HashSet<string>? usedRegs = null)
+    {
+        int runSeed = state.RunSeed != 0 ? state.RunSeed : 1;
+        string prefix = string.IsNullOrWhiteSpace(state.ActiveCovertTargetPrefix) ? "FTV-" : state.ActiveCovertTargetPrefix;
+        string regCode = string.IsNullOrWhiteSpace(state.ActiveCovertTargetReg) ? "FTV-719-R" : state.ActiveCovertTargetReg;
+        string shipName = string.IsNullOrWhiteSpace(state.ActiveCovertTargetShipName) ? "CINDER LARK" : state.ActiveCovertTargetShipName;
+        usedRegs?.Add(regCode);
+
+        DeterministicRng rng = new($"run{runSeed}-day{state.Day}-covert-{state.ActiveCovertMissionId}-n{reseedNonce}");
+        ShipFaction visualFaction = ShipRenderer.ParseFactionFromPrefix(prefix);
+        IReadOnlyList<ShipClass> allowedClasses = ShipRenderer.GetAllowedClasses(visualFaction);
+        ShipClass shipClass = allowedClasses.Contains(ShipClass.Cargo) ? ShipClass.Cargo : allowedClasses[0];
+        PortraitSpecies captainSpecies = PickSpeciesForPrefix(prefix, rng.Fork("species"));
+        string captainName = GenerateCaptainName(captainSpecies, rng.Fork("capt"));
+        string originSystem = GetCanonicalOriginForPrefix(prefix, rng.Fork("origin"));
+        string destination = "VG-3 DOCK BAY";
+        int tonnage = GetBaselineTonnage(shipClass, rng.Fork("tonnage"));
+        (string purpose, string cargo) = PickPurposeAndCargo(prefix, shipClass, rng.Fork("cargo"));
+
+        (int curYear, int curMonth) = Constants.GetStationCycle(state.Day);
+        (int expYear, int expMonth) = OffsetStationCycle(curYear, curMonth, 12);
+
+        string seedId = $"{regCode}-{shipName.Replace(' ', '-')}-covert";
+        string portraitSeed = $"capt-{captainName.Replace(' ', '-')}-{seedId}";
+
+        DataSlateModel slate = new()
+        {
+            ShipName = shipName,
+            RegistrationCode = regCode,
+            DeclaredPrefix = prefix,
+            DeclaredFactionName = GetFactionFullName(prefix),
+            RegistrationExpiryYear = expYear,
+            RegistrationExpiryMonth = expMonth,
+            DeclaredVisualFaction = visualFaction,
+            DeclaredShipClass = shipClass,
+            DeclaredCaptainName = captainName,
+            DeclaredCaptainSpecies = captainSpecies,
+            OriginSystem = originSystem,
+            DestinationSystem = destination,
+            DeclaredTonnage = tonnage,
+            CargoManifest = cargo,
+            PurposeOfVisit = purpose,
+            DeclaredShieldsStatus = "DOWN",
+            DeclaredWeaponsStatus = "OFFLINE",
+            PortraitSeedId = portraitSeed,
+            HoloPortraitSpecies = captainSpecies,
+            HoloAmber = false,
+            IsMolting = captainSpecies == PortraitSpecies.Tolvak,
+            CrudeCrayon = false
+        };
+
+        ShipGroundTruth truth = new()
+        {
+            ActualShieldsUp = false,
+            ActualWeaponsHot = false,
+            ActualWarpPrimed = true,
+            ActualCargoPowerDraw = false,
+            ActualCommsPowered = true,
+            RawTransponderId = regCode,
+            ActualVisualFaction = visualFaction,
+            ActualShipClass = shipClass,
+            IsClassSilhouetteMismatch = false,
+            ActualMass = tonnage,
+            IsDecommissionedHull = false,
+            HasDownstreamHullScorch = false,
+            UsesStaticViewscreen = false,
+            WillRefuseShieldsCompliance = false,
+            WillRefuseWeaponsCompliance = false,
+            HasSpoofedWeapons = false,
+            ActualCaptainSpecies = captainSpecies,
+            ActualOriginSystem = originSystem,
+            IsDay2GhostRouteSuspect = false,
+            IsCovertMissionTarget = true,
+            CovertMissionId = state.ActiveCovertMissionId,
+            ActiveInfractions = []
+        };
+
+        ShipSpec spec = new()
+        {
+            EncounterSeedId = seedId,
+            QueueIndex = queueIndex,
+            Slate = slate,
+            GroundTruth = truth,
+            ComplianceDelaySeconds = 0.25f
+        };
+
+        PopulateDialogueLines(spec, state.GetRep(prefix));
+        return spec;
+    }
+
+    /// <summary>
+    /// Builds the automated Day 2+ Morning Ship Roster (exact 10 expected vessels):
+    /// - Draws strictly between 1 and 3 real arrivals from the deterministic 16-ship pre-generated queue
+    ///   (always including any active scheduled covert mission target ship, never Day 2 Ghost Route suspect,
+    ///   and NEVER pulled from random overflow beyond ship 16).
+    /// - Appearing on the Morning Ship Roster does NOT guarantee validity (invalid ships remain detainable).
+    /// - Fills the remaining 7 to 9 entries with plausible non-colliding decoy vessels and shuffles deterministically.
+    /// </summary>
+    public List<MorningRosterEntry> GenerateMorningShipRoster(
+        GameState state,
+        IReadOnlyList<ShipSpec> dailyQueue,
+        Core.ConfigFlags? config = null)
+    {
+        Core.ConfigFlags cfg = config ?? _config;
+        int runSeed = state.RunSeed != 0 ? state.RunSeed : 1;
+        DeterministicRng rng = new($"run{runSeed}-day{state.Day}-morning-roster");
+
+        List<MorningRosterEntry> entries = [];
+        HashSet<string> usedRegs = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ShipSpec qShip in dailyQueue)
+        {
+            usedRegs.Add(qShip.Slate.RegistrationCode);
+        }
+
+        // Eligible real ships in slots 0..15 (exclude Day 2 Ghost Route suspect)
+        List<ShipSpec> eligibleReal = dailyQueue
+            .Where(s => !s.GroundTruth.IsDay2GhostRouteSuspect)
+            .ToList();
+
+        // Between 1 and 3 real arrivals from the 16-ship queue (preferring earlier slots so players actually see them)
+        int targetRealCount = rng.NextInt(1, 4); // 1, 2, or 3
+        List<ShipSpec> chosenReal = [];
+
+        // Always include active scheduled covert delivery mission target if present in today's 16-ship queue
+        ShipSpec? missionTarget = eligibleReal.FirstOrDefault(s => s.GroundTruth.IsCovertMissionTarget);
+        if (missionTarget != null)
+        {
+            chosenReal.Add(missionTarget);
+        }
+
+        // Day 6: always include at least one guaranteed Mining Guild (MNG-) arrival on the Day 6 Morning Ship Roster
+        if (state.Day == 6 && !chosenReal.Any(s => s.Slate.DeclaredPrefix.Equals("MNG-", StringComparison.OrdinalIgnoreCase)))
+        {
+            ShipSpec? mngShip = eligibleReal.FirstOrDefault(s =>
+                s.QueueIndex == Day6MiningGuildGuaranteeSlot &&
+                s.Slate.DeclaredPrefix.Equals("MNG-", StringComparison.OrdinalIgnoreCase))
+                ?? eligibleReal.FirstOrDefault(s => s.Slate.DeclaredPrefix.Equals("MNG-", StringComparison.OrdinalIgnoreCase));
+            if (mngShip != null && !chosenReal.Contains(mngShip))
+            {
+                chosenReal.Add(mngShip);
+            }
+        }
+
+        // Day 7+: if an Intercept contract is active, include a matching real vessel from today's 16-ship queue
+        if (state.Day >= 7 && state.ActiveInterceptMissionIds.Count > 0 && chosenReal.Count < 3)
+        {
+            CovertMissionDatabase missionDb = CovertMissionDatabase.Load();
+            string? targetPfx = state.ActiveInterceptMissionIds
+                .Select(id => missionDb.Missions.FirstOrDefault(
+                    m => m.IsInterceptMission && m.MissionId.Equals(id, StringComparison.OrdinalIgnoreCase)))
+                .FirstOrDefault(m => m != null && !string.IsNullOrWhiteSpace(m.TargetPrefix))
+                ?.TargetPrefix;
+
+            if (!string.IsNullOrWhiteSpace(targetPfx) &&
+                !chosenReal.Any(s => s.Slate.DeclaredPrefix.Equals(targetPfx, StringComparison.OrdinalIgnoreCase)))
+            {
+                ShipSpec? interceptShip = eligibleReal.FirstOrDefault(s =>
+                    s.QueueIndex == ActiveInterceptTargetGuaranteeSlot &&
+                    s.Slate.DeclaredPrefix.Equals(targetPfx, StringComparison.OrdinalIgnoreCase))
+                    ?? eligibleReal.FirstOrDefault(s => s.Slate.DeclaredPrefix.Equals(targetPfx, StringComparison.OrdinalIgnoreCase));
+                if (interceptShip != null && !chosenReal.Contains(interceptShip))
+                {
+                    chosenReal.Add(interceptShip);
+                }
+            }
+        }
+
+        // Prefer ships inside slots 0..7 so an average 4-8 ship watch reliably meets rostered vessels
+        List<ShipSpec> earlyPool = eligibleReal
+            .Where(s => s.QueueIndex < 8 && !chosenReal.Contains(s))
+            .ToList();
+        List<ShipSpec> remainingPool = eligibleReal
+            .Where(s => !chosenReal.Contains(s))
+            .ToList();
+
+        while (chosenReal.Count < targetRealCount && (earlyPool.Count > 0 || remainingPool.Count > 0))
+        {
+            List<ShipSpec> pickFrom = earlyPool.Count > 0 ? earlyPool : remainingPool;
+            int idx = rng.NextInt(0, pickFrom.Count);
+            ShipSpec picked = pickFrom[idx];
+            chosenReal.Add(picked);
+            earlyPool.Remove(picked);
+            remainingPool.Remove(picked);
+        }
+
+        foreach (ShipSpec real in chosenReal)
+        {
+            entries.Add(new MorningRosterEntry
+            {
+                RegistrationCode = real.Slate.RegistrationCode,
+                Prefix = real.Slate.DeclaredPrefix,
+                OrganizationName = GetFactionFullName(real.Slate.DeclaredPrefix),
+                ShipName = real.Slate.ShipName,
+                ShipClassCode = GetShortClassCode(real.Slate.DeclaredShipClass),
+                IsRealArrival = true,
+                RealQueueSlot = real.QueueIndex,
+                IsMissionTarget = real.GroundTruth.IsCovertMissionTarget
+            });
+        }
+
+        // Fill remaining slots up to exact 10 with unique decoy vessels not in the 16-ship queue
+        int decoyIdx = 0;
+        while (entries.Count < 10)
+        {
+            DeterministicRng dRng = rng.Fork($"decoy_{decoyIdx++}");
+            string prefix = PickWeightedPrefix(dRng.Fork("pfx"));
+            ShipFaction vf = ShipRenderer.ParseFactionFromPrefix(prefix);
+            ShipClass cls = dRng.Fork("cls").Pick(ShipRenderer.GetAllowedClasses(vf));
+            string reg = GenerateUniqueRegistration(prefix, dRng.Fork("reg"), usedRegs);
+            string name = GenerateShipName(prefix, dRng.Fork("name"));
+
+            entries.Add(new MorningRosterEntry
+            {
+                RegistrationCode = reg,
+                Prefix = prefix,
+                OrganizationName = GetFactionFullName(prefix),
+                ShipName = name,
+                ShipClassCode = GetShortClassCode(cls),
+                IsRealArrival = false,
+                RealQueueSlot = -1,
+                IsMissionTarget = false
+            });
+        }
+
+        // Deterministic Fisher-Yates shuffle so real arrivals aren't always at top
+        DeterministicRng shufRng = rng.Fork("shuffle");
+        for (int i = entries.Count - 1; i > 0; i--)
+        {
+            int j = shufRng.NextInt(0, i + 1);
+            (entries[i], entries[j]) = (entries[j], entries[i]);
+        }
+
+        return entries;
+    }
 }

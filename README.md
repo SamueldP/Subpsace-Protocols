@@ -10,7 +10,7 @@ A sci-fi bureaucratic customs inspection and management game set aboard **Void G
 
 No coding tools or .NET installation required—everything needed to run the game is bundled in the release download.
 
-1. Go to the **[Releases](https://github.com/SamueldP/Subpsace-Protocols/releases)** page on the right-hand side of this repository.
+1. Go to the **[Releases](https://github.com/SamueldP/Subspace-Protocols/releases)** page on the right-hand side of this repository.
 2. Download the latest `SubspaceProtocols-vX.X.zip` file under **Assets**.
 3. Extract the `.zip` folder anywhere on your PC (Windows 10 / 11, 64-bit).
 4. Open the extracted folder and run **`SubspaceProtocols.exe`**.

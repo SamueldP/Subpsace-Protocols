@@ -62,6 +62,8 @@ public sealed class ShipGroundTruth
     public PortraitSpecies ActualCaptainSpecies { get; set; } = PortraitSpecies.Human;
     public string ActualOriginSystem { get; set; } = "Veridia";
     public bool IsDay2GhostRouteSuspect { get; set; } = false;
+    public bool IsCovertMissionTarget { get; set; } = false;
+    public string CovertMissionId { get; set; } = string.Empty;
 
     /// <summary>
     /// Exact list of active infractions on this vessel.
@@ -99,6 +101,7 @@ public sealed class ShipSpec
 
     public bool IsValid => GroundTruth.IsValid;
     public bool ProtocolReviewVerified { get; set; } = false;
+    public int WeaponsPowerDownOrdersIssued { get; set; } = 0;
 
     // Rep-tier compliance timing delay (High >= +6: 0.20s, Mid: 0.55s, Low <= -5: 1.35s)
     public float ComplianceDelaySeconds { get; set; } = 0.50f;
@@ -108,6 +111,7 @@ public sealed class ShipSpec
     public string ShieldsLoweredLine { get; set; } = string.Empty;
     public string WeaponsPoweredDownLine { get; set; } = string.Empty;
     public string RefusalLine { get; set; } = string.Empty;
+    public string SpoofedWeaponsBluffLine { get; set; } = string.Empty;
     public string SpoofedWeaponsDeflectionLine { get; set; } = string.Empty;
     public string SubspaceUploadLine { get; set; } = string.Empty;
     public string ReTransmitAnnoyedLine { get; set; } = string.Empty;
@@ -141,6 +145,7 @@ public sealed class ShipSpec
             WeaponsHot = spsEnabled ? GroundTruth.ActualWeaponsHot : GroundTruth.ExteriorWeaponsGlowVisible,
             IsDecommissioned = GroundTruth.IsDecommissionedHull,
             WarpPrimed = GroundTruth.ActualWarpPrimed,
+            UncannyWarpPylonPulse = GroundTruth.IsDay2GhostRouteSuspect,
             CommsBroken = !GroundTruth.ActualCommsPowered,
             CargoHighDraw = GroundTruth.ActualCargoPowerDraw,
             HasDownstreamHullScorch = GroundTruth.HasDownstreamHullScorch,

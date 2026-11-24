@@ -43,5 +43,10 @@ if (-not (Test-Path $ExePath)) {
     throw "Expected executable not found at: $ExePath"
 }
 
+$SectorMapPath = Join-Path $TargetDataDir "sector_map.json"
+if (-not (Test-Path $SectorMapPath)) {
+    throw "Expected sector_map.json not found at: $SectorMapPath"
+}
+
 Write-Host "[3/3] Portable release package ready at: $ReleaseFolder" -ForegroundColor Green
 Get-ChildItem -Path $ReleaseFolder | Select-Object Name, Mode, Length | Format-Table -AutoSize

@@ -127,14 +127,7 @@ public sealed class ArtTestScreen : IScreen
         }
 
         HandleKeyboardShortcuts();
-        int offsetX = (Constants.VirtualWidth - 640) / 2;
-        int offsetY = (Constants.VirtualHeight - 360) / 2;
-        VirtualMouseState centeredMouse = mouse with
-        {
-            X = mouse.X - offsetX,
-            Y = mouse.Y - offsetY
-        };
-        HandleMouseInput(centeredMouse);
+        HandleMouseInput(mouse);
 
         EnsureCachedTexturesUpToDate(forceRebuild: false);
     }
@@ -197,164 +190,164 @@ public sealed class ArtTestScreen : IScreen
         if (!mouse.LeftPressed)
             return;
 
-        // Top Header: Main Menu
-        if (mouse.IsHit(550, 3, 84, 17))
+        // Top Header: Main Menu (1100, 6, 164, 28)
+        if (mouse.IsHit(1100, 6, 164, 28))
         {
             AudioHooks.Play("terminal_key_confirm");
             _screenManager.SwitchTo(ScreenId.MainMenu);
             return;
         }
 
-        // Seed & Animation Bar (y = 26..44)
-        if (mouse.IsHit(6, 26, 52, 18))
+        // Seed & Animation Bar (y = 52..88)
+        if (mouse.IsHit(12, 52, 104, 36))
         {
             _seedPresetIndex = (_seedPresetIndex - 1 + PresetSeeds.Length) % PresetSeeds.Length;
             _currentSeed = PresetSeeds[_seedPresetIndex];
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(60, 26, 52, 18))
+        else if (mouse.IsHit(120, 52, 104, 36))
         {
             _seedPresetIndex = (_seedPresetIndex + 1) % PresetSeeds.Length;
             _currentSeed = PresetSeeds[_seedPresetIndex];
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(114, 26, 88, 18))
+        else if (mouse.IsHit(228, 52, 176, 36))
         {
             GenerateRandomSeed();
         }
-        else if (mouse.IsHit(524, 26, 110, 18))
+        else if (mouse.IsHit(1048, 52, 220, 36))
         {
             _animPaused = !_animPaused;
             AudioHooks.Play("terminal_key_tab");
         }
 
-        // Left Column: Portrait Controls (x = 6..278)
-        else if (mouse.IsHit(12, 54, 22, 18))
+        // Left Column: Portrait Controls (x = 12..556)
+        else if (mouse.IsHit(24, 108, 44, 36))
         {
             CycleSpecies(-1);
         }
-        else if (mouse.IsHit(36, 54, 214, 18) || mouse.IsHit(252, 54, 22, 18))
+        else if (mouse.IsHit(72, 108, 428, 36) || mouse.IsHit(504, 108, 44, 36))
         {
             CycleSpecies(1);
         }
-        else if (mouse.IsHit(12, 76, 22, 18))
+        else if (mouse.IsHit(24, 152, 44, 36))
         {
             CyclePortraitMode(-1);
         }
-        else if (mouse.IsHit(36, 76, 214, 18) || mouse.IsHit(252, 76, 22, 18))
+        else if (mouse.IsHit(72, 152, 428, 36) || mouse.IsHit(504, 152, 44, 36))
         {
             CyclePortraitMode(1);
         }
-        // Row y = 98: [isMolting] [crudeCrayon] [4-SEED COMPARE]
-        else if (mouse.IsHit(12, 98, 76, 18))
+        // Row y = 196: [isMolting] [crudeCrayon] [4-SEED COMPARE]
+        else if (mouse.IsHit(24, 196, 152, 36))
         {
             _isMolting = !_isMolting;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(91, 98, 76, 18))
+        else if (mouse.IsHit(182, 196, 152, 36))
         {
             _crudeCrayonToggle = !_crudeCrayonToggle;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(170, 98, 104, 18))
+        else if (mouse.IsHit(340, 196, 208, 36))
         {
             ToggleFourSeedCompare();
         }
-        // Quick Portrait Mode buttons (y = 266)
-        else if (mouse.IsHit(12, 266, 62, 18))
+        // Quick Portrait Mode buttons (y = 532)
+        else if (mouse.IsHit(24, 532, 124, 36))
         {
             _portraitModeIndex = 0;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(77, 266, 62, 18))
+        else if (mouse.IsHit(154, 532, 124, 36))
         {
             _portraitModeIndex = 1;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(142, 266, 62, 18))
+        else if (mouse.IsHit(284, 532, 124, 36))
         {
             _portraitModeIndex = _portraitModeIndex == 2 ? 3 : 2;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(207, 266, 67, 18))
+        else if (mouse.IsHit(414, 532, 134, 36))
         {
             _portraitModeIndex = 4;
             AudioHooks.Play("terminal_key_tab");
         }
 
-        // Right Column: Ship Controls (x = 282..634)
-        else if (mouse.IsHit(288, 54, 22, 18))
+        // Right Column: Ship Controls (x = 564..1268)
+        else if (mouse.IsHit(576, 108, 44, 36))
         {
             CycleFaction(-1);
         }
-        else if (mouse.IsHit(312, 54, 290, 18) || mouse.IsHit(604, 54, 22, 18))
+        else if (mouse.IsHit(624, 108, 580, 36) || mouse.IsHit(1208, 108, 44, 36))
         {
             CycleFaction(1);
         }
-        else if (mouse.IsHit(288, 76, 22, 18))
+        else if (mouse.IsHit(576, 152, 44, 36))
         {
             CycleShipClass(-1);
         }
-        else if (mouse.IsHit(312, 76, 152, 18) || mouse.IsHit(466, 76, 22, 18))
+        else if (mouse.IsHit(624, 152, 304, 36) || mouse.IsHit(932, 152, 44, 36))
         {
             CycleShipClass(1);
         }
-        else if (mouse.IsHit(492, 76, 134, 18))
+        else if (mouse.IsHit(984, 152, 268, 36))
         {
             _shipRenderMode = _shipRenderMode == ShipRenderMode.Live
                 ? ShipRenderMode.Manual
                 : ShipRenderMode.Live;
             AudioHooks.Play("terminal_key_tab");
         }
-        // Direct Ship Class Availability Matrix buttons (y = 98)
-        else if (mouse.IsHit(288, 98, 64, 18))
+        // Direct Ship Class Availability Matrix buttons (y = 196)
+        else if (mouse.IsHit(576, 196, 128, 36))
         {
             TrySelectShipClass(ShipClass.Military);
         }
-        else if (mouse.IsHit(356, 98, 64, 18))
+        else if (mouse.IsHit(712, 196, 128, 36))
         {
             TrySelectShipClass(ShipClass.Civilian);
         }
-        else if (mouse.IsHit(424, 98, 64, 18))
+        else if (mouse.IsHit(848, 196, 128, 36))
         {
             TrySelectShipClass(ShipClass.Cargo);
         }
-        else if (mouse.IsHit(492, 98, 64, 18))
+        else if (mouse.IsHit(984, 196, 128, 36))
         {
             TrySelectShipClass(ShipClass.Diplomatic);
         }
-        else if (mouse.IsHit(560, 98, 66, 18))
+        else if (mouse.IsHit(1120, 196, 132, 36))
         {
             TrySelectShipClass(ShipClass.HackJob);
         }
-        // Ship Live Toggles Row 1 (y = 120)
-        else if (mouse.IsHit(288, 120, 108, 18))
+        // Ship Live Toggles Row 1 (y = 240)
+        else if (mouse.IsHit(576, 240, 216, 36))
         {
             _shieldsUp = !_shieldsUp;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(400, 120, 112, 18))
+        else if (mouse.IsHit(800, 240, 224, 36))
         {
             _weaponsHot = !_weaponsHot;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(516, 120, 110, 18))
+        else if (mouse.IsHit(1032, 240, 220, 36))
         {
             _spsEnabled = !_spsEnabled;
             AudioHooks.Play(_spsEnabled ? "sps_scanner_on" : "sps_scanner_off");
         }
-        // Ship Live Toggles Row 2 (y = 142)
-        else if (mouse.IsHit(288, 142, 166, 18))
+        // Ship Live Toggles Row 2 (y = 284)
+        else if (mouse.IsHit(576, 284, 332, 36))
         {
             _isDecommissioned = !_isDecommissioned;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(458, 142, 84, 18))
+        else if (mouse.IsHit(916, 284, 168, 36))
         {
             _cargoHighDraw = !_cargoHighDraw;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(546, 142, 80, 18))
+        else if (mouse.IsHit(1092, 284, 160, 36))
         {
             _commsBroken = !_commsBroken;
             AudioHooks.Play("terminal_key_tab");
@@ -580,215 +573,204 @@ public sealed class ArtTestScreen : IScreen
 
     public void DrawVirtual(VirtualMouseState mouse)
     {
-        int offsetX = (Constants.VirtualWidth - 640) / 2;
-        int offsetY = (Constants.VirtualHeight - 360) / 2;
-
-        Raylib.ClearBackground(Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(offsetX - 2, offsetY - 2, 644, 364, Palette.OxidizedBronzeWorn);
-
-        VirtualMouseState centeredMouse = mouse with
-        {
-            X = mouse.X - offsetX,
-            Y = mouse.Y - offsetY
-        };
-
-        Rlgl.PushMatrix();
-        Rlgl.Translatef(offsetX, offsetY, 0);
-
-        Raylib.DrawRectangle(0, 0, 640, 360, Palette.DeepSpaceVoid);
+        Raylib.ClearBackground(Palette.DeepSpaceVoid);
 
         // =====================================================================
-        // 1. TOP HEADER & LIVE VRAM TEXTURE TELEMETRY
+        // 1. TOP HEADER & LIVE VRAM TEXTURE TELEMETRY (1280x720 Native)
         // =====================================================================
-        Raylib.DrawRectangle(0, 0, 640, 23, Palette.OutlineVoid);
-        Raylib.DrawLine(0, 22, 640, 22, Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText("08_PHYSICAL_LOOK // PROCEDURAL ART GALLERY", 6, 6, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawRectangle(0, 0, Constants.VirtualWidth, 40, Palette.OutlineVoid);
+        Raylib.DrawLine(0, 40, Constants.VirtualWidth, 40, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawText("08_PHYSICAL_LOOK // PROCEDURAL ART GALLERY (1280x720 NATIVE)", 12, 15, 10, Palette.CrtAmberPrimary);
 
         string vramText =
             $"VRAM TEX: {PixelBuffer.TotalActiveVramTextures} (PROC:{PixelBuffer.ActiveProceduralTextureCount} GEN:{PixelBuffer.TotalProceduralTexturesCreated} FREE:{PixelBuffer.TotalProceduralTexturesUnloaded})";
-        Raylib.DrawText(vramText, 256, 6, 10, Palette.ClearanceTeal);
+        Raylib.DrawText(vramText, 512, 15, 10, Palette.ClearanceTeal);
 
-        DrawButton(centeredMouse, 550, 3, 84, 17, "MAIN MENU");
-        mouse = centeredMouse;
+        DrawButton(mouse, 1100, 6, 164, 28, "MAIN MENU");
 
         // =====================================================================
-        // 2. SEED & ANIMATION BAR (y = 26..44)
+        // 2. SEED & ANIMATION BAR (y = 52..88)
         // =====================================================================
-        DrawButton(mouse, 6, 26, 52, 18, "< SEED");
-        DrawButton(mouse, 60, 26, 52, 18, "SEED >");
-        DrawButton(mouse, 114, 26, 88, 18, "RANDOM [R]");
+        DrawButton(mouse, 12, 52, 104, 36, "< SEED");
+        DrawButton(mouse, 120, 52, 104, 36, "SEED >");
+        DrawButton(mouse, 228, 52, 176, 36, "RANDOM [R]");
 
         uint fnvHash = DeterministicRng.HashSeedFnv1a(_currentSeed);
-        Raylib.DrawText($"SEED: {_currentSeed} (FNV1a: 0x{fnvHash:X8})", 208, 30, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawText($"SEED: {_currentSeed} (FNV1a: 0x{fnvHash:X8})", 418, 65, 10, Palette.CrtAmberPrimary);
 
-        DrawToggleButton(mouse, 524, 26, 110, 18,
+        DrawToggleButton(mouse, 1048, 52, 220, 36,
             _animPaused ? "ANIM: PAUSED" : "ANIM: LIVE",
             !_animPaused, Palette.ClearanceTeal);
 
         // =====================================================================
-        // 3. LEFT PANEL: 64x64 PORTRAIT RENDERER & 4-SEED COMPARE (x = 6..278)
+        // 3. LEFT PANEL: 64x64 PORTRAIT RENDERER & 4-SEED COMPARE (x = 12..556)
         // =====================================================================
-        Raylib.DrawRectangle(6, 48, 272, 286, Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(6, 48, 272, 286, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawRectangle(12, 96, 544, 572, Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(12, 96, 544, 572, Palette.WeatheredGunmetalEdge);
 
         var spEntry = SpeciesCatalog[_speciesUiIndex];
-        DrawButton(mouse, 12, 54, 22, 18, "<");
-        DrawButton(mouse, 36, 54, 214, 18, $"{_speciesUiIndex + 1}/{SpeciesCatalog.Length}: {spEntry.Label}");
-        DrawButton(mouse, 252, 54, 22, 18, ">");
+        DrawButton(mouse, 24, 108, 44, 36, "<");
+        DrawButton(mouse, 72, 108, 428, 36, $"{_speciesUiIndex + 1}/{SpeciesCatalog.Length}: {spEntry.Label}");
+        DrawButton(mouse, 504, 108, 44, 36, ">");
 
         var modeEntry = PortraitModes[_portraitModeIndex];
-        DrawButton(mouse, 12, 76, 22, 18, "<");
-        DrawButton(mouse, 36, 76, 214, 18, modeEntry.Label);
-        DrawButton(mouse, 252, 76, 22, 18, ">");
+        DrawButton(mouse, 24, 152, 44, 36, "<");
+        DrawButton(mouse, 72, 152, 428, 36, modeEntry.Label);
+        DrawButton(mouse, 504, 152, 44, 36, ">");
 
-        DrawToggleButton(mouse, 12, 98, 76, 18,
+        DrawToggleButton(mouse, 24, 196, 152, 36,
             _isMolting ? "MOLT: ON" : "MOLT: OFF",
             _isMolting, Palette.CrtAmberPrimary);
 
         bool crayonActive = _crudeCrayonToggle || modeEntry.Mode == PortraitRenderMode.CrudeCrayon;
-        DrawToggleButton(mouse, 91, 98, 76, 18,
+        DrawToggleButton(mouse, 182, 196, 152, 36,
             crayonActive ? "CRYN: ON" : "CRYN: OFF",
             crayonActive, Palette.AlertCrimson);
 
-        DrawToggleButton(mouse, 170, 98, 104, 18,
+        DrawToggleButton(mouse, 340, 196, 208, 36,
             _fourSeedCompare ? "4-SEED: ON [V]" : "4-SEED CMP [V]",
             _fourSeedCompare, Palette.ClearanceTeal);
 
         if (_fourSeedCompare)
         {
-            // 4-SEED COMPARE GRID: 4 Seeds Side-by-Side (Top Row: LIVE 64x64, Bottom Row: HOLO 64x64)
+            // 4-SEED COMPARE GRID: 4 Seeds Side-by-Side at 2x scale (128x128)
             for (int i = 0; i < 4; i++)
             {
-                int px = 10 + i * 66;
+                int px = 20 + i * 132;
+                Rectangle src = new(0, 0, Constants.PortraitWidth, Constants.PortraitHeight);
                 if (_compareLiveTextures[i].Id != 0)
                 {
-                    Raylib.DrawTexture(_compareLiveTextures[i], px, 122, Color.White);
-                    Raylib.DrawRectangleLines(px - 1, 121, 66, 66, Palette.CrtAmberDimmed);
+                    Raylib.DrawTexturePro(_compareLiveTextures[i], src, new Rectangle(px, 244, 128, 128), Vector2.Zero, 0f, Color.White);
+                    Raylib.DrawRectangleLines(px - 1, 243, 130, 130, Palette.CrtAmberDimmed);
                 }
                 if (_compareHoloTextures[i].Id != 0)
                 {
-                    Raylib.DrawTexture(_compareHoloTextures[i], px, 192, Color.White);
-                    Raylib.DrawRectangleLines(px - 1, 191, 66, 66, Palette.ClearanceTeal);
+                    Raylib.DrawTexturePro(_compareHoloTextures[i], src, new Rectangle(px, 384, 128, 128), Vector2.Zero, 0f, Color.White);
+                    Raylib.DrawRectangleLines(px - 1, 383, 130, 130, Palette.ClearanceTeal);
                 }
             }
-            Raylib.DrawText("TOP: 4 SEEDS [LIVE]   |   BOT: 4 SEEDS [HOLO]", 14, 256, 10, Palette.ClearanceTeal);
+            Raylib.DrawText("TOP: 4 SEEDS [LIVE 128x128]   |   BOT: 4 SEEDS [HOLO 128x128]", 28, 516, 10, Palette.ClearanceTeal);
         }
         else
         {
-            // Standard 2x Scaled Portrait (128x128) & 1x Native Portrait (64x64)
+            // 4x Scaled Portrait (256x256), 2x Scaled Portrait (128x128), & 1x Native Portrait (64x64)
             if (_cachedPortraitTex.Id != 0)
             {
                 Rectangle src = new(0, 0, Constants.PortraitWidth, Constants.PortraitHeight);
-                Rectangle dst2x = new(14, 124, Constants.PortraitWidth * 2, Constants.PortraitHeight * 2);
-                Raylib.DrawTexturePro(_cachedPortraitTex, src, dst2x, Vector2.Zero, 0f, Color.White);
-                Raylib.DrawRectangleLines(13, 123, 130, 130, Palette.CrtAmberDimmed);
+                Rectangle dst4x = new(28, 248, Constants.PortraitWidth * 4, Constants.PortraitHeight * 4);
+                Raylib.DrawTexturePro(_cachedPortraitTex, src, dst4x, Vector2.Zero, 0f, Color.White);
+                Raylib.DrawRectangleLines(27, 247, 258, 258, Palette.CrtAmberDimmed);
 
-                Raylib.DrawTexture(_cachedPortraitTex, 154, 124, Color.White);
-                Raylib.DrawRectangleLines(153, 123, 66, 66, Palette.WeatheredGunmetalEdge);
-                Raylib.DrawText("64x64", 224, 144, 10, Palette.CrtAmberPrimary);
-                Raylib.DrawText("NATIVE", 224, 156, 10, Palette.CrtAmberDimmed);
+                Rectangle dst2x = new(304, 248, Constants.PortraitWidth * 2, Constants.PortraitHeight * 2);
+                Raylib.DrawTexturePro(_cachedPortraitTex, src, dst2x, Vector2.Zero, 0f, Color.White);
+                Raylib.DrawRectangleLines(303, 247, 130, 130, Palette.WeatheredGunmetalEdge);
+
+                Raylib.DrawTexture(_cachedPortraitTex, 452, 248, Color.White);
+                Raylib.DrawRectangleLines(451, 247, 66, 66, Palette.WeatheredGunmetalEdge);
+                Raylib.DrawText("64x64 NATIVE", 448, 322, 10, Palette.CrtAmberPrimary);
+                Raylib.DrawText("128x128 (2X)", 306, 384, 10, Palette.CrtAmberDimmed);
             }
 
-            Raylib.DrawText("7-LAYER PIPELINE OK", 152, 196, 10, Palette.ClearanceTeal);
-            Raylib.DrawText("BAYER 4x4 + #080b10", 152, 210, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("NO ZULAK/VESH/PRENN", 152, 224, 10, Palette.ClearanceTeal);
-            Raylib.DrawText("2X CRT (128x128)", 24, 254, 10, Palette.CrtAmberDimmed);
+            Raylib.DrawText("7-LAYER PIPELINE OK", 304, 412, 10, Palette.ClearanceTeal);
+            Raylib.DrawText("BAYER 4x4 + #080b10", 304, 432, 10, Palette.CrtAmberDimmed);
+            Raylib.DrawText("NO ZULAK/VESH/PRENN", 304, 452, 10, Palette.ClearanceTeal);
+            Raylib.DrawText("4X CRT (256x256)", 48, 512, 10, Palette.CrtAmberDimmed);
         }
 
-        // Quick 1-click Portrait Mode row (y = 266)
-        DrawToggleButton(mouse, 12, 266, 62, 18, "LIVE", _portraitModeIndex == 0, Palette.ClearanceTeal);
-        DrawToggleButton(mouse, 77, 266, 62, 18, "STATIC", _portraitModeIndex == 1, Palette.CrtAmberPrimary);
-        DrawToggleButton(mouse, 142, 266, 62, 18, "HOLO", _portraitModeIndex is 2 or 3, Palette.ClearanceTeal);
-        DrawToggleButton(mouse, 207, 266, 67, 18, "CRAYON", _portraitModeIndex == 4, Palette.AlertCrimson);
+        // Quick 1-click Portrait Mode row (y = 532)
+        DrawToggleButton(mouse, 24, 532, 124, 36, "LIVE", _portraitModeIndex == 0, Palette.ClearanceTeal);
+        DrawToggleButton(mouse, 154, 532, 124, 36, "STATIC", _portraitModeIndex == 1, Palette.CrtAmberPrimary);
+        DrawToggleButton(mouse, 284, 532, 124, 36, "HOLO", _portraitModeIndex is 2 or 3, Palette.ClearanceTeal);
+        DrawToggleButton(mouse, 414, 532, 134, 36, "CRAYON", _portraitModeIndex == 4, Palette.AlertCrimson);
 
-        Raylib.DrawText(spEntry.Note, 12, 290, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawText("KEYS: [S]PECIES [M]ODE [V] 4-SEED COMPARE [4]MOLT", 12, 308, 10, Palette.CrtAmberDimmed);
+        Raylib.DrawText(spEntry.Note, 24, 584, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawText("KEYS: [S]PECIES [M]ODE [V] 4-SEED COMPARE [4]MOLT", 24, 616, 10, Palette.CrtAmberDimmed);
 
         // =====================================================================
-        // 4. RIGHT PANEL: 120x56 LEFT-FACING STARSHIP RENDERER & SPS LAYER
+        // 4. RIGHT PANEL: 120x56 LEFT-FACING STARSHIP RENDERER & SPS LAYER (x = 564..1268)
         // =====================================================================
-        Raylib.DrawRectangle(282, 48, 352, 286, Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(282, 48, 352, 286, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawRectangle(564, 96, 704, 572, Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(564, 96, 704, 572, Palette.WeatheredGunmetalEdge);
 
         ShipFaction faction = ShipRenderer.AllFactions[_factionIndex];
         ShipClass effectiveClass = ShipRenderer.NormalizeShipClass(faction, _selectedShipClass);
         bool effectiveDecomm = ShipRenderer.IsDecommissionedEffective(faction, effectiveClass, _isDecommissioned, false);
 
-        DrawButton(mouse, 288, 54, 22, 18, "<");
-        DrawButton(mouse, 312, 54, 290, 18,
+        DrawButton(mouse, 576, 108, 44, 36, "<");
+        DrawButton(mouse, 624, 108, 580, 36,
             $"{_factionIndex + 1}/{ShipRenderer.AllFactions.Count}: {ShipRenderer.GetFactionDisplayName(faction)}");
-        DrawButton(mouse, 604, 54, 22, 18, ">");
+        DrawButton(mouse, 1208, 108, 44, 36, ">");
 
-        DrawButton(mouse, 288, 76, 22, 18, "<");
-        DrawButton(mouse, 312, 76, 152, 18, $"CLASS: {effectiveClass.ToString().ToUpperInvariant()}");
-        DrawButton(mouse, 466, 76, 22, 18, ">");
+        DrawButton(mouse, 576, 152, 44, 36, "<");
+        DrawButton(mouse, 624, 152, 304, 36, $"CLASS: {effectiveClass.ToString().ToUpperInvariant()}");
+        DrawButton(mouse, 932, 152, 44, 36, ">");
 
-        DrawToggleButton(mouse, 492, 76, 134, 18,
+        DrawToggleButton(mouse, 984, 152, 268, 36,
             _shipRenderMode == ShipRenderMode.Manual ? "CHART: MANUAL" : "VIEW: LIVE",
             _shipRenderMode == ShipRenderMode.Manual, Palette.CrtAmberPrimary);
 
-        // Ship Class Availability Matrix Pills (y = 98)
-        DrawClassMatrixPill(mouse, 288, 98, 64, 18, "MIL", faction, ShipClass.Military, effectiveClass);
-        DrawClassMatrixPill(mouse, 356, 98, 64, 18, "CIV", faction, ShipClass.Civilian, effectiveClass);
-        DrawClassMatrixPill(mouse, 424, 98, 64, 18, "CRG", faction, ShipClass.Cargo, effectiveClass);
-        DrawClassMatrixPill(mouse, 492, 98, 64, 18, "DIP", faction, ShipClass.Diplomatic, effectiveClass);
-        DrawClassMatrixPill(mouse, 560, 98, 66, 18, "HACK", faction, ShipClass.HackJob, effectiveClass);
+        // Ship Class Availability Matrix Pills (y = 196)
+        DrawClassMatrixPill(mouse, 576, 196, 128, 36, "MIL", faction, ShipClass.Military, effectiveClass);
+        DrawClassMatrixPill(mouse, 712, 196, 128, 36, "CIV", faction, ShipClass.Civilian, effectiveClass);
+        DrawClassMatrixPill(mouse, 848, 196, 128, 36, "CRG", faction, ShipClass.Cargo, effectiveClass);
+        DrawClassMatrixPill(mouse, 984, 196, 128, 36, "DIP", faction, ShipClass.Diplomatic, effectiveClass);
+        DrawClassMatrixPill(mouse, 1120, 196, 132, 36, "HACK", faction, ShipClass.HackJob, effectiveClass);
 
-        // Live Toggles Row 1 (y = 120)
-        DrawToggleButton(mouse, 288, 120, 108, 18,
+        // Live Toggles Row 1 (y = 240)
+        DrawToggleButton(mouse, 576, 240, 216, 36,
             _shieldsUp ? "shieldsUp: ON" : "shieldsUp: OFF",
             _shieldsUp, Palette.ClearanceTeal);
 
-        DrawToggleButton(mouse, 400, 120, 112, 18,
+        DrawToggleButton(mouse, 800, 240, 224, 36,
             _weaponsHot ? "weaponsHot: ON" : "weaponsHot: OFF",
             _weaponsHot, Palette.AlertCrimson);
 
-        DrawToggleButton(mouse, 516, 120, 110, 18,
+        DrawToggleButton(mouse, 1032, 240, 220, 36,
             _spsEnabled ? "SPS LAYER: ON" : "SPS LAYER: OFF",
             _spsEnabled, Palette.SpsCommsActive);
 
-        // Live Toggles Row 2 (y = 142)
+        // Live Toggles Row 2 (y = 284)
         string decommLabel = !_isDecommissioned
             ? "isDecomm: OFF [3]"
             : (effectiveDecomm ? "isDecomm: ACTIVE" : "isDecomm: GU CIV/CRG!");
-        DrawToggleButton(mouse, 288, 142, 166, 18,
+        DrawToggleButton(mouse, 576, 284, 332, 36,
             decommLabel,
             effectiveDecomm,
             _isDecommissioned && !effectiveDecomm ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
 
-        DrawToggleButton(mouse, 458, 142, 84, 18,
+        DrawToggleButton(mouse, 916, 284, 168, 36,
             _cargoHighDraw ? "CARGO:HOT" : "CARGO:STD",
             _cargoHighDraw, Palette.SpsCargoHighDraw);
 
-        DrawToggleButton(mouse, 546, 142, 80, 18,
+        DrawToggleButton(mouse, 1092, 284, 160, 36,
             _commsBroken ? "COMMS:BRK" : "COMMS:OK",
             !_commsBroken, Palette.SpsCommsActive);
 
-        // 120x56 Left-Facing Starship Viewport (2x scaled -> 240x112)
-        Raylib.DrawText("<-- BOW (LEFT: x=8..35)      STERN/PYLONS (RIGHT: x=75..114) -->", 290, 166, 10, Palette.CrtAmberDimmed);
+        // 120x56 Left-Facing Starship Viewport (4x scaled -> 480x224)
+        Raylib.DrawText("<-- BOW (LEFT: x=8..35)      STERN/PYLONS (RIGHT: x=75..114) -->", 580, 334, 10, Palette.CrtAmberDimmed);
         if (_cachedShipTex.Id != 0)
         {
-            Raylib.DrawRectangle(290, 180, Constants.ShipWidth * 2, Constants.ShipHeight * 2, Palette.DeepSpaceVoid);
+            Raylib.DrawRectangle(580, 360, Constants.ShipWidth * 4, Constants.ShipHeight * 4, Palette.DeepSpaceVoid);
             Rectangle src = new(0, 0, Constants.ShipWidth, Constants.ShipHeight);
-            Rectangle dst2x = new(290, 180, Constants.ShipWidth * 2, Constants.ShipHeight * 2);
-            Raylib.DrawTexturePro(_cachedShipTex, src, dst2x, Vector2.Zero, 0f, Color.White);
+            Rectangle dst4x = new(580, 360, Constants.ShipWidth * 4, Constants.ShipHeight * 4);
+            Raylib.DrawTexturePro(_cachedShipTex, src, dst4x, Vector2.Zero, 0f, Color.White);
             Color borderCol = _spsEnabled ? Palette.SpsCommsActive : Palette.BrownDwarfGlowRim;
-            Raylib.DrawRectangleLines(289, 179, Constants.ShipWidth * 2 + 2, Constants.ShipHeight * 2 + 2, borderCol);
+            Raylib.DrawRectangleLines(579, 359, Constants.ShipWidth * 4 + 2, Constants.ShipHeight * 4 + 2, borderCol);
         }
 
-        // Right-side SPS & Hull Telemetry Legend Box (x = 536..626, y = 180..292)
-        Raylib.DrawRectangle(536, 180, 90, 112, Palette.DeepSpaceVoid);
-        Raylib.DrawRectangleLines(536, 180, 90, 112, Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText("SPS HARDPTS", 541, 184, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawText(_weaponsHot ? "WPN: #ef4444" : "WPN: #1e293b", 541, 200, 10,
+        // Right-side SPS & Hull Telemetry Legend Box (x = 1072..1252, y = 360..584)
+        Raylib.DrawRectangle(1072, 360, 180, 224, Palette.DeepSpaceVoid);
+        Raylib.DrawRectangleLines(1072, 360, 180, 224, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawText("SPS HARDPOINTS", 1084, 374, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawText(_weaponsHot ? "WPN: #ef4444" : "WPN: #1e293b", 1084, 404, 10,
             _weaponsHot ? Palette.SpsWeaponsHot : Palette.CrtAmberDimmed);
-        Raylib.DrawText("WRP: #f59e0b", 541, 214, 10, Palette.SpsWarpPrimed);
-        Raylib.DrawText(!_commsBroken ? "COM: #38bdf8" : "COM: #475569", 541, 228, 10,
+        Raylib.DrawText("WRP: #f59e0b", 1084, 428, 10, Palette.SpsWarpPrimed);
+        Raylib.DrawText(!_commsBroken ? "COM: #38bdf8" : "COM: #475569", 1084, 452, 10,
             !_commsBroken ? Palette.SpsCommsActive : Palette.CrtAmberDimmed);
-        Raylib.DrawText(_cargoHighDraw ? "CRG: #a855f7" : "CRG: #1e293b", 541, 242, 10,
+        Raylib.DrawText(_cargoHighDraw ? "CRG: #a855f7" : "CRG: #1e293b", 1084, 476, 10,
             _cargoHighDraw ? Palette.SpsCargoHighDraw : Palette.CrtAmberDimmed);
-        Raylib.DrawText("GRID: 120x56", 541, 260, 10, Palette.ClearanceTeal);
-        Raylib.DrawText("FACE: LEFT", 541, 274, 10, Palette.CrtAmberPrimary);
+        Raylib.DrawText("GRID: 120x56 (4X)", 1084, 512, 10, Palette.ClearanceTeal);
+        Raylib.DrawText("FACE: LEFT", 1084, 536, 10, Palette.CrtAmberPrimary);
 
         string shipRuleNote = effectiveClass switch
         {
@@ -798,19 +780,17 @@ public sealed class ArtTestScreen : IScreen
             ShipClass.Diplomatic => "DIP SILHOUETTE: Stretched sleek cruiser/command yacht with dorsal fins/domes.",
             _ => "PRUNJUN HACK-JOB: Rigid Factions A+B+C + Round Bubble Cockpit + Clipped Flames."
         };
-        Raylib.DrawText(shipRuleNote, 288, 302, 10, Palette.ClearanceTeal);
-        Raylib.DrawText("SPS RULE: Dynamic anchors per class; blocked by static arcs if shieldsUp.", 288, 316, 10, Palette.CrtAmberDimmed);
+        Raylib.DrawText(shipRuleNote, 580, 604, 10, Palette.ClearanceTeal);
+        Raylib.DrawText("SPS RULE: Dynamic anchors per class; blocked by static arcs if shieldsUp.", 580, 632, 10, Palette.CrtAmberDimmed);
 
         // =====================================================================
-        // 5. FOOTER STATUS BAR (y = 338..360)
+        // 5. FOOTER STATUS BAR (y = 680..720)
         // =====================================================================
-        Raylib.DrawRectangle(0, 338, 640, 22, Palette.OutlineVoid);
-        Raylib.DrawLine(0, 338, 640, 338, Palette.WeatheredGunmetalEdge);
+        Raylib.DrawRectangle(0, 680, Constants.VirtualWidth, 40, Palette.OutlineVoid);
+        Raylib.DrawLine(0, 680, Constants.VirtualWidth, 680, Palette.WeatheredGunmetalEdge);
         Raylib.DrawText(
             "HOTKEYS: [S]PECIES [M]ODE [V] 4-SEED [F]ACTION [C]LASS [R]ANDOM [1]SHIELD [2]WPN [3]DECOMM [4]MOLT [5]SPS",
-            8, 344, 10, Palette.CrtAmberDimmed);
-
-        Rlgl.PopMatrix();
+            16, 695, 10, Palette.CrtAmberDimmed);
     }
 
     private void DrawClassMatrixPill(
@@ -841,7 +821,8 @@ public sealed class ArtTestScreen : IScreen
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
         string label = allowed ? $"[{shortName}]" : $"x{shortName}x";
-        Raylib.DrawText(label, x + 8, y + 4, 10, textCol);
+        int lw = Raylib.MeasureText(label, 10);
+        Raylib.DrawText(label, x + Math.Max(6, (w - lw) / 2), y + (h - 10) / 2, 10, textCol);
     }
 
     private static void DrawButton(VirtualMouseState mouse, int x, int y, int w, int h, string text)
@@ -849,7 +830,8 @@ public sealed class ArtTestScreen : IScreen
         bool hovered = mouse.IsHit(x, y, w, h);
         Raylib.DrawRectangle(x, y, w, h, hovered ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, w, h, hovered ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText(text, x + 6, y + 4, 10, Palette.CrtAmberPrimary);
+        int tw = Raylib.MeasureText(text, 10);
+        Raylib.DrawText(text, x + Math.Max(6, (w - tw) / 2), y + (h - 10) / 2, 10, Palette.CrtAmberPrimary);
     }
 
     private static void DrawToggleButton(
@@ -869,7 +851,8 @@ public sealed class ArtTestScreen : IScreen
 
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        Raylib.DrawText(text, x + 5, y + 4, 10, txtCol);
+        int tw = Raylib.MeasureText(text, 10);
+        Raylib.DrawText(text, x + Math.Max(5, (w - tw) / 2), y + (h - 10) / 2, 10, txtCol);
     }
 
     private void UnloadCompareGridTextures()

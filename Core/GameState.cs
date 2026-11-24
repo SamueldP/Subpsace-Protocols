@@ -5,9 +5,9 @@ namespace SubspaceProtocols.Core;
 
 public enum HungerTier
 {
-    LowNoFood = 0,           // 0 PU (0 SC) -- Max SPS cursor sway (triggered after 2+ days without food)
-    MediumNutrientPaste = 1, // 4 PU (20 SC) -- Medium SPS cursor sway
-    HighTierRations = 2      // 6 PU (30 SC) -- No SPS cursor sway
+    LowNoFood = 0,           // Dry Ration Bricks (10 SC) / No Food 2+ days -- Max SPS cursor sway
+    MediumNutrientPaste = 1, // Nutrient Paste (20 SC) -- Medium SPS cursor sway
+    HighTierRations = 2      // High-Tier Rations (30 SC) -- No SPS cursor sway
 }
 
 public enum TrafficPowerState
@@ -31,12 +31,54 @@ public sealed class DelayedRippleEvent
 
 public sealed class ContrabandPocketItem
 {
+    public const string TypeBlankDataSlate = "BlankDataSlate";
+    public const string TypeCopiedDataSlate = "CopiedDataSlate";
+    public const string TypeMissionDataSlate = "MissionDataSlate";
+    public const string TypeBurntMissionSlate = "BurntMissionSlate";
+    public const string TypeShieldedPocketLining = "ShieldedPocketLining";
+
     public string ItemId { get; set; } = string.Empty;
-    public string ItemType { get; set; } = string.Empty; // "BlankDataSlate", "CopiedDataSlate", "WarpResidueStrip"
+    public string ItemType { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
     public string TargetShipPrefix { get; set; } = string.Empty;
     public string TargetShipRegistration { get; set; } = string.Empty;
+    public string TargetShipName { get; set; } = string.Empty;
     public string OriginStarSystem { get; set; } = string.Empty;
+    public bool IsConcordOrDoppleFlagged { get; set; }
+    public bool IsMissionSlate { get; set; }
+    public bool IsBurnt { get; set; }
+    public string MissionId { get; set; } = string.Empty;
+    public string MissionTargetReg { get; set; } = string.Empty;
+    public string MissionTargetPrefix { get; set; } = string.Empty;
+    public string MissionDescription { get; set; } = string.Empty;
     public bool IsEncrypted { get; set; }
+
+    [JsonIgnore]
+    public bool IsContraband =>
+        !IsBurnt && ItemType is TypeBlankDataSlate or TypeCopiedDataSlate or TypeMissionDataSlate;
+
+    [JsonIgnore]
+    public bool IsSellableIntel =>
+        !IsBurnt && ItemType == TypeCopiedDataSlate;
+
+    public ContrabandPocketItem Clone() => new()
+    {
+        ItemId = ItemId,
+        ItemType = ItemType,
+        DisplayName = DisplayName,
+        TargetShipPrefix = TargetShipPrefix,
+        TargetShipRegistration = TargetShipRegistration,
+        TargetShipName = TargetShipName,
+        OriginStarSystem = OriginStarSystem,
+        IsConcordOrDoppleFlagged = IsConcordOrDoppleFlagged,
+        IsMissionSlate = IsMissionSlate,
+        IsBurnt = IsBurnt,
+        MissionId = MissionId,
+        MissionTargetReg = MissionTargetReg,
+        MissionTargetPrefix = MissionTargetPrefix,
+        MissionDescription = MissionDescription,
+        IsEncrypted = IsEncrypted
+    };
 }
 
 public enum TutorialEventHook
@@ -44,13 +86,15 @@ public enum TutorialEventHook
     None = 0,
     OnDay1Start = 1,
     OnDay2Start = 2,
-    OnDay3Start = 3
+    OnDay3Start = 3,
+    OnFirstMorningQuarters = 4,
+    OnFirstEveningQuarters = 5
 }
 
 /// <summary>
-/// Persisted per-save tutorial progression tracker keyed by reusable shift-start event hooks
-/// (OnDay1Start, OnDay2Start, OnDay3Start) so playtest CRT tutorial cards can be swapped cleanly
-/// into in-character comms dialogue in Milestone 4 without rewriting trigger sites.
+/// Persisted per-save tutorial progression tracker keyed by reusable event hooks
+/// (OnDay1Start, OnDay2Start, OnDay3Start, OnFirstMorningQuarters, OnFirstEveningQuarters)
+/// so playtest CRT tutorial cards can be swapped cleanly into in-character comms dialogue in Milestone 4.
 /// </summary>
 public sealed class TutorialFlags
 {
@@ -58,12 +102,16 @@ public sealed class TutorialFlags
     public bool Day1StartSeen { get; set; } = false;
     public bool Day2StartSeen { get; set; } = false;
     public bool Day3StartSeen { get; set; } = false;
+    public bool FirstMorningQuartersSeen { get; set; } = false;
+    public bool FirstEveningQuartersSeen { get; set; } = false;
 
     public bool HasSeen(TutorialEventHook hook) => hook switch
     {
         TutorialEventHook.OnDay1Start => Day1StartSeen,
         TutorialEventHook.OnDay2Start => Day2StartSeen,
         TutorialEventHook.OnDay3Start => Day3StartSeen,
+        TutorialEventHook.OnFirstMorningQuarters => FirstMorningQuartersSeen,
+        TutorialEventHook.OnFirstEveningQuarters => FirstEveningQuartersSeen,
         _ => true
     };
 
@@ -80,6 +128,12 @@ public sealed class TutorialFlags
             case TutorialEventHook.OnDay3Start:
                 Day3StartSeen = true;
                 break;
+            case TutorialEventHook.OnFirstMorningQuarters:
+                FirstMorningQuartersSeen = true;
+                break;
+            case TutorialEventHook.OnFirstEveningQuarters:
+                FirstEveningQuartersSeen = true;
+                break;
         }
     }
 
@@ -88,6 +142,8 @@ public sealed class TutorialFlags
         Day1StartSeen = false;
         Day2StartSeen = false;
         Day3StartSeen = false;
+        FirstMorningQuartersSeen = false;
+        FirstEveningQuartersSeen = false;
     }
 
     public TutorialFlags Clone() => new()
@@ -95,7 +151,9 @@ public sealed class TutorialFlags
         TutorialsEnabled = TutorialsEnabled,
         Day1StartSeen = Day1StartSeen,
         Day2StartSeen = Day2StartSeen,
-        Day3StartSeen = Day3StartSeen
+        Day3StartSeen = Day3StartSeen,
+        FirstMorningQuartersSeen = FirstMorningQuartersSeen,
+        FirstEveningQuartersSeen = FirstEveningQuartersSeen
     };
 
     public static TutorialEventHook GetHookForDay(int day) => day switch
@@ -111,6 +169,7 @@ public sealed class SaveSlotSummary
     public int SlotNumber { get; init; }
     public bool Exists { get; init; }
     public int Day { get; init; }
+    public QuartersPhase QuartersPhase { get; init; } = QuartersPhase.Morning;
     public int RunSeed { get; init; }
     public int PactScrip { get; init; }
     public int SecurityStrikes { get; init; }
@@ -141,48 +200,88 @@ public sealed class GameState
     [JsonIgnore]
     public bool SuppressDiskPersistence { get; set; } = false;
 
-    // 1. Progression & Shift Counters
+    [JsonIgnore]
+    public bool HasActivePlayableSlot { get; set; } = false;
+
+    internal static string? SaveDirectoryOverride { get; set; }
+
+    // 1. Progression, Split Quarters Cycle & Shift Counters
     public int Day { get; set; } = 1;
+    public QuartersPhase QuartersPhase { get; set; } = QuartersPhase.Morning;
     public int ShipsProcessedToday { get; set; } = 0;
     public bool BribeOfferedThisShift { get; set; } = false;
+    public int ShiftStartScrip { get; set; } = 45;
+    public int ShiftGrossPayEarned { get; set; } = 0;
+    public int ShiftClericalFinesPaid { get; set; } = 0;
+    public int LastCleanAuditFineApplied { get; set; } = 0;
+    public ShiftLedgerSummary? LastShiftSummary { get; set; } = null;
 
     // 1b. Day 2 Hardcoded Suspect ("The Ghost Route") & Day 3 Branching State
     public bool Day2SuspectEncountered { get; set; } = false;
     public bool Day2SuspectDetained { get; set; } = false;
     public string Day2SuspectRegistration { get; set; } = "ORN-442-K";
     public string Day2SuspectDeclaredOrigin { get; set; } = "Oruun-4";
-    public string Day2SuspectActualOrigin { get; set; } = "The Ashen Rift";
+    public string Day2SuspectActualOrigin { get; set; } = "Ashen Rift";
     public string Day2SuspectPrefix { get; set; } = "ORN-";
     public string Day2SuspectShipName { get; set; } = "LITHOS MONOLITH";
     public bool Day3KordaniOvernightRepApplied { get; set; } = false;
     public bool Day3PreShiftHailCompleted { get; set; } = false;
+    public bool Day1BrengopEmailRead { get; set; } = false;
+    public bool Day1VorstHailCompleted { get; set; } = false;
 
-    // 2. Currency (Pact Scrip / SC), Power Units (PU) & Living Fees
+    // 2. Currency (Pure Pact Scrip / SC Economy) & Living Fees
     public int PactScrip { get; set; } = 45;
     [JsonIgnore]
     public int BasePayPerShipScrip { get; set; } = Constants.BasePayPerShipScrip;
-    public int PowerUnits { get; set; } = 0;
     public int MissedBerthLeaseCount { get; set; } = 0;
-    public int IndependentPassageFund { get; set; } = 0;
 
-    // 3. Hunger (3-Tier Food System), Hypoxia, Stim-Caff & Scrubber Filter States
+    // 3. Hunger (3-Tier Food System -- sole driver of SPS cursor sway)
     public HungerTier CurrentHungerTier { get; set; } = HungerTier.MediumNutrientPaste;
+    public NightlyRationOrder TonightRationOrder { get; set; } = NightlyRationOrder.None;
     public int DaysWithoutFood { get; set; } = 0;
-    public bool IsHypoxic { get; set; } = false;
-    public bool StimCaffActive { get; set; } = false;
-    public int ScrubberFilterShiftCounter { get; set; } = 0;
+    public int ConsecutiveDryOrNoFoodDays { get; set; } = 0;
 
-    // 4. Clerical Warnings, Fines & Kordani Security Strikes
+    // 4. Clerical Warnings, Fines, Kordani Security Strikes (/3 cap) & Stellar Stoker Overload Consequences
     public int ClericalWarningsThisShift { get; set; } = 0;
     public int SecurityStrikes { get; set; } = 0;
-    public int MaxSecurityStrikesThreshold { get; set; } = Constants.DefaultMaxSecurityStrikes;
     public bool PendingThreeStrikeAudit { get; set; } = false;
+    public bool StokerOverloadedToday { get; set; } = false;
+    public bool PendingStokerBerthSearch { get; set; } = false;
+    public bool NextDayPowerBrownout { get; set; } = false;
 
-    // 5. Espionage, Logs & Contraband Pocket Slot
+    // 5. Espionage, Logs, Upgradeable Contraband Pocket (1->3), Vent Stash & 0500 Service Chute
     public int UnauthorizedLogCount { get; set; } = 0;
-    public ContrabandPocketItem? ContrabandPocket { get; set; } = null;
+    public int PocketCapacity { get; set; } = 1;
+    public List<ContrabandPocketItem> PocketItems { get; set; } = [];
+    public List<ContrabandPocketItem> VentStashItems { get; set; } = [];
+    public List<ContrabandPocketItem> ServiceChuteItems { get; set; } = [];
+    public List<ContrabandPocketItem> PendingChuteDeliveries { get; set; } = [];
     public bool HasShieldedPocketLining { get; set; } = false;
-    public int BlankDataSlatesInQuarters { get; set; } = 0;
+    public bool ShieldedLiningOrdered { get; set; } = false;
+
+    // 5b. Personal Terminal Inbox (MESSAGES), Security Hex Logs (CRYPTO / LOGS) & Morning Ship Roster
+    public List<TerminalEmail> Emails { get; set; } = [];
+    public List<SecurityLogEntry> SecurityLogs { get; set; } = [];
+    public List<MorningRosterEntry> TodayMorningRoster { get; set; } = [];
+    public int NextLogSequence { get; set; } = 1;
+    public int NextItemSequence { get; set; } = 1;
+
+    // 5c. Active Slate Bus Covert Mission Tracking, Terminal Hack Unlock & Forum Event Flags
+    public bool TerminalHackedUnlocked { get; set; } = false;
+    public bool Day6UnsolicitedDropDelivered { get; set; } = false;
+    public string ActiveCovertMissionId { get; set; } = string.Empty;
+    public string ActiveCovertTargetReg { get; set; } = string.Empty;
+    public string ActiveCovertTargetPrefix { get; set; } = string.Empty;
+    public string ActiveCovertTargetShipName { get; set; } = string.Empty;
+    public int ActiveCovertDeliveryDay { get; set; } = 0;
+    public List<string> DeliveredCovertMissionIds { get; set; } = [];
+    public List<string> ActiveInterceptMissionIds { get; set; } = [];
+    public List<string> CompletedInterceptMissionIds { get; set; } = [];
+    public bool KordaniSabotageAuditOccurred { get; set; } = false;
+    public bool BerthSearchAuditOccurred { get; set; } = false;
+    public bool ProtectedHullDetainedEver { get; set; } = false;
+    public bool AshenRiftEncounteredEver { get; set; } = false;
+    public bool Deck4UsedEver { get; set; } = false;
 
     // 6. Counter A: Hidden Faction Reputation (rep_score, starts at 0)
     public Dictionary<string, int> RepScore { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -206,6 +305,26 @@ public sealed class GameState
     // 11. Reusable Playtest Tutorial Event Hook Tracker (persisted per save, reset on New Game)
     public TutorialFlags TutorialFlags { get; set; } = new();
 
+    [JsonIgnore]
+    public int UnreadEmailCount => Emails.Count(e => !e.IsRead);
+
+    [JsonIgnore]
+    public int UnreadMessageCount => UnreadEmailCount;
+
+    [JsonIgnore]
+    public bool HasUnreadEmails => UnreadEmailCount > 0;
+
+    [JsonIgnore]
+    public int UnscrubbedLogCount => SecurityLogs.Count(l => l.IsSuspicious && !l.IsPurged);
+
+    [JsonIgnore]
+    public bool ReplicatorDispensedTonight => TonightRationOrder != NightlyRationOrder.None;
+
+    [JsonIgnore]
+    public bool IsStokerCornerFlickerActive =>
+        (QuartersPhase == QuartersPhase.Evening && StokerOverloadedToday) ||
+        (QuartersPhase == QuartersPhase.Morning && NextDayPowerBrownout);
+
     public GameState()
     {
         RunSeed = GenerateFreshRunSeed(0);
@@ -226,12 +345,84 @@ public sealed class GameState
         return candidate;
     }
 
+    public string NextUniqueItemId(string prefix) =>
+        $"{prefix}_{Day:D2}_{NextItemSequence++:D3}";
+
+    public SecurityLogEntry AddSecurityLog(string tag, string description, bool isSuspicious = true)
+    {
+        int seq = NextLogSequence++;
+        int hi = (0x9E + (Day * 3 + seq)) & 0xFF;
+        int lo = (0x1A0 + seq * 13) & 0xFFF;
+        SecurityLogEntry entry = new()
+        {
+            HexAddr = $"0x{hi:X2}:{lo:X3}",
+            Day = Day,
+            Tag = tag,
+            Description = description,
+            IsSuspicious = isSuspicious,
+            IsPurged = false
+        };
+        SecurityLogs.Insert(0, entry);
+        if (SecurityLogs.Count > 64)
+        {
+            SecurityLogs.RemoveAt(SecurityLogs.Count - 1);
+        }
+
+        if (isSuspicious)
+        {
+            UnauthorizedLogCount = UnscrubbedLogCount;
+
+            // Fail-safe against Day 6+ unscrubbable audit trap: if unauthorized I/O occurs on Day 6+,
+            // ensure CRYPTO / LOGS & DECK 4 are unlocked so SCRUB LOGS is always accessible before sleep.
+            if (Day >= 6 && !TerminalHackedUnlocked)
+            {
+                TerminalHackedUnlocked = true;
+                if (!CompletedInterceptMissionIds.Contains("day6_mng_intro", StringComparer.OrdinalIgnoreCase) &&
+                    !ActiveInterceptMissionIds.Contains("day6_mng_intro", StringComparer.OrdinalIgnoreCase))
+                {
+                    ActiveInterceptMissionIds.Add("day6_mng_intro");
+                }
+            }
+        }
+        return entry;
+    }
+
+    public void AddEmail(TerminalEmail email)
+    {
+        if (string.IsNullOrWhiteSpace(email.EmailId))
+        {
+            email.EmailId = $"mail_d{Day:D2}_{Emails.Count + 1:D3}";
+        }
+        if (Emails.Any(e => e.EmailId.Equals(email.EmailId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+        Emails.Insert(0, email);
+    }
+
     public void InitializeDefaultScores()
     {
         RepScore = new Dictionary<string, int>(RepScore, StringComparer.OrdinalIgnoreCase);
         PowerScore = new Dictionary<string, int>(PowerScore, StringComparer.OrdinalIgnoreCase);
         QuestFlags = new Dictionary<string, bool>(QuestFlags, StringComparer.OrdinalIgnoreCase);
         EndingFlags = new Dictionary<string, bool>(EndingFlags, StringComparer.OrdinalIgnoreCase);
+
+        PocketItems ??= [];
+        VentStashItems ??= [];
+        ServiceChuteItems ??= [];
+        PendingChuteDeliveries ??= [];
+        PocketItems.RemoveAll(i => !i.IsContraband);
+        VentStashItems.RemoveAll(i => !i.IsContraband);
+        ServiceChuteItems.RemoveAll(i => !i.IsContraband && i.ItemType != ContrabandPocketItem.TypeShieldedPocketLining);
+        PendingChuteDeliveries.RemoveAll(i => !i.IsContraband && i.ItemType != ContrabandPocketItem.TypeShieldedPocketLining);
+        Emails ??= [];
+        SecurityLogs ??= [];
+        TodayMorningRoster ??= [];
+        DeliveredCovertMissionIds ??= [];
+        ActiveInterceptMissionIds ??= [];
+        CompletedInterceptMissionIds ??= [];
+        DelayedRippleQueue ??= [];
+        PocketCapacity = Math.Clamp(PocketCapacity, 1, 3);
 
         foreach (string prefix in Constants.AllTrackedPrefixes)
         {
@@ -279,7 +470,7 @@ public sealed class GameState
         if (string.IsNullOrWhiteSpace(Day2SuspectDeclaredOrigin))
             Day2SuspectDeclaredOrigin = "Oruun-4";
         if (string.IsNullOrWhiteSpace(Day2SuspectActualOrigin))
-            Day2SuspectActualOrigin = "The Ashen Rift";
+            Day2SuspectActualOrigin = "Ashen Rift";
         if (string.IsNullOrWhiteSpace(Day2SuspectPrefix))
             Day2SuspectPrefix = "ORN-";
         if (string.IsNullOrWhiteSpace(Day2SuspectShipName))
@@ -295,17 +486,42 @@ public sealed class GameState
         PowerScore.TryGetValue(prefix, out int val) ? val : 0;
 
     /// <summary>
-    /// Strictly initializes a brand-new save on Day 1 with a fresh random RunSeed,
-    /// resetting Scrip, warnings, strikes, spectrometer state, and shift flags cleanly
-    /// before persisting to save_slot_N.json.
+    /// Path E ("Out into the Dark") 1,000 SC requirement is evaluated directly against live spendable PactScrip.
+    /// </summary>
+    public bool IsPathEScripRequirementMet(ConfigFlags? config = null) =>
+        PactScrip >= Math.Max(100, config?.IndependentPassageFundTarget ?? Constants.IndependentPassageFundTarget);
+
+    /// <summary>
+    /// Enters a sandboxed throwaway preview state with SuppressDiskPersistence = true
+    /// so actions taken in Main Menu BERTH PREVIEW can never overwrite save_slot_1.json.
+    /// </summary>
+    public void StartSandboxedBerthPreview()
+    {
+        SuppressDiskPersistence = true;
+        ResetForNewSave(1);
+        ActiveSaveSlot = 0;
+        HasActivePlayableSlot = false;
+    }
+
+    /// <summary>
+    /// Strictly initializes a brand-new save on Day 1 Morning Quarters with a fresh random RunSeed,
+    /// 1 mandatory unread Brengop reassignment email (blinking amber LED on Day 1 Morning), PocketCapacity = 1,
+    /// and clean economy/strike/audit state before persisting to save_slot_N.json.
     /// </summary>
     public void ResetForNewSave(int slotNumber)
     {
         ActiveSaveSlot = Math.Clamp(slotNumber, 1, TotalSaveSlots);
+        HasActivePlayableSlot = true;
         RunSeed = GenerateFreshRunSeed(RunSeed);
         Day = 1;
+        QuartersPhase = QuartersPhase.Morning;
         ShipsProcessedToday = 0;
         BribeOfferedThisShift = false;
+        ShiftStartScrip = 45;
+        ShiftGrossPayEarned = 0;
+        ShiftClericalFinesPaid = 0;
+        LastCleanAuditFineApplied = 0;
+        LastShiftSummary = null;
 
         Day2SuspectEncountered = false;
         Day2SuspectDetained = false;
@@ -316,27 +532,56 @@ public sealed class GameState
         Day2SuspectShipName = "LITHOS MONOLITH";
         Day3KordaniOvernightRepApplied = false;
         Day3PreShiftHailCompleted = false;
+        Day1BrengopEmailRead = false;
+        Day1VorstHailCompleted = false;
 
         PactScrip = 45;
-        PowerUnits = 0;
         MissedBerthLeaseCount = 0;
-        IndependentPassageFund = 0;
 
         CurrentHungerTier = HungerTier.MediumNutrientPaste;
+        TonightRationOrder = NightlyRationOrder.None;
         DaysWithoutFood = 0;
-        IsHypoxic = false;
-        StimCaffActive = false;
-        ScrubberFilterShiftCounter = 0;
+        ConsecutiveDryOrNoFoodDays = 0;
 
         ClericalWarningsThisShift = 0;
         SecurityStrikes = 0;
-        MaxSecurityStrikesThreshold = Constants.DefaultMaxSecurityStrikes;
         PendingThreeStrikeAudit = false;
+        StokerOverloadedToday = false;
+        PendingStokerBerthSearch = false;
+        NextDayPowerBrownout = false;
 
         UnauthorizedLogCount = 0;
-        ContrabandPocket = null;
+        PocketCapacity = 1;
+        PocketItems.Clear();
+        VentStashItems.Clear();
+        ServiceChuteItems.Clear();
+        PendingChuteDeliveries.Clear();
         HasShieldedPocketLining = false;
-        BlankDataSlatesInQuarters = 0;
+        ShieldedLiningOrdered = false;
+
+        // Day 1 Morning starts with 1 mandatory unread Brengop email so the physical terminal Unread LED blinks amber
+        Emails.Clear();
+        AddEmail(TerminalEmail.CreateDay1BrengopReassignmentEmail());
+        SecurityLogs.Clear();
+        TodayMorningRoster.Clear();
+        NextLogSequence = 1;
+        NextItemSequence = 1;
+
+        TerminalHackedUnlocked = false;
+        Day6UnsolicitedDropDelivered = false;
+        ActiveCovertMissionId = string.Empty;
+        ActiveCovertTargetReg = string.Empty;
+        ActiveCovertTargetPrefix = string.Empty;
+        ActiveCovertTargetShipName = string.Empty;
+        ActiveCovertDeliveryDay = 0;
+        DeliveredCovertMissionIds.Clear();
+        ActiveInterceptMissionIds.Clear();
+        CompletedInterceptMissionIds.Clear();
+        KordaniSabotageAuditOccurred = false;
+        BerthSearchAuditOccurred = false;
+        ProtectedHullDetainedEver = false;
+        AshenRiftEncounteredEver = false;
+        Deck4UsedEver = false;
 
         DoubleAgentTrust = 0;
         CovertTasksCompleted = 0;
@@ -360,8 +605,14 @@ public sealed class GameState
         ActiveSaveSlot = Math.Clamp(src.ActiveSaveSlot, 1, TotalSaveSlots);
         RunSeed = src.RunSeed != 0 ? src.RunSeed : GenerateFreshRunSeed(RunSeed);
         Day = Math.Max(1, src.Day);
+        QuartersPhase = src.QuartersPhase;
         ShipsProcessedToday = src.ShipsProcessedToday;
         BribeOfferedThisShift = src.BribeOfferedThisShift;
+        ShiftStartScrip = src.ShiftStartScrip;
+        ShiftGrossPayEarned = src.ShiftGrossPayEarned;
+        ShiftClericalFinesPaid = src.ShiftClericalFinesPaid;
+        LastCleanAuditFineApplied = src.LastCleanAuditFineApplied;
+        LastShiftSummary = src.LastShiftSummary?.Clone();
 
         Day2SuspectEncountered = src.Day2SuspectEncountered;
         Day2SuspectDetained = src.Day2SuspectDetained;
@@ -372,27 +623,64 @@ public sealed class GameState
         Day2SuspectShipName = src.Day2SuspectShipName;
         Day3KordaniOvernightRepApplied = src.Day3KordaniOvernightRepApplied;
         Day3PreShiftHailCompleted = src.Day3PreShiftHailCompleted;
+        Day1BrengopEmailRead = Day >= 2 || src.Day1BrengopEmailRead;
+        Day1VorstHailCompleted = Day >= 2 || src.Day1VorstHailCompleted;
 
         PactScrip = src.PactScrip;
-        PowerUnits = src.PowerUnits;
         MissedBerthLeaseCount = src.MissedBerthLeaseCount;
-        IndependentPassageFund = src.IndependentPassageFund;
 
         CurrentHungerTier = src.CurrentHungerTier;
+        TonightRationOrder = src.TonightRationOrder;
         DaysWithoutFood = src.DaysWithoutFood;
-        IsHypoxic = src.IsHypoxic;
-        StimCaffActive = src.StimCaffActive;
-        ScrubberFilterShiftCounter = src.ScrubberFilterShiftCounter;
+        ConsecutiveDryOrNoFoodDays = src.ConsecutiveDryOrNoFoodDays;
 
         ClericalWarningsThisShift = src.ClericalWarningsThisShift;
         SecurityStrikes = src.SecurityStrikes;
-        MaxSecurityStrikesThreshold = src.MaxSecurityStrikesThreshold;
         PendingThreeStrikeAudit = src.PendingThreeStrikeAudit;
+        StokerOverloadedToday = src.StokerOverloadedToday;
+        PendingStokerBerthSearch = src.PendingStokerBerthSearch;
+        NextDayPowerBrownout = src.NextDayPowerBrownout;
 
         UnauthorizedLogCount = src.UnauthorizedLogCount;
-        ContrabandPocket = src.ContrabandPocket;
+        PocketCapacity = Math.Clamp(src.PocketCapacity, 1, 3);
+        PocketItems = src.PocketItems?.Select(i => i.Clone()).ToList() ?? [];
+        VentStashItems = src.VentStashItems?.Select(i => i.Clone()).ToList() ?? [];
+        ServiceChuteItems = src.ServiceChuteItems?.Select(i => i.Clone()).ToList() ?? [];
+        PendingChuteDeliveries = src.PendingChuteDeliveries?.Select(i => i.Clone()).ToList() ?? [];
         HasShieldedPocketLining = src.HasShieldedPocketLining;
-        BlankDataSlatesInQuarters = src.BlankDataSlatesInQuarters;
+        ShieldedLiningOrdered = src.ShieldedLiningOrdered;
+
+        Emails = src.Emails?.Select(e => e.Clone()).ToList() ?? [];
+        if (Day >= 2)
+        {
+            foreach (TerminalEmail e in Emails)
+            {
+                if (e.IsDay1BrengopEmail || e.EmailId.Equals(TerminalEmail.Day1BrengopEmailId, StringComparison.OrdinalIgnoreCase))
+                {
+                    e.IsRead = true;
+                }
+            }
+        }
+        SecurityLogs = src.SecurityLogs?.Select(l => l.Clone()).ToList() ?? [];
+        TodayMorningRoster = src.TodayMorningRoster?.Select(r => r.Clone()).ToList() ?? [];
+        NextLogSequence = Math.Max(1, src.NextLogSequence);
+        NextItemSequence = Math.Max(1, src.NextItemSequence);
+
+        TerminalHackedUnlocked = src.TerminalHackedUnlocked;
+        Day6UnsolicitedDropDelivered = src.Day6UnsolicitedDropDelivered;
+        ActiveCovertMissionId = src.ActiveCovertMissionId ?? string.Empty;
+        ActiveCovertTargetReg = src.ActiveCovertTargetReg ?? string.Empty;
+        ActiveCovertTargetPrefix = src.ActiveCovertTargetPrefix ?? string.Empty;
+        ActiveCovertTargetShipName = src.ActiveCovertTargetShipName ?? string.Empty;
+        ActiveCovertDeliveryDay = src.ActiveCovertDeliveryDay;
+        DeliveredCovertMissionIds = src.DeliveredCovertMissionIds != null ? [.. src.DeliveredCovertMissionIds] : [];
+        ActiveInterceptMissionIds = src.ActiveInterceptMissionIds != null ? [.. src.ActiveInterceptMissionIds] : [];
+        CompletedInterceptMissionIds = src.CompletedInterceptMissionIds != null ? [.. src.CompletedInterceptMissionIds] : [];
+        KordaniSabotageAuditOccurred = src.KordaniSabotageAuditOccurred;
+        BerthSearchAuditOccurred = src.BerthSearchAuditOccurred;
+        ProtectedHullDetainedEver = src.ProtectedHullDetainedEver;
+        AshenRiftEncounteredEver = src.AshenRiftEncounteredEver;
+        Deck4UsedEver = src.Deck4UsedEver;
 
         DoubleAgentTrust = src.DoubleAgentTrust;
         CovertTasksCompleted = src.CovertTasksCompleted;
@@ -407,7 +695,6 @@ public sealed class GameState
         EndingFlags = new Dictionary<string, bool>(src.EndingFlags, StringComparer.OrdinalIgnoreCase);
 
         InitializeDefaultScores();
-        // Enforce strict Day 1-2 maintenance tag vs Day 3+ spectrometer activation
         QuestFlags["Day3_SpectrometerRepaired"] = Day >= 3;
     }
 
@@ -419,9 +706,13 @@ public sealed class GameState
     public void AdvanceToDay(int targetDay)
     {
         Day = Math.Max(1, targetDay);
+        QuartersPhase = QuartersPhase.Morning;
         ShipsProcessedToday = 0;
         ClericalWarningsThisShift = 0;
+        ShiftGrossPayEarned = 0;
+        ShiftClericalFinesPaid = 0;
         BribeOfferedThisShift = false;
+        TonightRationOrder = NightlyRationOrder.None;
 
         if (Day >= 3)
         {
@@ -439,16 +730,36 @@ public sealed class GameState
             QuestFlags["Day3_SpectrometerRepaired"] = false;
         }
 
+        if (Day >= 2)
+        {
+            Day1BrengopEmailRead = true;
+            Day1VorstHailCompleted = true;
+            foreach (TerminalEmail e in Emails)
+            {
+                if (e.IsDay1BrengopEmail || e.EmailId.Equals(TerminalEmail.Day1BrengopEmailId, StringComparison.OrdinalIgnoreCase))
+                {
+                    e.IsRead = true;
+                }
+            }
+        }
+
         if (Day == 3)
         {
             Day3PreShiftHailCompleted = false;
+        }
+
+        if (Day >= 7)
+        {
+            TerminalHackedUnlocked = true;
         }
 
         SaveToDisk();
     }
 
     public static string GetSaveDirectory() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SubspaceProtocols");
+        !string.IsNullOrWhiteSpace(SaveDirectoryOverride)
+            ? SaveDirectoryOverride
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SubspaceProtocols");
 
     public static string GetSlotFilePath(int slotNumber)
     {
@@ -480,6 +791,7 @@ public sealed class GameState
                         SlotNumber = slot,
                         Exists = true,
                         Day = Math.Max(1, loaded.Day),
+                        QuartersPhase = loaded.QuartersPhase,
                         RunSeed = loaded.RunSeed,
                         PactScrip = loaded.PactScrip,
                         SecurityStrikes = loaded.SecurityStrikes,
@@ -514,6 +826,7 @@ public sealed class GameState
                 bool needsSeedBackfill = loaded.RunSeed == 0;
                 loaded.ActiveSaveSlot = slot;
                 CopyFrom(loaded);
+                HasActivePlayableSlot = true;
                 if (needsSeedBackfill)
                 {
                     SaveToDisk();
@@ -549,19 +862,33 @@ public sealed class GameState
 
     public void SaveToDisk()
     {
-        if (SuppressDiskPersistence)
+        if (SuppressDiskPersistence || ActiveSaveSlot < 1 || ActiveSaveSlot > TotalSaveSlots)
             return;
 
+        string path = GetSlotFilePath(ActiveSaveSlot);
+        string tmpPath = path + ".tmp";
         try
         {
             string dir = GetSaveDirectory();
             Directory.CreateDirectory(dir);
             string json = JsonSerializer.Serialize(this, SaveJsonOptions);
-            File.WriteAllText(GetSlotFilePath(ActiveSaveSlot), json);
+            File.WriteAllText(tmpPath, json);
+            File.Move(tmpPath, path, overwrite: true);
         }
         catch
         {
-            // Non-fatal if disk write is restricted
+            // Non-fatal if disk write is restricted; clean up orphan .tmp if present
+            try
+            {
+                if (File.Exists(tmpPath))
+                {
+                    File.Delete(tmpPath);
+                }
+            }
+            catch
+            {
+                // Ignore secondary cleanup failure
+            }
         }
     }
 }

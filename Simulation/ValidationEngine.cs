@@ -28,24 +28,31 @@ public sealed class DecisionEvaluationResult
 
 /// <summary>
 /// Evaluates Grant Access vs. Detain decisions against ShipSpec.IsValid and ShipSpec.ProtocolReviewVerified:
-/// - Days 1-2: Simple Yes/No (Protocol Review not yet unlocked; Security Strikes inactive; default 10 SC base pay)
-/// - Day 3+:   Strict 5-case truth table requiring Protocol Review verification before detaining + Security Strikes active
+/// - Day 1+: Protocol Review verification is required before detaining (unverified detention still detains
+///   the ship but triggers a Brengop Clerical Warning).
+/// - Days 1-2: Security Strikes inactive; default 10 SC base pay.
+/// - Day 3+: Security Strikes active alongside full Protocol Review verification.
 /// Strictly decoupled from Raylib.
 /// </summary>
 public sealed class ValidationEngine
 {
+    public const string UnverifiedDetentionReason =
+        "UNVERIFIED DETENTION -- CONFIRM FAULT VIA PROTOCOL REVIEW FIRST";
+
     public DecisionEvaluationResult EvaluateDecision(
         GameState state,
         ShipSpec ship,
         PlayerDecision decision,
-        WorldSim worldSim)
+        WorldSim worldSim,
+        Core.ConfigFlags? config = null)
     {
         ShipGroundTruth truth = ship.GroundTruth;
         string prefix = ship.Slate.DeclaredPrefix;
         string reg = ship.Slate.RegistrationCode;
         int basePay = state.BasePayPerShipScrip > 0 ? state.BasePayPerShipScrip : Constants.BasePayPerShipScrip;
-        bool protocolReviewRequired = state.Day >= 3;
-        bool securityStrikesActive = state.Day >= 3;
+        int strikeCap = Math.Max(1, config?.MaxStrikesBeforeAudit ?? Constants.SecurityStrikesAuditThreshold);
+        bool protocolReviewRequired = true; // Unlocked starting Day 1, Ship 1
+        bool securityStrikesActive = state.Day >= Constants.DayUnlockWarpAndStrikes;
 
         // =====================================================================
         // SPECIAL BRANCH: Day 2 Hardcoded Suspect ("The Ghost Route")
@@ -64,6 +71,7 @@ public sealed class ValidationEngine
             if (decision == PlayerDecision.GrantAccess)
             {
                 state.ShipsProcessedToday++;
+                state.ShiftGrossPayEarned += basePay;
                 state.PactScrip += basePay;
                 worldSim.ModifyReputation(state, prefix, +1);
                 worldSim.ModifyGalacticPower(state, prefix, +1);
@@ -126,12 +134,17 @@ public sealed class ValidationEngine
         // VALIDATION TRUTH TABLE (Day 1-2 Simple Yes/No | Day 3+ Protocol Review & Strikes)
         // =====================================================================
         bool isValid = ship.IsValid;
-        bool unaddressedCombatSystems = state.Day >= 2 && (truth.ActualShieldsUp || truth.ActualWeaponsHot);
+        bool unaddressedCombatSystems = state.Day >= Constants.DayUnlockSpsAndCombat && (truth.ActualShieldsUp || truth.ActualWeaponsHot);
+        if (WarpSignatureGenerator.IsRestrictedOrigin(truth.ActualOriginSystem))
+        {
+            state.AshenRiftEncounteredEver = true;
+        }
 
         // Case 1: IsValid == true + Grant Access (with shields down & weapons offline on Day 2+) -> Accurate
         if (isValid && decision == PlayerDecision.GrantAccess && !unaddressedCombatSystems)
         {
             state.ShipsProcessedToday++;
+            state.ShiftGrossPayEarned += basePay;
             state.PactScrip += basePay;
             worldSim.ModifyReputation(state, prefix, +1);
             worldSim.ModifyGalacticPower(state, prefix, +1);
@@ -160,6 +173,7 @@ public sealed class ValidationEngine
         if (!isValid && decision == PlayerDecision.Detain && (!protocolReviewRequired || ship.ProtocolReviewVerified))
         {
             state.ShipsProcessedToday++;
+            state.ShiftGrossPayEarned += basePay;
             state.PactScrip += basePay;
             worldSim.ModifyReputation(state, prefix, -2);
             worldSim.ModifyGalacticPower(state, prefix, -1);
@@ -184,7 +198,7 @@ public sealed class ValidationEngine
             };
         }
 
-        // Case 4 (Day 3+ only): IsValid == false + Detain + ProtocolReviewVerified == false -> Mistake
+        // Case 4 (Day 1+): IsValid == false + Detain + ProtocolReviewVerified == false -> Brengop Clerical Warning
         if (!isValid && decision == PlayerDecision.Detain && protocolReviewRequired && !ship.ProtocolReviewVerified)
         {
             worldSim.ModifyReputation(state, prefix, -2);
@@ -209,8 +223,8 @@ public sealed class ValidationEngine
                 ScripDelta = -fine,
                 WarningNumber = state.ClericalWarningsThisShift,
                 TotalSecurityStrikes = state.SecurityStrikes,
-                HeaderText = "BRENGOP MERCANTILE OPS // PROTOCOL CITATION",
-                ViolationReason = "UNVERIFIED DETAINMENT -- PROTOCOL REVIEW NOT COMPLETED",
+                HeaderText = "BRENGOP MERCANTILE OPS // CLERICAL WARNING",
+                ViolationReason = UnverifiedDetentionReason,
                 PenaltyText = penaltyLine
             };
         }
@@ -224,10 +238,14 @@ public sealed class ValidationEngine
             bool protectedHull = prefix.Equals("KDF-", StringComparison.OrdinalIgnoreCase) ||
                                  prefix.Equals("BMC-", StringComparison.OrdinalIgnoreCase) ||
                                  ship.Slate.DeclaredShipClass == ShipClass.Diplomatic;
+            if (protectedHull)
+            {
+                state.ProtectedHullDetainedEver = true;
+            }
             bool addStrike = securityStrikesActive && protectedHull;
             if (addStrike)
             {
-                AddSecurityStrike(state, 1);
+                AddSecurityStrike(state, 1, config);
             }
 
             int fine = ApplyClericalMistake(state);
@@ -238,7 +256,7 @@ public sealed class ValidationEngine
                 ? $"WARNING {state.ClericalWarningsThisShift}/{Constants.FreeClericalWarningsPerShift} (0 SC)"
                 : $"FINE: -{fine} SC";
             string penaltyLine = addStrike
-                ? $"KORDANI SECURITY STRIKE +1 ({state.SecurityStrikes}/{state.MaxSecurityStrikesThreshold}) | {fineLine}"
+                ? $"KORDANI SECURITY STRIKE +1 ({state.SecurityStrikes}/{strikeCap}) | {fineLine}"
                 : (fine == 0
                     ? $"CLERICAL WARNING {state.ClericalWarningsThisShift} OF {Constants.FreeClericalWarningsPerShift} (0 SC FINE)"
                     : $"BRENGOP ADMINISTRATIVE FINE: -{fine} SC (WARNINGS EXHAUSTED)");
@@ -267,16 +285,17 @@ public sealed class ValidationEngine
             worldSim.ModifyReputation(state, prefix, isValid ? +1 : +3);
             worldSim.ModifyGalacticPower(state, prefix, +1);
 
+            int cargoUnlockDay = config?.DayUnlockWaferCargo ?? Constants.DefaultDayUnlockWaferCargo;
             bool majorSecurityThreat =
                 truth.ActualWeaponsHot ||
-                truth.ActualCargoPowerDraw ||
+                (state.Day >= cargoUnlockDay && truth.ActualCargoPowerDraw) ||
                 (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.FalsifiedOriginWaveform) &&
                  WarpSignatureGenerator.IsRestrictedOrigin(truth.ActualOriginSystem));
 
             bool addStrike = securityStrikesActive && majorSecurityThreat;
             if (addStrike)
             {
-                AddSecurityStrike(state, 1);
+                AddSecurityStrike(state, 1, config);
             }
 
             int fine = ApplyClericalMistake(state);
@@ -305,7 +324,7 @@ public sealed class ValidationEngine
                 ? $"WARNING {state.ClericalWarningsThisShift}/{Constants.FreeClericalWarningsPerShift} (0 SC)"
                 : $"FINE: -{fine} SC";
             string penaltyLine = addStrike
-                ? $"KORDANI SECURITY STRIKE +1 ({state.SecurityStrikes}/{state.MaxSecurityStrikesThreshold}) | {fineLine}"
+                ? $"KORDANI SECURITY STRIKE +1 ({state.SecurityStrikes}/{strikeCap}) | {fineLine}"
                 : (fine == 0
                     ? $"CLERICAL WARNING {state.ClericalWarningsThisShift} OF {Constants.FreeClericalWarningsPerShift} (0 SC FINE)"
                     : $"BRENGOP ADMINISTRATIVE FINE: -{fine} SC (WARNINGS EXHAUSTED)");
@@ -340,21 +359,18 @@ public sealed class ValidationEngine
         }
 
         state.PactScrip = Math.Max(0, state.PactScrip - Constants.ClericalErrorFineScrip);
+        state.ShiftClericalFinesPaid += Constants.ClericalErrorFineScrip;
         return Constants.ClericalErrorFineScrip;
     }
 
-    public void AddSecurityStrike(GameState state, int count = 1)
+    public void AddSecurityStrike(GameState state, int count = 1, Core.ConfigFlags? config = null)
     {
+        int threshold = Math.Max(1, config?.MaxStrikesBeforeAudit ?? Constants.SecurityStrikesAuditThreshold);
         state.SecurityStrikes += count;
 
-        if (state.SecurityStrikes >= Constants.SecurityStrikesAuditThreshold)
+        if (state.SecurityStrikes >= threshold)
         {
             state.PendingThreeStrikeAudit = true;
-        }
-
-        if (state.SecurityStrikes >= state.MaxSecurityStrikesThreshold)
-        {
-            state.EndingFlags["Fail_SecurityDetainment"] = true;
         }
     }
 }

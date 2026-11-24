@@ -54,9 +54,11 @@ public sealed class MainMenuScreen : IScreen
                 if (mouse.IsHit(ContentX + 428, rowY + 10, 236, 28))
                 {
                     AudioHooks.Play("terminal_key_confirm");
+                    _gameState.SuppressDiskPersistence = false;
                     _gameState.ResetForNewSave(slot.SlotNumber);
                     RefreshSlots();
-                    _screenManager.RouteViaCorridor(ScreenId.Desk);
+                    // Prompt 4: New Game strictly starts in Day 1 Morning Quarters (not directly on Desk)
+                    _screenManager.SwitchTo(ScreenId.Quarters);
                     return;
                 }
             }
@@ -65,9 +67,10 @@ public sealed class MainMenuScreen : IScreen
                 if (mouse.IsHit(ContentX + 428, rowY + 10, 128, 28))
                 {
                     AudioHooks.Play("terminal_key_confirm");
+                    _gameState.SuppressDiskPersistence = false;
                     if (_gameState.LoadSlotIntoCurrent(slot.SlotNumber))
                     {
-                        _screenManager.RouteViaCorridor(ScreenId.Desk);
+                        _screenManager.SwitchTo(ScreenId.Quarters);
                     }
                     return;
                 }
@@ -86,6 +89,7 @@ public sealed class MainMenuScreen : IScreen
         if (mouse.IsHit(ContentX, 444, 330, 32))
         {
             AudioHooks.Play("terminal_key_confirm");
+            _gameState.StartSandboxedBerthPreview();
             _screenManager.SwitchTo(ScreenId.Quarters);
         }
         else if (mouse.IsHit(ContentX + 350, 444, 330, 32))
@@ -152,7 +156,9 @@ public sealed class MainMenuScreen : IScreen
             }
             else
             {
-                string summary = $"DAY {slot.Day:D2}  |  {slot.PactScrip} SC  |  STRIKES: {slot.SecurityStrikes}";
+                string phaseTag = slot.QuartersPhase == QuartersPhase.Morning ? "AM" : "PM";
+                string strikesPart = slot.Day >= 3 ? $"  |  STRIKES: {slot.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}" : string.Empty;
+                string summary = $"DAY {slot.Day:D2} ({phaseTag})  |  {slot.PactScrip} SC{strikesPart}";
                 Raylib.DrawText(summary, ContentX + 16, rowY + 27, 10, Palette.ClearanceTeal);
 
                 DrawMenuButton(mouse, ContentX + 428, rowY + 10, 128, 28, "LOAD SAVE", Palette.CrtAmberPrimary);
