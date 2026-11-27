@@ -46,6 +46,8 @@ public sealed record PortraitRenderOptions
     public bool IsScriptedOverride { get; init; } = false;
     public string? ScriptedAssetName { get; init; } = null;
     public bool IsKordaniSecurityOfficer { get; init; } = false;
+    public bool IsRegeerNixa { get; init; } = false;
+    public bool IsBrengopLogisticsForeman { get; init; } = false;
 
     /// <summary>
     /// Quantizes animation tick so static snow updates at discrete intervals (~10 Hz)
@@ -177,6 +179,27 @@ public static class PortraitRenderer
         PortraitSpecies.Orun
     ];
 
+    public static PortraitSpecies ParseSpecies(string? rawName)
+    {
+        if (string.IsNullOrWhiteSpace(rawName))
+            return PortraitSpecies.Human;
+
+        string normalized = rawName.Trim().Replace("-", "").Replace("_", "").Replace(" ", "");
+        if (Enum.TryParse<PortraitSpecies>(normalized, ignoreCase: true, out PortraitSpecies parsed))
+            return parsed;
+
+        return PortraitSpecies.Human;
+    }
+
+    public static string FormatSpeciesLabel(PortraitSpecies species) => species switch
+    {
+        PortraitSpecies.HunBorian => "Hun-Borian",
+        _ => species.ToString()
+    };
+
+    internal static string[] SelectHairRamp(DeterministicRng rng) =>
+        rng.Fork("hair_col").Pick(HairRamps);
+
     /// <summary>
     /// Checks assets/images/scripted/ ONLY when options.IsScriptedOverride == true.
     /// Returns true if a valid static scripted texture was found and loaded.
@@ -202,6 +225,16 @@ public static class PortraitRenderer
         if (options.IsKordaniSecurityOfficer)
         {
             return RenderKordaniSecurityOfficerBuffer();
+        }
+
+        if (options.IsRegeerNixa)
+        {
+            return RenderRegeerNixaBuffer();
+        }
+
+        if (options.IsBrengopLogisticsForeman)
+        {
+            return RenderBrengopLogisticsForemanBuffer();
         }
 
         if (options.Mode == PortraitRenderMode.Static)
@@ -356,7 +389,7 @@ public static class PortraitRenderer
         return finalBuf;
     }
 
-    private static (string[] Primary, string[] Secondary) SelectSpeciesSkinRamps(
+    internal static (string[] Primary, string[] Secondary) SelectSpeciesSkinRamps(
         PortraitSpecies species,
         bool isTrueDopple,
         DeterministicRng rng)
@@ -393,7 +426,7 @@ public static class PortraitRenderer
         return (Palette.KordaniSkinRamps[idx], Palette.KordaniSecondaryDarkSlateRamp);
     }
 
-    private static string[] SelectUniformRamp(PortraitSpecies species, string factionPrefix, PortraitTraitProfile traits)
+    internal static string[] SelectUniformRamp(PortraitSpecies species, string factionPrefix, PortraitTraitProfile traits)
     {
         string[][] guAlternates =
         [
@@ -2385,4 +2418,137 @@ public static class PortraitRenderer
 
         return finalBuf;
     }
+
+    /// <summary>
+    /// Dedicated hardcoded (zero RNG variation) 64x64 Brengop Logistics portrait for Regeer Nixa,
+    /// sporting Consortium burgundy-and-brass robes and an ornate crimson-and-gold cap tassel
+    /// draping over the right eye. Used for Day 2 &amp; Day 8 Pre-Shift Live Viewscreen Hails.
+    /// </summary>
+    public static PixelBuffer RenderRegeerNixaBuffer()
+    {
+        PixelBuffer charBuf = new(Constants.PortraitWidth, Constants.PortraitHeight);
+
+        DeterministicRng rng = new("regeer-nixa-brengop-exec-v1");
+        PortraitTraitProfile traits = PortraitTraitProfile.Roll(rng);
+        (string[] skinRamp, string[] secondarySkinRamp) = SelectSpeciesSkinRamps(PortraitSpecies.Brengop, isTrueDopple: false, rng);
+        string[] hairRamp = rng.Fork("hair_col").Pick(HairRamps);
+        string[] robeRamp = ["#2b0f18", "#4f1727", "#752239", "#9b334f"];      // Consortium velvet burgundy
+        string[] coatTrimRamp = Palette.BrengopSecondaryGrimyBrassRamp;         // Brass collar & brocade
+        string[] goldRamp = Palette.ZenithTrimPolishedGoldRamp;                 // Ornate tassel & clasp gold
+
+        static string Sample(int x, int y, string[] ramp, float t) => Dither.SampleRamp(x, y, ramp, t);
+        static int NoJitter(int v, int _ = 0) => v;
+
+        // 1. Consortium Logistics Velvet Shoulders & Layer-1 Neck
+        ReadOnlySpan<(int X, int Y)> shoulders =
+        [
+            (6, 63), (10, 46), (20, 42), (44, 42), (54, 46), (58, 63)
+        ];
+        charBuf.FillPoly(shoulders, (px, py) =>
+        {
+            float t = Math.Clamp(0.84f - (py - 42) / 24.0f - MathF.Abs(px - 32) / 36.0f, 0.08f, 0.94f);
+            return Sample(px, py, robeRamp, t);
+        });
+        RenderLayer1CollarAndNeck(charBuf, PortraitSpecies.Brengop, isTrueDopple: false, traits, skinRamp, robeRamp, NoJitter, Sample);
+
+        // 2. Genuine Procedural Brengop Skull (Drooping Ears, Broad Jowls), Clipped Markings & Facial Features
+        PixelBuffer headOnlyBuf = new(Constants.PortraitWidth, Constants.PortraitHeight);
+        RenderLayer2Skull(headOnlyBuf, PortraitSpecies.Brengop, isTrueDopple: false, traits, skinRamp, rng, NoJitter, Sample);
+        bool[] headMask = headOnlyBuf.CaptureNonNullMask(excludeOutline: true);
+        charBuf.BlitFrom(headOnlyBuf);
+
+        RenderLayer3ClippedMarkings(
+            charBuf,
+            PortraitSpecies.Brengop,
+            isTrueDopple: false,
+            isMolting: false,
+            traits,
+            skinRamp,
+            secondarySkinRamp,
+            headMask,
+            rng,
+            NoJitter,
+            Sample);
+
+        RenderLayer4FacialFeatures(
+            charBuf,
+            PortraitSpecies.Brengop,
+            isTrueDopple: false,
+            isCrayon: false,
+            traits,
+            skinRamp,
+            hairRamp,
+            rng,
+            NoJitter,
+            Sample);
+
+        // Re-apply high Consortium brass-piped scarf/collar fold, gold brooch & shoulder chains cleanly over neck seam
+        charBuf.FillRect(18, 41, 28, 7, (px, py) => Sample(px, py, coatTrimRamp, 0.85f - MathF.Abs(px - 32) / 18.0f));
+        charBuf.DrawLine(18, 41, 46, 41, goldRamp[2]);
+        charBuf.DrawLine(20, 47, 32, 63, goldRamp[1]);
+        charBuf.DrawLine(44, 47, 32, 63, goldRamp[1]);
+        charBuf.FillRect(30, 48, 4, 4, goldRamp[3]);
+        charBuf.Set(31, 49, Palette.HexAlertCrimson);
+        charBuf.Set(32, 49, Palette.HexAlertCrimson);
+        charBuf.FillRect(11, 46, 8, 2, goldRamp[2]);
+        charBuf.FillRect(45, 46, 8, 2, goldRamp[2]);
+
+        // 3. Ornate Consortium Velvet Cap / Circlet (y = 7..18)
+        ReadOnlySpan<(int X, int Y)> capCrown =
+        [
+            (18, 17), (19, 10), (26, 7), (38, 7), (45, 10), (46, 17)
+        ];
+        charBuf.FillPoly(capCrown, (px, py) =>
+        {
+            float t = Math.Clamp(0.86f - (py - 7) / 11.0f - MathF.Abs(px - 32) / 24.0f, 0.12f, 0.94f);
+            return Sample(px, py, robeRamp, t);
+        });
+        charBuf.FillRect(18, 15, 28, 3, (px, py) => py == 16 ? goldRamp[3] : goldRamp[1]);
+        charBuf.DrawLine(19, 10, 45, 10, goldRamp[2]);
+
+        // Front central Consortium medallion on cap
+        charBuf.FillRect(30, 10, 5, 4, goldRamp[2]);
+        charBuf.Set(32, 11, Palette.HexAlertCrimson);
+        charBuf.Set(32, 12, goldRamp[3]);
+
+        // 4. Ornate Gold-and-Crimson Clasp & Braided Tassel Hanging Over the Right Eye (x = 36..41, y = 14..32)
+        charBuf.FillRect(35, 13, 7, 5, Palette.HexOutlineVoid);
+        charBuf.FillRect(36, 14, 5, 3, goldRamp[3]);
+        charBuf.Set(38, 15, Palette.HexAlertCrimson);
+
+        // Draped crimson-and-gold cord obscuring the right eye (viewer-right)
+        charBuf.FillRect(37, 17, 3, 10, robeRamp[2]);
+        charBuf.DrawLine(38, 17, 38, 27, goldRamp[3]);
+        charBuf.DrawLine(37, 20, 39, 20, goldRamp[2]);
+        charBuf.DrawLine(37, 23, 39, 23, goldRamp[2]);
+        // Splayed gold fringe tips at bottom of tassel (y = 27..31)
+        charBuf.FillRect(36, 27, 5, 2, goldRamp[2]);
+        charBuf.Set(36, 29, goldRamp[3]);
+        charBuf.Set(38, 29, goldRamp[3]);
+        charBuf.Set(40, 29, goldRamp[2]);
+        charBuf.Set(36, 30, goldRamp[1]);
+        charBuf.Set(38, 30, robeRamp[3]);
+        charBuf.Set(40, 30, goldRamp[1]);
+        charBuf.Set(38, 31, goldRamp[3]);
+
+        // 5. Crisp 1px dark silhouette outline
+        charBuf.ApplyOutline(Palette.HexOutlineVoid);
+
+        // 6. Compose over Brengop Consortium Logistics backdrop + live CRT scanlines
+        PixelBuffer finalBuf = new(Constants.PortraitWidth, Constants.PortraitHeight);
+        RenderBridgeBackdrop(finalBuf, PortraitSpecies.Brengop, "BMC-", isCrayon: false, new DeterministicRng("bmc-nixa-logistics-fixed"));
+        finalBuf.Set(5, 12, "#f59e0b");
+        finalBuf.Set(58, 12, "#f59e0b");
+        finalBuf.BlitFrom(charBuf);
+        ApplyLiveCrtScanlines(finalBuf);
+
+        return finalBuf;
+    }
+
+    /// <summary>
+    /// Day 15 Pre-Shift Brengop Logistics Hail uses the exact same recurring Brengop character
+    /// and fixed 64x64 face as Regeer Nixa (Consortium Logistics).
+    /// </summary>
+    public static PixelBuffer RenderBrengopLogisticsForemanBuffer() =>
+        RenderRegeerNixaBuffer();
 }

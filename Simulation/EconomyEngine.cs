@@ -47,12 +47,17 @@ public sealed class EconomyEngine
             : CalculateBaseShiftPay(state.ShipsProcessedToday, payPerShip);
 
         int stokerFine = 0;
+        state.LastShiftStokerOverload = state.StokerOverloadedToday;
         if (state.StokerOverloadedToday)
         {
-            stokerFine = Math.Max(0, config.StokerOverloadFine);
+            stokerFine = Math.Max(0, config.StokerOverloadFine); // TODO: BALANCE
             state.PactScrip = Math.Max(0, state.PactScrip - stokerFine);
             state.PendingStokerBerthSearch = true;
             state.NextDayPowerBrownout = true;
+        }
+        else
+        {
+            state.NextDayPowerBrownout = false;
         }
 
         int leaseCost = Math.Max(0, config.BerthLeaseCost);
@@ -193,6 +198,7 @@ public sealed class EconomyEngine
         if (state.Day != 6 || state.TerminalHackedUnlocked || state.Day6UnsolicitedDropDelivered)
             return false;
 
+        (string targetReg, _) = ShipGenerator.EnsureDay6IntroTargetAssigned(state);
         state.Day6UnsolicitedDropDelivered = true;
 
         // 1. Free unmarked black Blank Data Slate in 0500 Service Chute
@@ -203,7 +209,7 @@ public sealed class EconomyEngine
             DisplayName = "UNMARKED BLACK DATA SLATE"
         });
 
-        // 2. Anomalous unread email in MESSAGES (// TODO: USER DIALOGUE PASS)
+        // 2. Anomalous unread email in MESSAGES (Build 4.7 verbatim with rolled target reg)
         (int cy, int cm) = Constants.GetStationCycle(state.Day);
         state.AddEmail(new TerminalEmail
         {
@@ -211,12 +217,17 @@ public sealed class EconomyEngine
             DayReceived = state.Day,
             PhaseReceived = "MORNING",
             CycleTimestamp = $"CYC {Constants.FormatStationCycle(cy, cm)} // 05:01",
-            Sender = "UNKNOWN // RELAY_D4",
-            Subject = "CHECK YOUR CHUTE",
-            Body = "[SYS_OVERRIDE // PORT 04 TUNNEL OPENED]\n\n" +
-                   "Left something in your 0500 chute.\n" +
-                   "Slot this when a Mining Guild ship docks. Send it tonight via Crypto. 45 SC.\n" +
-                   "Scrub your logs before Kordani checks. Don't reply to this address.",
+            Sender = "unknown",
+            Subject = "Check your chute",
+            CustomStatusLine = "asf.as\u2026tje",
+            Body = "Hi\u2026\n" +
+                   "Check your Chute next to your door.\n" +
+                   "You\u2019ll find a blank data-slate. Don\u2019t worry too much where it comes from\u2026 just know that you still have friends down on Deck 4\n" +
+                   $"There is a MNG- rig ({targetReg}) on today\u2019s roster carrying telemetry someone is willing to pay for. Slot in the blank slate into the Bus before protocols hit.\n" +
+                   "You can transmit the slate tonight via the Cryptography tab\n" +
+                   "Don\u2019t forget to scrub your logs, I hear the Kordani are getting on edge about something.\n" +
+                   "Regards\n" +
+                   "A friend",
             IsRead = false,
             IsEncrypted = false,
             IsTerminalHackEmail = true
@@ -232,6 +243,7 @@ public sealed class EconomyEngine
     /// </summary>
     public void ActivateDay6IntroHackMission(GameState state)
     {
+        ShipGenerator.EnsureDay6IntroTargetAssigned(state);
         state.TerminalHackedUnlocked = true;
 
         if (!state.CompletedInterceptMissionIds.Contains(Day6IntroMissionId, StringComparer.OrdinalIgnoreCase) &&
@@ -289,7 +301,8 @@ public sealed class EconomyEngine
     public (bool Success, string Feedback) TryAcceptCovertContract(
         GameState state,
         string missionId,
-        CovertMissionDatabase? db = null)
+        CovertMissionDatabase? db = null,
+        Core.ConfigFlags? config = null)
     {
         CovertMissionDatabase effectiveDb = db ?? CovertMissionDatabase.Load();
         CovertMissionSpec? spec = effectiveDb.Missions.FirstOrDefault(
@@ -334,6 +347,7 @@ public sealed class EconomyEngine
             });
 
             state.Deck4UsedEver = true;
+            RefreshMorningRosterForActiveContracts(state, config);
             state.SaveToDisk();
             return (true, $"ACCEPTED: SEALED {spec.SlatePayloadLabel} DROPS IN 0500 CHUTE TOMORROW.");
         }
@@ -347,6 +361,7 @@ public sealed class EconomyEngine
 
             state.ActiveInterceptMissionIds.Add(spec.MissionId);
             state.Deck4UsedEver = true;
+            RefreshMorningRosterForActiveContracts(state, config);
             state.SaveToDisk();
             return (true, $"INTERCEPT ACCEPTED ({spec.TargetPrefix}) -- BRING BLANK SLATE TO BOOTH 04.");
         }
@@ -437,8 +452,9 @@ public sealed class EconomyEngine
 
     public (bool Success, string Feedback) TryPurchaseAuditDeferralFee(GameState state, Core.ConfigFlags config)
     {
-        if (state.Day < 3)
-            return (false, "SECURITY STRIKES ARE INACTIVE UNTIL DAY 03.");
+        int strikeDay = config.DayUnlockWarpScanner;
+        if (state.Day < strikeDay && !state.SecurityStrikesActive)
+            return (false, $"SECURITY STRIKES ARE INACTIVE UNTIL DAY {strikeDay:D2}.");
         if (state.SecurityStrikes <= 0)
             return (false, "NO ACTIVE SECURITY STRIKES ON RECORD.");
 
@@ -460,7 +476,9 @@ public sealed class EconomyEngine
     // =========================================================================
     // CRYPTO / LOGS Operations (DECRYPT [0 SC + LOGS TRACE] & SCRUB LOGS [15 SC])
     // =========================================================================
-    public (bool Success, string Feedback, TerminalEmail? DecryptedEmail) TryDecryptNextMessage(GameState state)
+    public (bool Success, string Feedback, TerminalEmail? DecryptedEmail) TryDecryptNextMessage(
+        GameState state,
+        Core.ConfigFlags? config = null)
     {
         TerminalEmail? target = state.Emails.FirstOrDefault(e => e.IsEncrypted);
         if (target == null)
@@ -515,11 +533,41 @@ public sealed class EconomyEngine
                 {
                     state.ServiceChuteItems.Add(missionSlate);
                 }
+
+                RefreshMorningRosterForActiveContracts(state, config);
             }
         }
 
         state.SaveToDisk();
         return (true, $"DECRYPTED: {target.Subject} (0 SC -- LOGGED [UNAUTH_IO]). CHECK MESSAGES.", target);
+    }
+
+    public void RefreshMorningRosterForActiveContracts(GameState state, Core.ConfigFlags? config = null)
+    {
+        if (state.Day < 2 || state.QuartersPhase != QuartersPhase.Morning)
+            return;
+
+        string rosterEmailId = $"morning_roster_day_{state.Day:D2}";
+        TerminalEmail? existing = state.Emails.FirstOrDefault(
+            e => e.EmailId.Equals(rosterEmailId, StringComparison.OrdinalIgnoreCase));
+        bool wasRead = existing?.IsRead ?? false;
+
+        if (existing != null)
+        {
+            state.Emails.Remove(existing);
+        }
+        state.TodayMorningRoster.Clear();
+
+        Core.ConfigFlags effectiveCfg = config ?? new Core.ConfigFlags();
+        ShipGenerator generator = new(effectiveCfg);
+        EnsureMorningRosterGenerated(state, generator, effectiveCfg);
+
+        TerminalEmail? regenerated = state.Emails.FirstOrDefault(
+            e => e.EmailId.Equals(rosterEmailId, StringComparison.OrdinalIgnoreCase));
+        if (regenerated != null)
+        {
+            regenerated.IsRead = wasRead;
+        }
     }
 
     public (bool Success, string Feedback, int PurgedCount) TryScrubSecurityLogs(GameState state, Core.ConfigFlags? config = null)
@@ -650,6 +698,11 @@ public sealed class EconomyEngine
             return;
         }
 
+        if (state.Day == 6)
+        {
+            ShipGenerator.EnsureDay6IntroTargetAssigned(state);
+        }
+
         string rosterEmailId = $"morning_roster_day_{state.Day:D2}";
         if (state.Emails.Any(e => e.EmailId.Equals(rosterEmailId, StringComparison.OrdinalIgnoreCase)) &&
             state.TodayMorningRoster.Count == 10)
@@ -657,8 +710,8 @@ public sealed class EconomyEngine
             return;
         }
 
-        List<ShipSpec> dailyQueue = generator.GenerateDailyQueue(state, Constants.PreGeneratedQueueSize);
-        List<MorningRosterEntry> roster = generator.GenerateMorningShipRoster(state, dailyQueue);
+        List<ShipSpec> dailyQueue = generator.GenerateDailyQueue(state, Constants.PreGeneratedQueueSize, reseedNonce: 0, config: config);
+        List<MorningRosterEntry> roster = generator.GenerateMorningShipRoster(state, dailyQueue, config);
         state.TodayMorningRoster = roster;
 
         (int cy, int cm) = Constants.GetStationCycle(state.Day);
@@ -735,7 +788,7 @@ public sealed class EconomyEngine
                 Body = "[ENCRYPTED SUBSPACE PACKET]\n" +
                        "CIPHER: PACT-EX-409 // AUTH HASH: 0x7F9C-A211\n" +
                        "7E A4 19 F0 88 C2 3B 51 99 0D E4 6A 11 B7 ...\n\n" +
-                       "USE [CRYPTO / LOGS] -> [DECRYPT MESSAGE (0 SC)] TO READ.",
+                       "USE [CRYPTOGRAPHY] -> [DECRYPT MESSAGE (0 SC)] TO READ.",
                 EncryptedPreview = "7E A4 19 F0 88 C2 3B 51 99 0D E4 6A 11 B7 ...",
                 DecryptedBody = m.DecryptedBody,
                 IsRead = false,
@@ -748,8 +801,9 @@ public sealed class EconomyEngine
     // =========================================================================
     // FORUM Tab Thread Filtering (/data/forum.json)
     // =========================================================================
-    public List<ForumThreadModel> GetVisibleForumThreads(GameState state, ForumDatabase db)
+    public List<ForumThreadModel> GetVisibleForumThreads(GameState state, ForumDatabase db, Core.ConfigFlags? config = null)
     {
+        int warpUnlockDay = config?.DayUnlockWarpScanner ?? 4;
         List<ForumThreadModel> visible = [];
 
         foreach (ForumThreadModel thread in db.Threads)
@@ -760,7 +814,7 @@ public sealed class EconomyEngine
             bool flagsMatch = true;
             foreach (string flag in thread.RequiredFlags)
             {
-                if (!EvaluateForumFlag(state, flag))
+                if (!EvaluateForumFlag(state, flag, warpUnlockDay))
                 {
                     flagsMatch = false;
                     break;
@@ -794,14 +848,14 @@ public sealed class EconomyEngine
         return visible;
     }
 
-    private static bool EvaluateForumFlag(GameState state, string flag) =>
+    private static bool EvaluateForumFlag(GameState state, string flag, int warpUnlockDay) =>
         flag.ToLowerInvariant() switch
         {
-            "stoker_overload" => state.StokerOverloadedToday || state.NextDayPowerBrownout || state.PendingStokerBerthSearch,
+            "stoker_overload" => state.LastShiftStokerOverload || state.StokerOverloadedToday || state.NextDayPowerBrownout || state.PendingStokerBerthSearch,
             "berth_search" => state.BerthSearchAuditOccurred || state.KordaniSabotageAuditOccurred,
             "sabotage_audit" => state.KordaniSabotageAuditOccurred,
-            "day2_detained" => state.Day >= 3 && state.Day2SuspectDetained,
-            "day2_cleared" => state.Day >= 3 && !state.Day2SuspectDetained,
+            "day2_detained" => state.Day >= warpUnlockDay && (state.Day2SuspectEncountered || state.Day > warpUnlockDay) && state.Day2SuspectDetained,
+            "day2_cleared" => state.Day >= warpUnlockDay && (state.Day2SuspectEncountered || state.Day > warpUnlockDay) && !state.Day2SuspectDetained,
             "missed_lease" => state.MissedBerthLeaseCount >= 1,
             "protected_detained" => state.ProtectedHullDetainedEver,
             "ashen_rift" => state.AshenRiftEncounteredEver,

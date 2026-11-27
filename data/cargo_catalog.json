@@ -1,0 +1,64 @@
+{
+  "stage1Days": "1-11",
+  "stage2Days": "12-20",
+  "legalInertPool": [
+    "Hull Plating",
+    "Refined Ore",
+    "Coolant Rods",
+    "Ration Bricks",
+    "Mining Drills",
+    "Conduit Wire",
+    "Sensor Relays",
+    "Reactor Bearings"
+  ],
+  "controlledLegalBioPool": [
+    "Hydro-Grain",
+    "Cryo-Fish",
+    "Vat Algae",
+    "Medical Cultures",
+    "Livestock Embryos",
+    "Synth-Yeast"
+  ],
+  "bannedCargoList": [
+    {
+      "name": "Disruptor Cells",
+      "category": "POWERED",
+      "spsViolet": true,
+      "denseMass": false,
+      "bannedBio": false,
+      "manualTag": "SPS VIOLET"
+    },
+    {
+      "name": "Unshielded Coils",
+      "category": "POWERED",
+      "spsViolet": true,
+      "denseMass": false,
+      "bannedBio": false,
+      "manualTag": "SPS VIOLET"
+    },
+    {
+      "name": "Raw Slag Isotope",
+      "category": "ISOTOPE",
+      "spsViolet": false,
+      "denseMass": true,
+      "bannedBio": false,
+      "manualTag": "DENSE MASS"
+    },
+    {
+      "name": "Ashen Spores",
+      "category": "ORGANISM",
+      "spsViolet": false,
+      "denseMass": false,
+      "bannedBio": true,
+      "manualTag": "BANNED BIO"
+    },
+    {
+      "name": "Silt Worms",
+      "category": "ORGANISM",
+      "spsViolet": false,
+      "denseMass": false,
+      "bannedBio": true,
+      "manualTag": "BANNED BIO"
+    }
+  ]
+}

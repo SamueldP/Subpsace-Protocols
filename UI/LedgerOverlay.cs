@@ -108,13 +108,13 @@ public sealed class LedgerOverlay
         Raylib.DrawRectangle(bx + 8, by + 8, BoxW - 16, 44, new Color(34, 31, 14, 255));
         Raylib.DrawRectangleLines(bx + 8, by + 8, BoxW - 16, 44, brengopMuted);
         string title = $"BRENGOP PORT AUTHORITY // SHIFT {_summary.ShiftDay:D2} SETTLEMENT";
-        int titleW = Raylib.MeasureText(title, 10);
-        Raylib.DrawText(title, bx + (BoxW - titleW) / 2, by + 16, 10, brengopYellow);
+        int titleW = UiText.MeasureWidth(title, 10);
+        UiText.Draw(title, bx + (BoxW - titleW) / 2, by + 16, 10, brengopYellow);
 
         (int cy, int cm) = Constants.GetStationCycle(_summary.ShiftDay);
         string sub = $"VOID GATE 3  |  BOOTH 04 CLOCK-OUT SLIP  |  CYC {Constants.FormatStationCycle(cy, cm)}";
-        int subW = Raylib.MeasureText(sub, 10);
-        Raylib.DrawText(sub, bx + (BoxW - subW) / 2, by + 34, 10, brengopMuted);
+        int subW = UiText.MeasureWidth(sub, 10);
+        UiText.Draw(sub, bx + (BoxW - subW) / 2, by + 34, 10, brengopMuted);
 
         // Itemized Ledger Container
         int bodyX = bx + 16;
@@ -161,7 +161,7 @@ public sealed class LedgerOverlay
                 Palette.AlertCrimson);
             curY += rowStep;
 
-            Raylib.DrawText(
+            UiText.Draw(
                 "  >> NOTICE: KORDANI SABOTAGE AUDIT QUEUED FOR SLEEP CYCLE",
                 rowX, curY - 8, 10, Palette.CrtAmberPrimary);
             curY += 16;
@@ -177,8 +177,8 @@ public sealed class LedgerOverlay
             curY += rowStep;
         }
 
-        // 4. Persistent Kordani Security Strikes (displayed Day 3+ once activated)
-        if (_summary.ShiftDay >= 3)
+        // 4. Persistent Kordani Security Strikes (displayed Day 4+ once activated)
+        if (_summary.ShiftDay >= Constants.DefaultDayUnlockWarpScanner)
         {
             Color strikeCol = _summary.SecurityStrikesEnd >= _summary.MaxStrikesBeforeAudit
                 ? Palette.AlertCrimson
@@ -199,7 +199,7 @@ public sealed class LedgerOverlay
             DrawLedgerRow(
                 rowX, valRightX, curY,
                 "KORDANI SECURITY STRIKES",
-                "INACTIVE (DAYS 01-02)",
+                $"INACTIVE (DAYS 01-{(Constants.DefaultDayUnlockWarpScanner - 1):D2})",
                 Palette.WeatheredGunmetalEdge,
                 Palette.WeatheredGunmetalEdge);
             curY += rowStep;
@@ -256,7 +256,7 @@ public sealed class LedgerOverlay
         {
             Raylib.DrawRectangle(rowX, curY - 4, bodyW - 32, 24, new Color(54, 18, 18, 255));
             Raylib.DrawRectangleLines(rowX, curY - 4, bodyW - 32, 24, Palette.AlertCrimson);
-            Raylib.DrawText(
+            UiText.Draw(
                 "WARNING: MISSING 1 MORE BERTH LEASE TRIGGERS DEBT FORECLOSURE!",
                 rowX + 10, curY + 3, 10, Palette.CrtAmberPrimary);
             curY += 28;
@@ -265,7 +265,7 @@ public sealed class LedgerOverlay
         {
             Raylib.DrawRectangle(rowX, curY - 4, bodyW - 32, 24, new Color(72, 16, 16, 255));
             Raylib.DrawRectangleLines(rowX, curY - 4, bodyW - 32, 24, Palette.AlertCrimson);
-            Raylib.DrawText(
+            UiText.Draw(
                 "BADGE REVOKED: PERMANENT REASSIGNMENT TO LOWER REACTOR DECKS.",
                 rowX + 10, curY + 3, 10, Palette.AlertCrimson);
             curY += 28;
@@ -275,12 +275,12 @@ public sealed class LedgerOverlay
         int netBoxY = bodyY + bodyH - 54;
         Raylib.DrawRectangle(rowX, netBoxY, bodyW - 32, 42, new Color(24, 24, 15, 255));
         Raylib.DrawRectangleLines(rowX, netBoxY, bodyW - 32, 42, brengopYellow);
-        Raylib.DrawText("NET PACT SCRIP AVAILABLE (EVENING QUARTERS)", rowX + 12, netBoxY + 9, 10, brengopMuted);
+        UiText.Draw("NET PACT SCRIP AVAILABLE (EVENING QUARTERS)", rowX + 12, netBoxY + 9, 10, brengopMuted);
         string netVal = $"{_summary.ResultingNetScrip} SC";
-        int netW = Raylib.MeasureText(netVal, 20);
-        Raylib.DrawText(netVal, valRightX - netW - 10, netBoxY + 11, 20,
+        int netW = UiText.MeasureWidth(netVal, 20);
+        UiText.Draw(netVal, valRightX - netW - 10, netBoxY + 11, 20,
             _summary.ResultingNetScrip >= 20 ? Palette.ClearanceTeal : Palette.CrtAmberPrimary);
-        Raylib.DrawText("ALL DEDUCTIONS FINAL. BERTH LEASE AUTO-SETTLED.", rowX + 12, netBoxY + 25, 10, Palette.WeatheredGunmetalEdge);
+        UiText.Draw("ALL DEDUCTIONS FINAL. BERTH LEASE AUTO-SETTLED.", rowX + 12, netBoxY + 25, 10, Palette.WeatheredGunmetalEdge);
 
         // Footer Action Button: exact (480, 536, 320, 44)
         int btnY = FooterBtnY + yOffset;
@@ -296,8 +296,8 @@ public sealed class LedgerOverlay
         string btnLabel = _summary.DebtForeclosureTriggered
             ? "[ ACCEPT DEBT FORECLOSURE ]"
             : "[ ENTER EVENING QUARTERS ]";
-        int bw = Raylib.MeasureText(btnLabel, 10);
-        Raylib.DrawText(
+        int bw = UiText.MeasureWidth(btnLabel, 10);
+        UiText.Draw(
             btnLabel,
             FooterBtnX + (FooterBtnW - bw) / 2,
             btnY + (FooterBtnH - 10) / 2,
@@ -316,15 +316,15 @@ public sealed class LedgerOverlay
         Color labelCol,
         Color valueCol)
     {
-        Raylib.DrawText(label, leftX, y, 10, labelCol);
-        int vw = Raylib.MeasureText(value, 10);
-        int lw = Raylib.MeasureText(label, 10);
+        UiText.Draw(label, leftX, y, 10, labelCol);
+        int vw = UiText.MeasureWidth(value, 10);
+        int lw = UiText.MeasureWidth(label, 10);
         int dotsStart = leftX + lw + 8;
         int dotsEnd = rightX - vw - 8;
         for (int dx = dotsStart; dx < dotsEnd; dx += 6)
         {
             Raylib.DrawPixel(dx, y + 7, new Color(72, 66, 36, 255));
         }
-        Raylib.DrawText(value, rightX - vw, y, 10, valueCol);
+        UiText.Draw(value, rightX - vw, y, 10, valueCol);
     }
 }

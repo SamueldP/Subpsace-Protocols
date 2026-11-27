@@ -201,6 +201,13 @@ public sealed class VirtualCanvas : IDisposable
         Raylib.UnloadImage(img);
     }
 
+    internal Image CaptureVirtualFrameImage()
+    {
+        Image img = Raylib.LoadImageFromTexture(_target.Texture);
+        Raylib.ImageFlipVertical(ref img);
+        return img;
+    }
+
     public void Dispose()
     {
         if (_isDisposed)

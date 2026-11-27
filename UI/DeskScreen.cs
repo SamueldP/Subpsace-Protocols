@@ -33,7 +33,8 @@ public sealed partial class DeskScreen : IScreen
         AwaitingClearanceReturnToTopPort = 8,
         TransmittingClearance = 9,
         DetainClamping = 10,
-        ResolvingDecision = 11
+        ResolvingDecision = 11,
+        AwaitingAutoShieldsDrop = 12
     }
 
     private enum DataSlateLocation
@@ -58,7 +59,22 @@ public sealed partial class DeskScreen : IScreen
     {
         None = 0,
         Day1VorstLiveHail = 1,
-        Day3KordaniLiveHail = 2
+        Day3KordaniLiveHail = 2,
+        Day2NixaLiveHail = 3,
+        Day8NixaLiveHail = 4,
+        Day15ForemanLiveHail = 5
+    }
+
+    public enum CertWaferType
+    {
+        CargoManifest = 0
+    }
+
+    public enum BoothBrownoutState
+    {
+        On = 0,
+        Dim = 1,
+        Off = 2
     }
 
     private enum FaultSequenceStage
@@ -98,7 +114,8 @@ public sealed partial class DeskScreen : IScreen
         DataSlate = 0,
         ReferenceManual = 1,
         WarpStrip = 2,
-        ContrabandSlate = 3
+        ContrabandSlate = 3,
+        FieldBooklet = 4
     }
 
     private enum ReviewTarget
@@ -118,7 +135,33 @@ public sealed partial class DeskScreen : IScreen
         SpsLensConduit = 12,
         WarpStripPaper = 13,
         SpsMiniScreenHotWeapons = 14,
-        SpsMiniScreenCargoPower = 15
+        SpsMiniScreenCargoPower = 15,
+        ReferenceManualPrefixEntry = 16,
+        ReferenceManualSpeciesEntry = 17,
+        ReferenceManualHullEntry = 18,
+        CommsTranscriptStatement = 19,
+        CargoManifestWafer = 20,
+        ReferenceManualCargoBannedEntry = 21,
+        WaferWriterModule = 22,
+        DataSlateMass = 23,
+        StokerMeasuredMassLed = 24
+    }
+
+    internal sealed class CertWaferCard
+    {
+        public int InstanceId { get; init; }
+        public CertWaferType WaferType { get; init; } = CertWaferType.CargoManifest;
+        public string ShipRegistration { get; init; } = string.Empty;
+        public string PrimaryCargoItem { get; init; } = string.Empty;
+        public string SecondaryNote { get; init; } = string.Empty;
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int EjectStartX { get; set; }
+        public int EjectStartY { get; set; }
+        public int EjectTargetX { get; set; }
+        public int EjectTargetY { get; set; }
+        public float EjectElapsed { get; set; }
+        public bool IsEjecting { get; set; }
     }
 
     private sealed class DraggableDeskItem
@@ -126,7 +169,7 @@ public sealed partial class DeskScreen : IScreen
         public DeskItemId Id { get; init; }
         public int X { get; set; }
         public int Y { get; set; }
-        public int Width { get; init; }
+        public int Width { get; set; }
         public int Height { get; set; }
         public bool IsVisible { get; set; } = true;
     }
@@ -140,9 +183,9 @@ public sealed partial class DeskScreen : IScreen
     private const int TopBarY = 0;
     private const int TopBarW = 1280;
     private const int TopBarH = 32;
-    private const int TopCycleX = 236;
+    private const int TopCycleX = 256;
     private const int TopCycleY = 4;
-    private const int TopCycleW = 124;
+    private const int TopCycleW = 112;
     private const int TopCycleH = 24;
     private const int PowerModuleX = 1172;
     private const int PowerModuleY = 2;
@@ -171,11 +214,14 @@ public sealed partial class DeskScreen : IScreen
     private const int ViewportInnerW = ViewportW - ViewportGlassInset * 2;
     private const int ViewportInnerH = ViewportH - ViewportGlassInset * 2;
 
-    // 120x56 ship sprite scaled 2x -> 240x112 centered inside 448x216 viewport
+    // 120x56 ship sprite scaled 2x -> 240x112 centered inside 448x216 viewport (V1_Classic)
+    // and 560x240 ship sprite rendered 1:1 (280x120 @ 2x) centered inside 448x216 viewport (V2_HiBit)
     private const int ShipRenderW = Constants.ShipWidth * 2;  // 240
     private const int ShipRenderH = Constants.ShipHeight * 2; // 112
     private const int ShipAnchorX = ViewportX + (ViewportW - ShipRenderW) / 2; // 216
     private const int ShipAnchorY = ViewportY + 72;                            // 112
+    private const int ShipV2AnchorX = ViewportX + (ViewportW - ShipRendererV2.OutputWidth) / 2; // 56
+    private const int ShipV2AnchorY = 22;
 
     // SPS Control Column: (568, 40, 104, 216) -- Toggle (568, 40, 104, 60) + 8px gap + Mini-Screen (568, 108, 104, 148)
     private const int SpsColX = 568;
@@ -232,11 +278,19 @@ public sealed partial class DeskScreen : IScreen
     private const int WarpGlassW = WarpSignatureGenerator.WaveformCanvasWidth;  // 216
     private const int WarpGlassH = WarpSignatureGenerator.WaveformCanvasHeight; // 52
 
-    // Desk Reference Manual (Day 4+ only -- 1. PREFIXES & 2. HULLS only; tightened height 192px with zero dead space)
-    private const int ManualDefaultX = 8;
-    private const int ManualDefaultY = 360;
-    private const int ManualW = 280;
-    private const int ManualH = 192;
+    // Brengop Reference Manual (Consortium Registry Tablet, Day 8+: 2 tabs D8-9, 3 tabs D10-11, 4 tabs D12+ within 280px)
+    public const int ManualDefaultX = 8;
+    public const int ManualDefaultY = 360;
+    public const int ManualW = 280;
+    public const int ManualH = 192;
+
+    // Day 12+ Ceramic-Polymer Cert-Wafer & Hopper Constants
+    public const int MaxWaferHopperCount = 3;
+    public const int WaferCardW = 144;
+    public const int WaferCardH = 164;
+    private const float WaferEjectDurationSeconds = 0.28f;
+    private const float WaferWipeSequentialStepSeconds = 0.11f;
+    private const float MissingWaferTransmitDurationSeconds = 0.55f;
 
     // Printed Magnetic/Thermal Warp Strip (Day 3+ L->R extrusion):
     // Exact 1:1 216x52 waveform canvas + 2px side frames + 1px top border + 11px slim bottom grip edge = 220x64
@@ -264,7 +318,7 @@ public sealed partial class DeskScreen : IScreen
 
     // Pacing Durations (download, clearance encryption, clearance TX, and detain clamp+wipe share exact StandardTransferDurationSeconds!)
     private const float ShipApproachDurationSeconds = 3.2f;
-    private const float OpeningGreetingBeatSeconds = 0.35f;
+    private const float OpeningGreetingBeatSeconds = 0.18f;
     private const float ProtocolDownloadDurationSeconds = ShiftController.StandardTransferDurationSeconds;
     private const float ReTransmitAnnoyedDelaySeconds = 0.55f;
     private const float ClearanceUploadDurationSeconds = ShiftController.StandardTransferDurationSeconds;
@@ -304,7 +358,6 @@ public sealed partial class DeskScreen : IScreen
     private readonly Core.ConfigFlags _config;
     private readonly DevDebugState _devDebug;
     private readonly Action? _onRequestPause;
-    private readonly Action<int>? _onTriggerDayStartTutorial;
 
     private readonly ShiftController _shiftController;
     private readonly ShipGenerator _shipGenerator;
@@ -313,15 +366,22 @@ public sealed partial class DeskScreen : IScreen
     private readonly EconomyEngine _economyEngine = new();
     private readonly LedgerOverlay _ledgerOverlay = new();
     private readonly CommsTypewriterQueue _commsQueue = new();
+    private readonly FieldBookletWidget _fieldBooklet = new();
+
+    internal FieldBookletWidget FieldBooklet => _fieldBooklet;
+    internal bool IsFieldBookletOpen => _fieldBooklet.IsOpen;
 
     // Shared Booth 04 layout state computed each frame from ConfigFlags.DeskUpperLayoutMode & DevDebugState.Use3xPortraitInLayoutB
     private DeskLayoutRects _layout;
     private DeskUpperLayoutMode _lastAppliedLayoutMode;
+    private ShipArtVersion _lastAppliedShipArtVersion;
     public DeskLayoutRects CurrentLayout => _layout;
     public CommsTypewriterQueue CommsQueue => _commsQueue;
+    public ShipArtVersion ActiveShipArtVersion => _config.ShipArtVersion;
+    private bool IsUsingShipArtV2 => _config.ShipArtVersion == ShipArtVersion.V2_HiBit;
 
     // Clock-Out ~4.0s Sequential Booth 04 Power-Down, Plain-Text Leave Prompt & End-of-Shift Ledger state
-    private const string ClockOutLeavePromptText = "Watch complete. Click to head back to quarters.";
+    private const string ClockOutLeavePromptText = "Shift complete. Click to walk back to quarters.";
     private bool _clockOutPowerDownActive;
     private float _clockOutPowerDownElapsed;
     private bool _clockOutAwaitingLeavePrompt;
@@ -341,6 +401,7 @@ public sealed partial class DeskScreen : IScreen
     private readonly List<(int X, int Y)> _parkedBurntSlatesOnDesk = [];
     private bool _contrabandSlateInSlateBus;
     private bool _isDownloadingToBlankSlate;
+    private bool _silentBlankSlateCaptureMode;
     private bool _isUploadingCovertMissionSlate;
     private float _covertUploadElapsed;
     private const float CovertUploadDurationSeconds = ShiftController.StandardTransferDurationSeconds * 0.75f;
@@ -348,6 +409,8 @@ public sealed partial class DeskScreen : IScreen
     private const int ContrabandSlateH = 188;
 
     public bool IsLedgerOpen => _ledgerOverlay.IsOpen;
+    private bool _isDetainingShip => _detainLeverPulled || _phase == EncounterPhase.DetainClamping;
+    public bool IsSilentBlankSlateCaptureActive => _silentBlankSlateCaptureMode;
     public bool IsBlankSlateDownloading =>
         _isDownloadingToBlankSlate && _phase == EncounterPhase.DownloadingProtocols;
     public float BlankSlateDownloadProgress =>
@@ -356,20 +419,32 @@ public sealed partial class DeskScreen : IScreen
             : 0f;
     public bool HasActiveProtocolFaultTrace =>
         _activeShip != null &&
-        (_faultStage != FaultSequenceStage.None || _activeShip.ProtocolReviewVerified) &&
+        (_faultStage != FaultSequenceStage.None || _faultTraceTimer > 0f) &&
         _faultHighlightA != ReviewTarget.None &&
         _faultHighlightB != ReviewTarget.None;
 
-    // Pre-Shift Live Kordani Hail state (Day 1 Commander Vorst & Day 3 Kordani Security Officer)
+    // Pre-Shift Live Viewscreen Hails (Day 1 & 4 Commander Vorst; Day 2 & 8 Regeer Nixa)
     private PreShiftStage _preShiftStage = PreShiftStage.None;
     private string[] _kordaniHailLines = [];
 
     private bool IsPreShiftTalkingHeadHailActive =>
-        _preShiftStage is PreShiftStage.Day1VorstLiveHail or PreShiftStage.Day3KordaniLiveHail;
+        _preShiftStage is PreShiftStage.Day1VorstLiveHail
+            or PreShiftStage.Day2NixaLiveHail
+            or PreShiftStage.Day3KordaniLiveHail
+            or PreShiftStage.Day8NixaLiveHail
+            or PreShiftStage.Day15ForemanLiveHail;
+
+    private bool IsPreShiftBrengopHailActive =>
+        _preShiftStage is PreShiftStage.Day2NixaLiveHail
+            or PreShiftStage.Day8NixaLiveHail
+            or PreShiftStage.Day15ForemanLiveHail;
 
     public bool IsPreShiftHailActive => IsPreShiftTalkingHeadHailActive;
     public bool IsDay1VorstHailActive => _preShiftStage == PreShiftStage.Day1VorstLiveHail;
+    public bool IsDay2NixaHailActive => _preShiftStage == PreShiftStage.Day2NixaLiveHail;
     public bool IsDay3KordaniHailActive => _preShiftStage == PreShiftStage.Day3KordaniLiveHail;
+    public bool IsDay8NixaHailActive => _preShiftStage == PreShiftStage.Day8NixaLiveHail;
+    public bool IsDay15ForemanHailActive => _preShiftStage == PreShiftStage.Day15ForemanLiveHail;
     public bool HasPreShiftPortraitTextureLoaded => _cachedPreShiftKordaniPortraitTex.Id != 0;
     public bool CanTriggerNextHailNow =>
         _shiftController.CanTriggerNextHail && _phase == EncounterPhase.BayEmpty && _preShiftStage == PreShiftStage.None;
@@ -391,11 +466,14 @@ public sealed partial class DeskScreen : IScreen
 
     // Protocol Review State (Unlocked Day 1, Ship 1)
     private const float NoFaultTraceDurationSeconds = 0.60f;
+    private const float FaultTraceDurationSeconds = 2.35f;
+    private const float DuplicateFaultNoteDurationSeconds = 1.80f;
     private bool _protocolReviewModeActive;
     private ReviewTarget _reviewFirstSelection = ReviewTarget.None;
     private string _reviewStatusNote = string.Empty;
     private string _verifiedViolationSummary = string.Empty;
     private float _noFaultTraceTimer;
+    private float _duplicateFaultNoteTimer;
     private ReviewTarget _noFaultTargetA = ReviewTarget.None;
     private ReviewTarget _noFaultTargetB = ReviewTarget.None;
 
@@ -405,9 +483,14 @@ public sealed partial class DeskScreen : IScreen
 
     // Tactile Inspection Weight: 0.5s PROTOCOL FAULT beat integrated cleanly into CommsTypewriterQueue
     private FaultSequenceStage _faultStage = FaultSequenceStage.None;
+    private float _faultTraceTimer;
     private ReviewTarget _faultHighlightA = ReviewTarget.None;
     private ReviewTarget _faultHighlightB = ReviewTarget.None;
     private float _portraitStaticFlickerTimer;
+
+    // Build 4.5 Auto-Shields / Auto-SPS Weapons compliance state
+    private float _autoShieldsPostSpeechBeat;
+    private bool _autoSpsWeaponsOrderTriggered;
 
     // Tactile Pacing Timers
     private float _shipApproachElapsed;
@@ -441,6 +524,7 @@ public sealed partial class DeskScreen : IScreen
     private Vector2 _currentSpsSwayOffset;
     private Rectangle _lastSpsLensRect;
     private ShipHardpointLayout? _activeShipHardpoints;
+    private ShipHardpointLayoutV2? _activeShipHardpointsV2;
     private readonly List<SpsAnomalyEntry> _spsLoggedAnomalies = [];
     private SpsAnomalyKind _spsLockTarget = SpsAnomalyKind.None;
     private float _spsLockProgress;
@@ -493,10 +577,69 @@ public sealed partial class DeskScreen : IScreen
     private int _dragStartMouseX;
     private int _dragStartMouseY;
 
-    // Desk Reference Manual state (Day 4+)
-    private int _manualActiveTab = 1;
+    // Desk Reference Manual state (Day 8+: 2 tabs D8-9, 3 tabs D10-11, 4 tabs D12+)
+    private int _manualActiveTab = 0;
+    private int _manualDirectoryIndex = 0;
     private int _manualFactionIndex = 0;
     private int _manualClassIndex = 0;
+    private int _selectedManualBannedCargoIndex = 0;
+
+    // Day 12+ Subspace Demux / Wafer Writer 3-Wafer Hopper & Cert-Wafer State
+    private int _waferHopperCount = MaxWaferHopperCount;
+    private int _nextWaferInstanceId = 1;
+    private readonly List<CertWaferCard> _deskWafers = [];
+    private readonly List<int> _draggedWaferIds = [];
+    private int _waferDragOffsetX;
+    private int _waferDragOffsetY;
+    private bool _waferScoopGestureActive;
+    private CertWaferCard? _heldPendingWafer;
+    private bool _emptyHopperReminderLoggedForHeldWafer;
+    private bool _cargoWaferPrintedForActiveShip;
+    private bool _isTransmittingMissingWafer;
+    private float _missingWaferTransmitElapsed;
+    private readonly HashSet<CertWaferType> _demuxedWafersForActiveShip = [];
+    private readonly HashSet<CertWaferType> _prematurelyWipedWafersForActiveShip = [];
+    private bool _isReTransmittingWipedWafers;
+    private float _reTransmitWipedWaferElapsed;
+    private float _waferWriteHeadFlashTimer;
+    private float _waferWipeFlashTimer;
+    private int _pendingSequentialWipeFlashes;
+    private float _sequentialWipeStepTimer;
+
+    // Day 15+ Stellar Stoker Dual-Readout Module & Shared Strain State
+    private const int StokerLedX = StokerDialX + 4;
+    private const int StokerLedY = StokerDialY + 4;
+    private const int StokerLedW = StokerDialW - 8;
+    private const int StokerLedH = 26;
+    private const int StokerGaugeX = StokerDialX + 4;
+    private const int StokerGaugeY = StokerDialY + 32;
+    private const int StokerGaugeW = StokerDialW - 8;
+    private const int StokerGaugeH = 32;
+    private const int StokerAnchorBtnX = StokerDialX + 4;
+    private const int StokerAnchorBtnY = StokerDialY + 66;
+    private const int StokerAnchorBtnW = StokerDialW - 8;
+    private const int StokerAnchorBtnH = 18;
+    private float _stokerSafeLoad = 15.0f;
+    private float _stokerShock;
+    private float _stokerPreviewShock;
+    private bool _stokerMassAnchoredForShip;
+    private int _stokerMeasuredMass;
+
+    // 3-State Next-Day Power Brownout Lighting Machine (ON / DIM / OFF, max 6 triggers per 270s shift)
+    private const int MaxBrownoutTriggersPerShift = 6;
+    private const float BrownoutBaseHoldSeconds = 10.0f;
+    private const float BrownoutOffFlickerTotalSeconds = 0.60f;
+    private const float BrownoutOffFlickerStepSeconds = 0.10f;
+    private BoothBrownoutState _brownoutState = BoothBrownoutState.On;
+    private BoothBrownoutState _brownoutNextTargetState = BoothBrownoutState.Dim;
+    private float _brownoutCycleDuration = 50.0f;
+    private float _brownoutCycleElapsed;
+    private float _brownoutActiveHoldElapsed;
+    private int _brownoutTriggerCount;
+    private bool _brownoutEnteredThisCycle;
+    private Random _brownoutRng = new(2026);
+    private DebugBrownoutForceMode _lastAppliedBrownoutForceMode = DebugBrownoutForceMode.Auto;
+    private float _forcedOffElapsed;
 
     // Cached Procedural GPU Textures (explicitly unloaded when ship leaves or screen exits)
     private Texture2D _cachedShipLiveTex;
@@ -510,12 +653,55 @@ public sealed partial class DeskScreen : IScreen
     public bool IsSpsUnlocked => _gameState.Day >= Constants.DayUnlockSpsAndCombat;
     public bool AreCombatOrdersUnlocked => _gameState.Day >= Constants.DayUnlockSpsAndCombat;
     public bool IsProtocolReviewUnlocked => true; // Active starting Day 1, Ship 1
-    public bool AreSecurityStrikesUnlocked => _gameState.Day >= Constants.DayUnlockWarpAndStrikes;
-    public bool IsSpectrometerOperational => _gameState.Day >= Constants.DayUnlockWarpAndStrikes;
+    public bool AreSecurityStrikesUnlocked => _gameState.SecurityStrikesActive || _gameState.Day >= _config.DayUnlockWarpScanner;
+    public bool IsSpectrometerOperational => _gameState.Day >= _config.DayUnlockWarpScanner;
     public bool IsManualUnlocked => _gameState.Day >= _config.DayUnlockManualPart1;
     public bool IsManualHullsEnforced => _gameState.Day >= _config.DayUnlockManualHulls;
+    public bool IsCargoManualTabUnlocked => _gameState.Day >= _config.DayUnlockWaferCargo;
     public bool IsWaferWriterOperational => _gameState.Day >= _config.DayUnlockWaferCargo;
     public bool IsCargoPowerUnlocked => _gameState.Day >= _config.DayUnlockWaferCargo;
+    public bool IsStokerOperational => _gameState.Day >= _config.DayUnlockStoker && _config.EnableStokerDial;
+    public int WaferHopperCount => _waferHopperCount;
+    public int ActiveDeskWaferCount => _deskWafers.Count;
+    public bool HasHeldPendingWafer => _heldPendingWafer != null;
+    public int PrematurelyWipedWaferCount => _prematurelyWipedWafersForActiveShip.Count;
+    public bool CanReTransmitPrematurelyWipedWafers =>
+        IsWaferWriterOperational &&
+        _activeShip != null &&
+        !_detainLeverPulled &&
+        (_phase is EncounterPhase.InspectingSlateAndShip or EncounterPhase.AwaitingClearanceReturnToTopPort) &&
+        _prematurelyWipedWafersForActiveShip.Count > 0 &&
+        _waferHopperCount > 0 &&
+        !_isReTransmittingWipedWafers &&
+        !_isTransmittingMissingWafer;
+    public bool IsConduitPulseRxActive =>
+        IsWaferWriterOperational &&
+        ((_phase == EncounterPhase.DownloadingProtocols && !_isDownloadingToBlankSlate) ||
+         _isTransmittingMissingWafer ||
+         _isReTransmittingWipedWafers);
+    public float StokerSafeLoad => _stokerSafeLoad;
+    public float StokerShock => _stokerShock;
+    public float StokerPreviewShock => _stokerPreviewShock;
+    public float StokerTotalStrain => _stokerSafeLoad + _stokerShock + _stokerPreviewShock;
+    public bool IsStokerMassAnchoredForShip => _stokerMassAnchoredForShip;
+    public int StokerMeasuredMass => _stokerMeasuredMass;
+    public BoothBrownoutState ActiveBrownoutState => _brownoutState;
+    public int BrownoutTriggerCount => _brownoutTriggerCount;
+    public float BrownoutAmbientFactor => ComputeBrownoutAmbientFactor();
+    public float BrownoutSpillFactor => ComputeBrownoutSpillFactor();
+    public bool IsInBrownoutOffFlicker =>
+        _brownoutState == BoothBrownoutState.Off && GetEffectiveBrownoutOffElapsed() < BrownoutOffFlickerTotalSeconds;
+    private bool IsBrownoutAttenuatingPassiveSurfaces =>
+        ClockOutPowerDownProgress <= 0.001f && BrownoutAmbientFactor < 0.999f;
+    public bool IsEncounterPostVerdictForWaferScoop =>
+        _activeShip == null ||
+        _detainLeverPulled ||
+        _phase is EncounterPhase.BayEmpty
+            or EncounterPhase.UploadingClearance
+            or EncounterPhase.AwaitingClearanceReturnToTopPort
+            or EncounterPhase.TransmittingClearance
+            or EncounterPhase.DetainClamping
+            or EncounterPhase.ResolvingDecision;
 
     private float ClockOutPowerDownProgress
     {
@@ -580,13 +766,14 @@ public sealed partial class DeskScreen : IScreen
         _config = config;
         _devDebug = devDebug;
         _onRequestPause = onRequestPause;
-        _onTriggerDayStartTutorial = onTriggerDayStartTutorial;
+        _ = onTriggerDayStartTutorial;
 
         _shiftController = new ShiftController(config);
         _shipGenerator = new ShipGenerator(config);
 
         _layout = DeskLayoutRects.Compute(_config.DeskUpperLayoutMode, _devDebug.Use3xPortraitInLayoutB);
         _lastAppliedLayoutMode = _layout.Mode;
+        _lastAppliedShipArtVersion = _config.ShipArtVersion;
 
         InitializeDraggableDeskItems();
     }
@@ -601,6 +788,31 @@ public sealed partial class DeskScreen : IScreen
         {
             ReconcileItemsForLayoutChange(next);
             _lastAppliedLayoutMode = next.Mode;
+        }
+
+        SyncShipArtVersionFromConfig();
+    }
+
+    public void SyncShipArtVersionFromConfig()
+    {
+        if (_config.ShipArtVersion == _lastAppliedShipArtVersion)
+            return;
+
+        _lastAppliedShipArtVersion = _config.ShipArtVersion;
+        if (_activeShip != null)
+        {
+            RebuildActiveShipTextures();
+        }
+        if (_cachedManualShipTex.Id != 0 || (IsManualHullsEnforced && _manualActiveTab == 2))
+        {
+            if (IsManualHullsEnforced)
+            {
+                RebuildManualSilhouetteTexture();
+            }
+            else
+            {
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+            }
         }
     }
 
@@ -662,6 +874,14 @@ public sealed partial class DeskScreen : IScreen
             manual.Y = Math.Clamp(manual.Y, layout.FreeDeskRestMinY, bounds.Bottom - manual.Height);
         }
 
+        // 4b. Field Booklet "884-D — MY NOTES": clamp cleanly inside updated FreeDragBounds
+        if (_deskItems.TryGetValue(DeskItemId.FieldBooklet, out DraggableDeskItem? booklet) &&
+            _draggingItemId != DeskItemId.FieldBooklet)
+        {
+            booklet.X = Math.Clamp(booklet.X, bounds.X, bounds.Right - booklet.Width);
+            booklet.Y = Math.Clamp(booklet.Y, layout.FreeDeskRestMinY, bounds.Bottom - booklet.Height);
+        }
+
         // 5. Torn-off Warp Strip: keep snapped over Glowing Warp Checker, otherwise clamp inside updated drag bounds
         if (_deskItems.TryGetValue(DeskItemId.WarpStrip, out DraggableDeskItem? strip) &&
             _draggingItemId != DeskItemId.WarpStrip &&
@@ -671,6 +891,9 @@ public sealed partial class DeskScreen : IScreen
             strip.X = Math.Clamp(strip.X, bounds.X, bounds.Right - strip.Width);
             strip.Y = Math.Clamp(strip.Y, WarpRefSpotY, bounds.Bottom - strip.Height);
         }
+
+        // 5b. Printed Cert-Wafers: keep strictly left of layout.WaferWriter.X - 16 so zero overlap occurs with docked Data Slate
+        ReconcileDeskWafersForLayout(layout);
 
         // 6. Keep transcript scroll within valid range for the new visible row count
         if (!_transcriptAutoFollowBottom)
@@ -734,6 +957,18 @@ public sealed partial class DeskScreen : IScreen
             IsVisible = false
         };
 
+        // 5. Personal Field Booklet "884-D — MY NOTES" (warm pen-and-paper, lower-left above Lap Pocket)
+        _deskItems[DeskItemId.FieldBooklet] = new DraggableDeskItem
+        {
+            Id = DeskItemId.FieldBooklet,
+            X = 8,
+            Y = 604,
+            Width = _fieldBooklet.CurrentWidth,
+            Height = _fieldBooklet.CurrentHeight,
+            IsVisible = true
+        };
+
+        _zOrder.Add(DeskItemId.FieldBooklet);
         _zOrder.Add(DeskItemId.ReferenceManual);
         _zOrder.Add(DeskItemId.DataSlate);
         _zOrder.Add(DeskItemId.ContrabandSlate);
@@ -754,6 +989,8 @@ public sealed partial class DeskScreen : IScreen
         _slateLocation = DataSlateLocation.SlateBus;
         _slateTelemetry = DataSlateTelemetryState.Empty;
         _slateWipeFlashTimer = 0f;
+        _autoShieldsPostSpeechBeat = 0f;
+        _autoSpsWeaponsOrderTriggered = false;
         _pendingReTransmitRestartTimer = 0f;
         _clearanceTransmitElapsed = 0f;
         _draggingItemId = null;
@@ -778,10 +1015,40 @@ public sealed partial class DeskScreen : IScreen
         _parkedBurntSlatesOnDesk.Clear();
         _contrabandSlateInSlateBus = false;
         _isDownloadingToBlankSlate = false;
+        _silentBlankSlateCaptureMode = false;
         _isUploadingCovertMissionSlate = false;
         _covertUploadElapsed = 0f;
         _ghostRoutePushbackUsed = false;
         _ghostRouteTransponderFlickerTimer = 0f;
+        _silentBlankSlateCaptureMode = false;
+
+        _waferHopperCount = MaxWaferHopperCount;
+        _deskWafers.Clear();
+        _draggedWaferIds.Clear();
+        _waferScoopGestureActive = false;
+        _heldPendingWafer = null;
+        _emptyHopperReminderLoggedForHeldWafer = false;
+        _cargoWaferPrintedForActiveShip = false;
+        _isTransmittingMissingWafer = false;
+        _missingWaferTransmitElapsed = 0f;
+        _demuxedWafersForActiveShip.Clear();
+        _prematurelyWipedWafersForActiveShip.Clear();
+        _isReTransmittingWipedWafers = false;
+        _reTransmitWipedWaferElapsed = 0f;
+        _waferWriteHeadFlashTimer = 0f;
+        _waferWipeFlashTimer = 0f;
+        _pendingSequentialWipeFlashes = 0;
+        _sequentialWipeStepTimer = 0f;
+        _selectedManualBannedCargoIndex = 0;
+
+        _stokerSafeLoad = _config.StokerIdleBaseline;
+        _stokerShock = 0f;
+        _stokerPreviewShock = 0f;
+        _stokerMassAnchoredForShip = false;
+        _stokerMeasuredMass = 0;
+        _devDebug.LiveStokerSafeLoad = _stokerSafeLoad;
+        _devDebug.LiveStokerShock = _stokerShock;
+        _devDebug.LiveStokerPreviewShock = _stokerPreviewShock;
 
         ResetProtocolReviewState();
         ResetFaultSequenceState();
@@ -793,9 +1060,13 @@ public sealed partial class DeskScreen : IScreen
 
         _shiftController.StartNewShift(_gameState, _config);
         _shiftController.PrepareDailyQueue(_gameState, _shipGenerator, config: _config);
+        InitializeBrownoutStateForShift();
+        PowerIndicatorBrightness = ComputeActiveWatchPowerLedBrightness();
 
+        _gameState.SecurityStrikesActive = AreSecurityStrikesUnlocked;
         _gameState.QuestFlags["Day3_SpectrometerRepaired"] = IsSpectrometerOperational;
-        if (_gameState.Day >= Constants.DayUnlockWarpAndStrikes && _gameState.Day2SuspectDetained && !_gameState.Day3KordaniOvernightRepApplied)
+        _gameState.QuestFlags["Day4_SpectrometerRepaired"] = IsSpectrometerOperational;
+        if (_gameState.Day >= _config.DayUnlockWarpScanner && _gameState.GhostRouteSuspectDetained && !_gameState.Day3KordaniOvernightRepApplied)
         {
             _gameState.RepScore["KDF-"] = _gameState.GetRep("KDF-") + 2;
             _gameState.Day3KordaniOvernightRepApplied = true;
@@ -804,6 +1075,8 @@ public sealed partial class DeskScreen : IScreen
 
         _layout = DeskLayoutRects.Compute(_config.DeskUpperLayoutMode, _devDebug.Use3xPortraitInLayoutB);
         _lastAppliedLayoutMode = _layout.Mode;
+        _lastAppliedShipArtVersion = _config.ShipArtVersion;
+        _fieldBooklet.IsOpen = false;
         InitializeDraggableDeskItems();
 
         _commsQueue.Clear();
@@ -814,9 +1087,21 @@ public sealed partial class DeskScreen : IScreen
         {
             StartDay1PreShiftVorstLiveHail();
         }
-        else if (_gameState.Day == 3 && !_gameState.Day3PreShiftHailCompleted)
+        else if (_gameState.Day == 2 && !_gameState.Day2NixaHailCompleted)
+        {
+            StartDay2PreShiftNixaLiveHail();
+        }
+        else if (_gameState.Day == _config.DayUnlockWarpScanner && !_gameState.Day4PreShiftHailCompleted)
         {
             StartDay3PreShiftKordaniLiveHail();
+        }
+        else if (_gameState.Day == _config.DayUnlockManualPart1 && !_gameState.Day8NixaHailCompleted)
+        {
+            StartDay8PreShiftNixaLiveHail();
+        }
+        else if (_gameState.Day == _config.DayUnlockStoker && !_gameState.Day15ForemanHailCompleted)
+        {
+            StartDay15PreShiftForemanLiveHail();
         }
         else
         {
@@ -832,20 +1117,29 @@ public sealed partial class DeskScreen : IScreen
             {
                 AddSystemLogLine(directiveLines[d], d == 0 ? CommsTextTone.AmberPrimary : CommsTextTone.AmberDimmed);
             }
-            _onTriggerDayStartTutorial?.Invoke(_gameState.Day);
+            TryAutoUnfoldBookletForCurrentDay();
         }
 
         if (IsManualUnlocked)
         {
-            if (_manualActiveTab > 1)
-                _manualActiveTab = 1;
-            RebuildManualSilhouetteTexture();
+            int maxTab = IsCargoManualTabUnlocked ? 3 : (IsManualHullsEnforced ? 2 : 1);
+            _manualActiveTab = Math.Clamp(_manualActiveTab, 0, maxTab);
+            if (IsManualHullsEnforced && _manualActiveTab == 2)
+            {
+                RebuildManualSilhouetteTexture();
+            }
+            else
+            {
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+            }
         }
     }
 
     public void OnExit()
     {
+        AudioHooks.StopActiveCommsVoices();
         _draggingItemId = null;
+        _draggedWaferIds.Clear();
         _isPullingAnchoredStrip = false;
         _anchoredStripPullOffsetX = 0;
         _anchoredStripPullOffsetY = 0;
@@ -860,6 +1154,7 @@ public sealed partial class DeskScreen : IScreen
         _reviewStatusNote = string.Empty;
         _verifiedViolationSummary = string.Empty;
         _noFaultTraceTimer = 0f;
+        _duplicateFaultNoteTimer = 0f;
         _noFaultTargetA = ReviewTarget.None;
         _noFaultTargetB = ReviewTarget.None;
     }
@@ -867,6 +1162,7 @@ public sealed partial class DeskScreen : IScreen
     private void ResetFaultSequenceState()
     {
         _faultStage = FaultSequenceStage.None;
+        _faultTraceTimer = 0f;
         _faultHighlightA = ReviewTarget.None;
         _faultHighlightB = ReviewTarget.None;
         _portraitStaticFlickerTimer = 0f;
@@ -875,9 +1171,11 @@ public sealed partial class DeskScreen : IScreen
     private void ResetSpsAnomalyState()
     {
         _activeShipHardpoints = null;
+        _activeShipHardpointsV2 = null;
         _spsLoggedAnomalies.Clear();
         _spsLockTarget = SpsAnomalyKind.None;
         _spsLockProgress = 0f;
+        _autoSpsWeaponsOrderTriggered = false;
     }
 
     private void ResetSlateDockMicroAnimations()
@@ -1102,8 +1400,28 @@ public sealed partial class DeskScreen : IScreen
             return;
         }
 
-        // Steady Booth 04 power state during normal active watch
-        PowerIndicatorBrightness = 1.0f;
+        // Sync Dev Debug Stoker Commands, Brownout State & Top-Right POWER LED Brightness
+        if (_devDebug.PendingResetStokerStrain)
+        {
+            _devDebug.PendingResetStokerStrain = false;
+            _stokerSafeLoad = _config.StokerIdleBaseline;
+            _stokerShock = 0f;
+            _stokerPreviewShock = 0f;
+            _gameState.StokerOverloadedToday = false;
+            AddSystemLogLine($"[DEV] STOKER STRAIN RESET TO {_stokerSafeLoad:0}% IDLE BASELINE.", CommsTextTone.ClearanceTeal);
+        }
+        if (_devDebug.PendingForceStokerOverload)
+        {
+            _devDebug.PendingForceStokerOverload = false;
+            _stokerShock = Math.Max(_stokerShock, (101.0f - _stokerSafeLoad));
+            TriggerStokerOverloadDuringShift();
+        }
+
+        UpdateBrownoutLightingState(deltaTime);
+        PowerIndicatorBrightness = ComputeActiveWatchPowerLedBrightness();
+        _devDebug.LiveStokerSafeLoad = _stokerSafeLoad;
+        _devDebug.LiveStokerShock = _stokerShock;
+        _devDebug.LiveStokerPreviewShock = _stokerPreviewShock;
 
         // Sync Dev Debug Time Scale & One-Shot Commands
         _shiftController.TimeScale = _devDebug.ShiftTimeScale;
@@ -1125,6 +1443,11 @@ public sealed partial class DeskScreen : IScreen
             {
                 ForceReseedAndSpawnNextShip();
             }
+        }
+        if (_devDebug.PendingForceEmptyWaferHopper)
+        {
+            _devDebug.PendingForceEmptyWaferHopper = false;
+            ForceEmptyWaferHopperForDebug();
         }
 
         _shiftController.Tick(deltaTime);
@@ -1170,6 +1493,26 @@ public sealed partial class DeskScreen : IScreen
             }
         }
 
+        if (_faultStage == FaultSequenceStage.None && _faultTraceTimer > 0f)
+        {
+            _faultTraceTimer = Math.Max(0f, _faultTraceTimer - deltaTime);
+            if (_faultTraceTimer <= 0f)
+            {
+                _faultHighlightA = ReviewTarget.None;
+                _faultHighlightB = ReviewTarget.None;
+            }
+        }
+
+        if (_duplicateFaultNoteTimer > 0f)
+        {
+            _duplicateFaultNoteTimer = Math.Max(0f, _duplicateFaultNoteTimer - deltaTime);
+            if (_duplicateFaultNoteTimer <= 0f &&
+                string.Equals(_reviewStatusNote, "MISMATCH ALREADY FOUND", StringComparison.Ordinal))
+            {
+                _reviewStatusNote = string.Empty;
+            }
+        }
+
         if (_slateWipeFlashTimer > 0f)
         {
             _slateWipeFlashTimer = Math.Max(0f, _slateWipeFlashTimer - deltaTime);
@@ -1182,7 +1525,8 @@ public sealed partial class DeskScreen : IScreen
             _config.DialogueTypewriterCharsPerSec,
             _config.TalkingHeadCharsPerSec,
             _config.TalkingHeadLinePauseSeconds,
-            _config.TalkingHeadAdvanceMode);
+            _config.TalkingHeadAdvanceMode,
+            rawDeltaSeconds: deltaTime);
 
         // SPS Sway, Lens & Hold-to-Lock (Day 2+)
         _currentSpsSwayOffset = ComputeSpsSwayOffset(_elapsedVisualTime);
@@ -1214,6 +1558,7 @@ public sealed partial class DeskScreen : IScreen
         UpdateEncounterPhase(deltaTime, animDt);
         UpdateCovertSlateBusUpload(deltaTime, animDt);
         UpdateSlateDockMicroAnimations(animDt);
+        UpdateWaferWriterAndWafers(deltaTime, animDt);
 
         // Mousewheel scroll on the CRT Comms Dialogue Log
         HandleTranscriptScrollInput(mouse);
@@ -1243,10 +1588,23 @@ public sealed partial class DeskScreen : IScreen
             return;
         }
 
+        // Active Cert-Wafer single or card-stack dragging
+        if (_draggedWaferIds.Count > 0)
+        {
+            UpdateActiveWaferDrag(mouse);
+            return;
+        }
+
         // Active document dragging
         if (_draggingItemId.HasValue)
         {
             UpdateActiveDrag(mouse);
+            return;
+        }
+
+        // Right-click Cert-Wafer unstacking (CenterSwipeScoop) or ModifierScoop right-drag start
+        if (TryHandleWaferRightMouseInput(mouse))
+        {
             return;
         }
 
@@ -1273,6 +1631,12 @@ public sealed partial class DeskScreen : IScreen
             {
                 return;
             }
+        }
+
+        // Printed Ceramic Cert-Wafers on desk (pickup / stack scoop / wipe)
+        if (TryHandleDeskWafersMousePress(mouse))
+        {
+            return;
         }
 
         // Movable Lower Desk Documents (Reverse Z-Order: topmost first) take priority over buried Row 2 hardware buttons
@@ -1378,6 +1742,19 @@ public sealed partial class DeskScreen : IScreen
                 if (_subspaceAutoTransferDelay <= 0f)
                 {
                     InitiateSubspaceProtocolRequest();
+                }
+                break;
+            }
+
+            case EncounterPhase.AwaitingAutoShieldsDrop:
+            {
+                if (!_commsQueue.HasPendingOrActive)
+                {
+                    _autoShieldsPostSpeechBeat -= animDt;
+                    if (_autoShieldsPostSpeechBeat <= 0f)
+                    {
+                        CompleteAutoShieldsCompliance();
+                    }
                 }
                 break;
             }
@@ -1650,8 +2027,55 @@ public sealed partial class DeskScreen : IScreen
         if (_activeShip == null)
             return;
 
-        // Enqueue non-blocking officer request and trigger the 1.80s RX PACKET download IMMEDIATELY (zero shift-clock stall!)
         EnqueueOfficerLine("Send subspace protocols.", CommsTextTone.ClearanceTeal, preDelaySeconds: 0.10f);
+
+        if (_activeShip.GroundTruth.ActualShieldsUp)
+        {
+            // Automatic Day 1+ Shields-Down Cadence:
+            // "Send subspace protocols." -> "..." -> "Shields down, please." -> visible shield drop -> RX PACKET
+            _commsQueue.EnqueueInstantLine("...", CommsTextTone.AmberDimmed, preDelaySeconds: 0.25f);
+            EnqueueOfficerLine("Shields down, please.", CommsTextTone.ClearanceTeal, preDelaySeconds: 0.20f);
+            _autoShieldsPostSpeechBeat = Math.Clamp(_activeShip.ComplianceDelaySeconds * 0.5f, 0.12f, 0.35f);
+            _phase = EncounterPhase.AwaitingAutoShieldsDrop;
+            return;
+        }
+
+        BeginProtocolTransferAfterShieldsClear();
+    }
+
+    private void CompleteAutoShieldsCompliance()
+    {
+        if (_activeShip == null)
+            return;
+
+        ComplianceOrderOutcome outcome = ShiftController.ResolveShieldsOrder(_gameState, _activeShip, _config);
+        if (outcome == ComplianceOrderOutcome.RefusedOutright)
+        {
+            _captainRefusedCompliance = true;
+            _activeShip.ProtocolReviewVerified = true;
+            _verifiedViolationSummary = "REFUSED ORDER TO LOWER SHIELDS";
+            AudioHooks.Play("detain_alarm");
+            EnqueueCaptainLine($"CAPT: \"{_activeShip.RefusalLine}\"", CommsTextTone.AlertCrimson);
+            AddSystemLogLine("[SYS] COMPLIANCE REFUSAL VERIFIED.", CommsTextTone.AlertCrimson);
+            _phase = EncounterPhase.InspectingSlateAndShip;
+            return;
+        }
+
+        if (outcome == ComplianceOrderOutcome.Complied)
+        {
+            AudioHooks.Play("terminal_key_confirm");
+            RebuildActiveShipTextures();
+            EnqueueCaptainLine($"CAPT: \"{_activeShip.ShieldsLoweredLine}\"", CommsTextTone.AmberPrimary);
+            AddSystemLogLine("[SYS] SHIELDS LOWERED -- SUBSPACE CHANNEL CLEAR.", CommsTextTone.ClearanceTeal);
+        }
+
+        BeginProtocolTransferAfterShieldsClear();
+    }
+
+    private void BeginProtocolTransferAfterShieldsClear()
+    {
+        if (_activeShip == null)
+            return;
 
         if (IsDataSlateInSlateBus)
         {
@@ -1679,9 +2103,11 @@ public sealed partial class DeskScreen : IScreen
 
         _phase = EncounterPhase.DownloadingProtocols;
         _isDownloadingToBlankSlate = true;
+        _silentBlankSlateCaptureMode = true;
         _contrabandSlateInSlateBus = true;
         _protocolDownloadElapsed = 0f;
         _dataStreamAudioAccum = 0f;
+        _autoShieldsPostSpeechBeat = 0f;
         _pendingReTransmitRestartTimer = 0f;
 
         DraggableDeskItem cItem = _deskItems[DeskItemId.ContrabandSlate];
@@ -1695,10 +2121,10 @@ public sealed partial class DeskScreen : IScreen
         {
             if (enqueueDialogue)
             {
-                EnqueueOfficerLine("Carrier hiccup -- re-transmit subspace protocols.", CommsTextTone.ClearanceTeal);
-                EnqueueCaptainLine($"CAPT: \"{_activeShip.ReTransmitAnnoyedLine}\"", CommsTextTone.AmberPrimary);
+                EnqueueOfficerLine("Send subspace protocols.", CommsTextTone.ClearanceTeal);
+                EnqueueCaptainLine($"CAPT: \"{_activeShip.SubspaceUploadLine}\"", CommsTextTone.AmberPrimary);
             }
-            AddSystemLogLine("[SLATE BUS] RE-SYNCING SUBSPACE PROTOCOL PACKET...", CommsTextTone.ClearanceTeal);
+            AddSystemLogLine("[SLATE BUS] RECEIVING SUBSPACE PROTOCOL PACKET...", CommsTextTone.ClearanceTeal);
         }
         else
         {
@@ -1718,6 +2144,7 @@ public sealed partial class DeskScreen : IScreen
         _slateTelemetry = DataSlateTelemetryState.Downloading;
         _protocolDownloadElapsed = 0f;
         _dataStreamAudioAccum = 0f;
+        _autoShieldsPostSpeechBeat = 0f;
         _pendingReTransmitRestartTimer = 0f;
 
         DraggableDeskItem slateItem = _deskItems[DeskItemId.DataSlate];
@@ -1741,6 +2168,7 @@ public sealed partial class DeskScreen : IScreen
         _slateLocation = DataSlateLocation.DeskFree;
         _slateTelemetry = DataSlateTelemetryState.DownloadAborted;
         _protocolDownloadElapsed = 0f;
+        _autoShieldsPostSpeechBeat = 0f;
         _pendingReTransmitRestartTimer = 0f;
         PixelBuffer.UnloadTexture(ref _cachedHoloPortraitTex);
 
@@ -1754,9 +2182,26 @@ public sealed partial class DeskScreen : IScreen
         _isDownloadingToBlankSlate = false;
         _contrabandSlateInSlateBus = false;
         _protocolDownloadElapsed = 0f;
+        _autoShieldsPostSpeechBeat = 0f;
         _pendingReTransmitRestartTimer = 0f;
-        _phase = EncounterPhase.DownloadAborted;
-        if (_slateTelemetry != DataSlateTelemetryState.Loaded)
+        _phase = _slateTelemetry switch
+        {
+            DataSlateTelemetryState.Loaded => EncounterPhase.InspectingSlateAndShip,
+            DataSlateTelemetryState.ClearedReadyToTransmit => EncounterPhase.AwaitingClearanceReturnToTopPort,
+            _ => EncounterPhase.DownloadAborted
+        };
+
+        if (_gameState.Day >= 6)
+        {
+            // Day 6+ Blank Data Slate swap: silent, zero red [PORT ERROR] banner or fault state
+            _silentBlankSlateCaptureMode = true;
+            AudioHooks.Play("terminal_key_click");
+            AddSystemLogLine("[SLATE BUS] SLATE REMOVED -- READY FOR PRIMARY SLATE.", CommsTextTone.AmberDimmed);
+            return;
+        }
+
+        if (_slateTelemetry != DataSlateTelemetryState.Loaded &&
+            _slateTelemetry != DataSlateTelemetryState.ClearedReadyToTransmit)
         {
             _slateTelemetry = DataSlateTelemetryState.DownloadAborted;
         }
@@ -1782,8 +2227,15 @@ public sealed partial class DeskScreen : IScreen
         }
 
         AudioHooks.Play("terminal_key_confirm");
-        EnqueueOfficerLine("Link dropped. Re-transmit subspace protocols.", CommsTextTone.ClearanceTeal);
-        EnqueueCaptainLine($"CAPT: \"{_activeShip.ReTransmitAnnoyedLine}\"", CommsTextTone.AmberPrimary);
+        if (_silentBlankSlateCaptureMode)
+        {
+            EnqueueOfficerLine("Send subspace protocols.", CommsTextTone.ClearanceTeal);
+        }
+        else
+        {
+            EnqueueOfficerLine("Link dropped. Re-transmit subspace protocols.", CommsTextTone.ClearanceTeal);
+            EnqueueCaptainLine($"CAPT: \"{_activeShip.ReTransmitAnnoyedLine}\"", CommsTextTone.AmberPrimary);
+        }
         _pendingReTransmitRestartTimer = ReTransmitAnnoyedDelaySeconds;
     }
 
@@ -1796,6 +2248,7 @@ public sealed partial class DeskScreen : IScreen
         if (_isDownloadingToBlankSlate && _activeDeskContrabandItem != null)
         {
             _isDownloadingToBlankSlate = false;
+            _silentBlankSlateCaptureMode = true;
             string reg = _activeShip.Slate.RegistrationCode;
             string pfx = _activeShip.Slate.DeclaredPrefix;
             bool concordFlag = WarpSignatureGenerator.IsRestrictedOrigin(_activeShip.GroundTruth.ActualOriginSystem) ||
@@ -1814,31 +2267,69 @@ public sealed partial class DeskScreen : IScreen
 
             // Silent Blank Data Slate intercept: print ONLY routine, unsuspicious comms traffic in CRT Comms Log
             AudioHooks.Play("subspace_transfer");
-            if (_slateTelemetry != DataSlateTelemetryState.Loaded)
-            {
-                _phase = EncounterPhase.DownloadAborted;
-                EnqueueCaptainLine($"CAPT: \"{_activeShip.SubspaceUploadLine}\"", CommsTextTone.AmberPrimary);
-                AddSystemLogLine("[SLATE BUS] PRIMARY BUFFER UNSYNCED -- PLUG PRIMARY SLATE & CLICK [RE-TRANSMIT].", CommsTextTone.AmberDimmed);
-            }
-            else
+            if (_slateTelemetry == DataSlateTelemetryState.Loaded)
             {
                 _phase = EncounterPhase.InspectingSlateAndShip;
                 AddSystemLogLine("[SLATE BUS] SUBSPACE TELEMETRY SYNC COMPLETE.", CommsTextTone.ClearanceTeal);
             }
+            else if (_slateTelemetry == DataSlateTelemetryState.ClearedReadyToTransmit)
+            {
+                _phase = EncounterPhase.AwaitingClearanceReturnToTopPort;
+                AddSystemLogLine("[SLATE BUS] SUBSPACE TELEMETRY SYNC COMPLETE.", CommsTextTone.ClearanceTeal);
+            }
+            else
+            {
+                _phase = EncounterPhase.DownloadAborted;
+                AddSystemLogLine("[SLATE BUS] STANDBY -- SLOT PRIMARY SLATE & CLICK [RE-TRANSMIT].", CommsTextTone.AmberDimmed);
+            }
             return;
         }
 
+        _silentBlankSlateCaptureMode = false;
         _phase = EncounterPhase.InspectingSlateAndShip;
         _slateTelemetry = DataSlateTelemetryState.Loaded;
         AudioHooks.Play("subspace_transfer");
 
-        EnqueueCaptainLine($"CAPT: \"{_activeShip.SubspaceUploadLine}\"", CommsTextTone.AmberPrimary);
+        EnqueueCaptainLine(
+            $"CAPT: \"{_activeShip.SubspaceUploadLine}\"",
+            CommsTextTone.AmberPrimary,
+            preDelaySeconds: 0.16f,
+            showReceivingIndicatorDuringPreDelay: true,
+            suppressAutoReceivingLag: true);
+
+        // Day 12+ Subspace Demux -> Cargo Manifest Cert-Wafer auto-print (or omitted packet notice)
+        if (IsWaferWriterOperational && _activeShip.GroundTruth.ExpectsCargoManifestWafer)
+        {
+            if (!_gameState.Day12CargoIntroShown)
+            {
+                _gameState.Day12CargoIntroShown = true;
+                _gameState.SaveToDisk();
+                // TODO: USER DIALOGUE PASS — First-time Day 12 Cargo Manifest Cert-Wafer unlock intro flavour text
+                AddSystemLogLine("[WAFER DEMUX] Ceramic Cargo Manifest wafers now print per arrival. Wipe used wafers in top slot (3 blanks).", CommsTextTone.ClearanceTeal);
+            }
+
+            if (_activeShip.GroundTruth.CargoManifestInitiallyOmitted && !_activeShip.GroundTruth.CargoManifestTransmitted)
+            {
+                AddSystemLogLine("[WAFER WRITER] NO CARGO MANIFEST PACKET IN SUBSPACE BUNDLE.", CommsTextTone.AmberPrimary);
+            }
+            else if (!_cargoWaferPrintedForActiveShip)
+            {
+                QueueOrEjectCargoManifestWafer(_activeShip);
+            }
+        }
 
         // Fire standard Auto-Interrogation line starting on Day 1 (Days 1+) right after Data Slate finishes downloading
         if (_gameState.Day >= 1)
         {
-            EnqueueOfficerLine("Confirm route, purpose of visit, and cargo.", CommsTextTone.ClearanceTeal, preDelaySeconds: 0.12f);
-            EnqueueCaptainLine($"CAPT: \"{_activeShip.AutoInterrogationReplyLine}\"", CommsTextTone.AmberPrimary);
+            bool isRoutineMicroBeat = !_activeShip.GroundTruth.IsDay2GhostRouteSuspect;
+            EnqueueOfficerLine("Confirm route, purpose of visit, and cargo.", CommsTextTone.ClearanceTeal, preDelaySeconds: 0.08f);
+            EnqueueCaptainLine(
+                $"CAPT: \"{_activeShip.AutoInterrogationReplyLine}\"",
+                CommsTextTone.AmberPrimary,
+                preDelaySeconds: isRoutineMicroBeat ? 0.18f : 0f,
+                showReceivingIndicatorDuringPreDelay: isRoutineMicroBeat,
+                suppressAutoReceivingLag: isRoutineMicroBeat,
+                isCaptainStatementEvidence: true);
         }
     }
 
@@ -2152,12 +2643,23 @@ public sealed partial class DeskScreen : IScreen
 
         ResetFaultSequenceState();
         _commsQueue.SnapActiveAndDropPendingQueue();
+        AudioHooks.StopActiveCommsVoices();
         _protocolReviewModeActive = false;
         _detainLeverPulled = true;
+        _pendingWeaponsOrder = false;
+        _pendingShieldsOrder = false;
+        _complianceTimer = 0f;
         _detainClampElapsed = 0f;
         _detainClampImpactPlayed = false;
         _detainSlateWipeCompleted = false;
+        _autoShieldsPostSpeechBeat = 0f;
+        _autoSpsWeaponsOrderTriggered = false;
         _pendingReTransmitRestartTimer = 0f;
+        _stokerPreviewShock = 0f;
+        _demuxedWafersForActiveShip.Clear();
+        _prematurelyWipedWafersForActiveShip.Clear();
+        _isReTransmittingWipedWafers = false;
+        _reTransmitWipedWaferElapsed = 0f;
 
         AudioHooks.Play("detain_lever_pull");
 
@@ -2165,6 +2667,14 @@ public sealed partial class DeskScreen : IScreen
             ? (_activeShip.ProtocolReviewVerified ? $"VERIFIED: {_verifiedViolationSummary}" : "UNVERIFIED CLAMP")
             : "STATION CLAMPS ENGAGED";
         AddSystemLogLine($"> BOOTH 04: [DETAIN LEVER PULLED -- {tag}]", CommsTextTone.AlertCrimson);
+
+        if (!string.IsNullOrWhiteSpace(_activeShip.DetentionReactionLine))
+        {
+            EnqueueCaptainLine(
+                $"CAPT: \"{_activeShip.DetentionReactionLine}\"",
+                CommsTextTone.AmberPrimary,
+                suppressAutoReceivingLag: true);
+        }
 
         _phase = EncounterPhase.DetainClamping;
     }
@@ -2180,6 +2690,19 @@ public sealed partial class DeskScreen : IScreen
 
         _ghostRoutePushbackUsed = false;
         _ghostRouteTransponderFlickerTimer = 0f;
+        _silentBlankSlateCaptureMode = false;
+        _heldPendingWafer = null;
+        _emptyHopperReminderLoggedForHeldWafer = false;
+        _cargoWaferPrintedForActiveShip = false;
+        _isTransmittingMissingWafer = false;
+        _missingWaferTransmitElapsed = 0f;
+        _demuxedWafersForActiveShip.Clear();
+        _prematurelyWipedWafersForActiveShip.Clear();
+        _isReTransmittingWipedWafers = false;
+        _reTransmitWipedWaferElapsed = 0f;
+        _stokerPreviewShock = 0f;
+        _stokerMassAnchoredForShip = false;
+        _stokerMeasuredMass = 0;
 
         _activeShip = _shiftController.TakeNextShip(_gameState, _shipGenerator, forceValidity, reseedNonce, _config);
 
@@ -2202,6 +2725,8 @@ public sealed partial class DeskScreen : IScreen
         _subspaceAutoTransferDelay = 0f;
         _clearanceUploadElapsed = 0f;
         _clearanceTransmitElapsed = 0f;
+        _autoShieldsPostSpeechBeat = 0f;
+        _autoSpsWeaponsOrderTriggered = false;
         _pendingReTransmitRestartTimer = 0f;
         _pendingShieldsOrder = false;
         _pendingWeaponsOrder = false;
@@ -2216,6 +2741,11 @@ public sealed partial class DeskScreen : IScreen
 
         AudioHooks.Play("terminal_key_confirm");
         _commsQueue.Clear();
+        AudioHooks.StopActiveCommsVoices();
+        AudioHooks.BeginEncounterVoice(
+            _activeShip.Slate.DeclaredCaptainSpecies.ToString(),
+            (int)DeterministicRng.HashSeedFnv1a(_activeShip.EncounterSeedId),
+            useRadioSquelch: true);
         _transcriptScrollTopLine = 0;
         _transcriptAutoFollowBottom = true;
         AddSystemLogLine("APPROACH VECTOR LOCKED -- VESSEL GLIDING INTO BAY...", CommsTextTone.AmberDimmed);
@@ -2229,6 +2759,8 @@ public sealed partial class DeskScreen : IScreen
     {
         if (_activeShip == null)
             return;
+
+        AudioHooks.StopActiveCommsVoices();
 
         DecisionEvaluationResult result = _validationEngine.EvaluateDecision(
             _gameState,
@@ -2253,6 +2785,32 @@ public sealed partial class DeskScreen : IScreen
             AddSystemLogLine(quietLog, CommsTextTone.AmberDimmed);
         }
 
+        if (IsStokerOperational && _pendingDecision == PlayerDecision.GrantAccess)
+        {
+            StokerCalibrationResult cal = ValidationEngine.EvaluateStokerMassCalibration(
+                _activeShip,
+                _gameState.Day,
+                _config,
+                _stokerSafeLoad,
+                _stokerShock);
+            _stokerSafeLoad = cal.NextSafeLoadOnClearance;
+            _stokerShock = cal.NextShockOnClearance;
+            _stokerPreviewShock = 0f;
+            if (cal.OverloadsOnClearance && !_gameState.StokerOverloadedToday)
+            {
+                TriggerStokerOverloadDuringShift();
+            }
+        }
+        else
+        {
+            _stokerPreviewShock = 0f;
+        }
+        _stokerMassAnchoredForShip = false;
+        _stokerMeasuredMass = 0;
+        _devDebug.LiveStokerSafeLoad = _stokerSafeLoad;
+        _devDebug.LiveStokerShock = _stokerShock;
+        _devDebug.LiveStokerPreviewShock = _stokerPreviewShock;
+
         UnloadEncounterTextures();
         ResetProtocolReviewState();
         ResetFaultSequenceState();
@@ -2260,13 +2818,26 @@ public sealed partial class DeskScreen : IScreen
         ResetSpsAnomalyState();
         ResetSlateDockMicroAnimations();
 
+        // Preserve printed Cert-Wafers on desk & current 3-wafer hopper count across Clearance and Detain!
         _ghostRoutePushbackUsed = false;
         _ghostRouteTransponderFlickerTimer = 0f;
+        _silentBlankSlateCaptureMode = false;
+        _heldPendingWafer = null;
+        _emptyHopperReminderLoggedForHeldWafer = false;
+        _cargoWaferPrintedForActiveShip = false;
+        _isTransmittingMissingWafer = false;
+        _missingWaferTransmitElapsed = 0f;
+        _demuxedWafersForActiveShip.Clear();
+        _prematurelyWipedWafersForActiveShip.Clear();
+        _isReTransmittingWipedWafers = false;
+        _reTransmitWipedWaferElapsed = 0f;
         _slateTelemetry = DataSlateTelemetryState.Empty;
         _detainLeverPulled = false;
         _detainClampElapsed = 0f;
         _detainClampImpactPlayed = false;
         _detainSlateWipeCompleted = false;
+        _autoShieldsPostSpeechBeat = 0f;
+        _autoSpsWeaponsOrderTriggered = false;
         _pendingReTransmitRestartTimer = 0f;
         _activeShip = null;
         _shiftController.HasActiveShipInBay = false;
@@ -2305,6 +2876,101 @@ public sealed partial class DeskScreen : IScreen
         }
     }
 
+    private int GetShipSlidePixels() =>
+        IsUsingShipArtV2
+            ? ((int)MathF.Round(_shipSlideOffset / 2.0f) * 2)
+            : (int)MathF.Round(_shipSlideOffset);
+
+    private void GetActiveShipRenderRects(int shakeX, int shakeY, out Rectangle src, out Rectangle dst)
+    {
+        int slidePx = GetShipSlidePixels();
+        if (IsUsingShipArtV2)
+        {
+            src = new Rectangle(0, 0, ShipRendererV2.OutputWidth, ShipRendererV2.OutputHeight);
+            dst = new Rectangle(ShipV2AnchorX + slidePx + shakeX, ShipV2AnchorY + shakeY, ShipRendererV2.OutputWidth, ShipRendererV2.OutputHeight);
+        }
+        else
+        {
+            src = new Rectangle(0, 0, Constants.ShipWidth, Constants.ShipHeight);
+            dst = new Rectangle(ShipAnchorX + slidePx + shakeX, ShipAnchorY + shakeY, ShipRenderW, ShipRenderH);
+        }
+    }
+
+    private Rectangle GetActiveShipHullScreenRect(int shakeX = 0, int shakeY = 0)
+    {
+        int slidePx = GetShipSlidePixels();
+        if (IsUsingShipArtV2 && _activeShipHardpointsV2.HasValue)
+        {
+            HardpointRect hull560 = _activeShipHardpointsV2.Value.HullBoundsViewport560;
+            int x = ShipV2AnchorX + hull560.X + slidePx + shakeX;
+            int y = ShipV2AnchorY + hull560.Y + shakeY;
+            int w = hull560.W;
+            int h = hull560.H;
+            if (slidePx == 0)
+            {
+                x = Math.Max(ViewportInnerX + 2, x);
+                y = Math.Max(ViewportInnerY + 2, y);
+                w = Math.Min(w, ViewportInnerX + ViewportInnerW - 2 - x);
+                h = Math.Min(h, ViewportInnerY + ViewportInnerH - 2 - y);
+            }
+            return new Rectangle(x, y, Math.Max(16, w), Math.Max(16, h));
+        }
+
+        return new Rectangle(ShipAnchorX + slidePx + shakeX, ShipAnchorY + shakeY, ShipRenderW, ShipRenderH);
+    }
+
+    internal bool TryGetActiveWeaponsSpsTarget(out HardpointRect viewport560Rect, out Vector2 screenCenter)
+    {
+        int slidePx = GetShipSlidePixels();
+        if (IsUsingShipArtV2 && _activeShipHardpointsV2.HasValue)
+        {
+            viewport560Rect = _activeShipHardpointsV2.Value.WeaponsBayViewport560;
+            screenCenter = new Vector2(
+                ShipV2AnchorX + slidePx + viewport560Rect.X + viewport560Rect.W * 0.5f,
+                ShipV2AnchorY + viewport560Rect.Y + viewport560Rect.H * 0.5f);
+            return true;
+        }
+
+        if (_activeShipHardpoints != null)
+        {
+            int wx = _activeShipHardpoints.ForwardWeapons.X * 2;
+            int wy = _activeShipHardpoints.ForwardWeapons.Y * 2;
+            viewport560Rect = new HardpointRect(wx - 4, wy - 4, 10, 10);
+            screenCenter = new Vector2(ShipAnchorX + slidePx + wx + 1.0f, ShipAnchorY + wy + 1.0f);
+            return true;
+        }
+
+        viewport560Rect = default;
+        screenCenter = Vector2.Zero;
+        return false;
+    }
+
+    internal bool TryGetActiveCargoSpsTarget(out HardpointRect viewport560Rect, out Vector2 screenCenter)
+    {
+        int slidePx = GetShipSlidePixels();
+        if (IsUsingShipArtV2 && _activeShipHardpointsV2.HasValue)
+        {
+            viewport560Rect = _activeShipHardpointsV2.Value.CargoBayViewport560;
+            screenCenter = new Vector2(
+                ShipV2AnchorX + slidePx + viewport560Rect.X + viewport560Rect.W * 0.5f,
+                ShipV2AnchorY + viewport560Rect.Y + viewport560Rect.H * 0.5f);
+            return true;
+        }
+
+        if (_activeShipHardpoints != null)
+        {
+            int cx = _activeShipHardpoints.CargoBay.X * 2;
+            int cy = _activeShipHardpoints.CargoBay.Y * 2;
+            viewport560Rect = new HardpointRect(cx - 4, cy - 4, 10, 10);
+            screenCenter = new Vector2(ShipAnchorX + slidePx + cx + 1.0f, ShipAnchorY + cy + 1.0f);
+            return true;
+        }
+
+        viewport560Rect = default;
+        screenCenter = Vector2.Zero;
+        return false;
+    }
+
     private void RebuildActiveShipTextures()
     {
         PixelBuffer.UnloadTexture(ref _cachedShipLiveTex);
@@ -2312,19 +2978,36 @@ public sealed partial class DeskScreen : IScreen
         if (_activeShip == null)
         {
             _activeShipHardpoints = null;
+            _activeShipHardpointsV2 = null;
             return;
         }
 
         _lastShipAnimBucket = _animTick / 9;
 
-        PixelBuffer liveBuf = ShipRenderer.RenderBuffer(
-            _activeShip.BuildLiveShipRenderOptions(spsEnabled: false, _animTick),
-            out ShipHardpointLayout hardpoints);
-        _activeShipHardpoints = hardpoints;
-        _cachedShipLiveTex = liveBuf.ToTexture2D();
+        if (IsUsingShipArtV2)
+        {
+            PixelBuffer liveBuf = ShipRendererV2.RenderBuffer(
+                _activeShip.BuildLiveShipRenderOptions(spsEnabled: false, _animTick),
+                out ShipHardpointLayoutV2 hardpointsV2);
+            _activeShipHardpointsV2 = hardpointsV2;
+            _activeShipHardpoints = null;
+            _cachedShipLiveTex = liveBuf.ToTexture2D();
 
-        PixelBuffer spsBuf = ShipRenderer.RenderBuffer(_activeShip.BuildLiveShipRenderOptions(spsEnabled: true, _animTick));
-        _cachedShipSpsTex = spsBuf.ToTexture2D();
+            PixelBuffer spsBuf = ShipRendererV2.RenderBuffer(_activeShip.BuildLiveShipRenderOptions(spsEnabled: true, _animTick));
+            _cachedShipSpsTex = spsBuf.ToTexture2D();
+        }
+        else
+        {
+            PixelBuffer liveBuf = ShipRenderer.RenderBuffer(
+                _activeShip.BuildLiveShipRenderOptions(spsEnabled: false, _animTick),
+                out ShipHardpointLayout hardpoints);
+            _activeShipHardpoints = hardpoints;
+            _activeShipHardpointsV2 = null;
+            _cachedShipLiveTex = liveBuf.ToTexture2D();
+
+            PixelBuffer spsBuf = ShipRenderer.RenderBuffer(_activeShip.BuildLiveShipRenderOptions(spsEnabled: true, _animTick));
+            _cachedShipSpsTex = spsBuf.ToTexture2D();
+        }
     }
 
     private void RebuildLivePortraitTexture()
@@ -2355,13 +3038,16 @@ public sealed partial class DeskScreen : IScreen
         IReadOnlyList<ShipClass> allowedClasses = ShipRenderer.GetAllowedClasses(faction);
         ShipClass selectedClass = allowedClasses[Math.Clamp(_manualClassIndex, 0, allowedClasses.Count - 1)];
 
-        PixelBuffer manualBuf = ShipRenderer.RenderBuffer(new ShipRenderOptions
-        {
-            SeedId = $"manual-chart-{faction}-{selectedClass}",
-            Faction = faction,
-            RequestedClass = selectedClass,
-            Mode = ShipRenderMode.Manual
-        });
+        string manualSeed = $"manual-chart-{faction}-{selectedClass}";
+        PixelBuffer manualBuf = IsUsingShipArtV2
+            ? ShipRendererV2.RenderManualTablet120x56Buffer(faction, selectedClass, manualSeed)
+            : ShipRenderer.RenderBuffer(new ShipRenderOptions
+            {
+                SeedId = manualSeed,
+                Faction = faction,
+                RequestedClass = selectedClass,
+                Mode = ShipRenderMode.Manual
+            });
         _cachedManualShipTex = manualBuf.ToTexture2D();
     }
 
@@ -2405,7 +3091,6 @@ public sealed partial class DeskScreen : IScreen
 
         // 3. Row 1 Hardware (y = 40..256, strict 8px gutters)
         DrawLeftDetainLever(mouse);
-        DrawArmoredExternalViewport(mouse);
         DrawSpsControlColumn(mouse);
         DrawHailingViewscreen(mouse);
         DrawCrtCommsDialogueLog(mouse);
@@ -2414,7 +3099,7 @@ public sealed partial class DeskScreen : IScreen
         DrawLowerDeskSurfaceAndConduit();
 
         // 5. Row 2 & Row 2B Hardware (y = 264..352)
-        DrawInactiveHardwareBay(StokerDialX, StokerDialY, StokerDialW, StokerDialH, "STOKER DIAL", null);
+        DrawStellarStokerModule(mouse);
         DrawWarpResiduePrinterAndRefSpot(mouse);
         DrawTransponderIdPanel(mouse);
         DrawSlateBusSocket();
@@ -2422,16 +3107,34 @@ public sealed partial class DeskScreen : IScreen
         DrawProtocolReviewButton(mouse);
 
         // 6. Lower Desk Hardware (Wafer Writer with top Feed Slot, Clearance Dock, Destroy Override)
-        DrawWaferWriterModule();
+        DrawWaferWriterModule(mouse);
         DrawClearanceUploadDock(mouse);
         DeskRect destroyRect = _layout.DestroyOverride;
         DrawInactiveHardwareBay(destroyRect.X, destroyRect.Y, destroyRect.W, destroyRect.H, "DESTROY OVERRIDE", null);
+
+        // 6a. 3-State Next-Day Power Brownout Lighting Pass on passive booth metal & desk surfaces:
+        //     Attenuates passive bulkheads/housings/desk/analog Stoker dial and casts reddish Brown Dwarf + yellowish CRT/WarpChecker glow,
+        //     then draws the Armored External Viewport (with subtle sill/frame dip) and unattenuated emissive CRT interiors!
+        if (IsBrownoutAttenuatingPassiveSurfaces)
+        {
+            ApplyBrownoutPassiveSurfaceLighting(0, TopBarH, Constants.VirtualWidth, Constants.VirtualHeight - TopBarH);
+            DrawArmoredExternalViewport(mouse);
+            RedrawEmissiveHardwareScreensUnattenuated(mouse);
+        }
+        else
+        {
+            DrawArmoredExternalViewport(mouse);
+        }
 
         // 6b. Any parked burnt single-use covert slates set aside on the desk until Clock-Out
         for (int b = 0; b < _parkedBurntSlatesOnDesk.Count; b++)
         {
             var (bx, by) = _parkedBurntSlatesOnDesk[b];
             DrawBurntContrabandSlateBody(bx, by, ContrabandSlateW, ContrabandSlateH, isTopmost: false, inBus: false);
+            if (IsBrownoutAttenuatingPassiveSurfaces)
+            {
+                ApplyBrownoutPassiveSurfaceLighting(bx, by, ContrabandSlateW, ContrabandSlateH);
+            }
         }
 
         // 7. Movable Desk Documents (Z-Order bottom to top)
@@ -2470,9 +3173,28 @@ public sealed partial class DeskScreen : IScreen
                     if (_activeDeskContrabandItem != null)
                     {
                         DrawContrabandDeskSlate(mouse, item, isTopmost);
+                        if (IsBrownoutAttenuatingPassiveSurfaces &&
+                            (_activeDeskContrabandItem.IsBurnt ||
+                             _activeDeskContrabandItem.ItemType == ContrabandPocketItem.TypeBurntMissionSlate))
+                        {
+                            ApplyBrownoutPassiveSurfaceLighting(item.X, item.Y, item.Width, item.Height);
+                        }
+                    }
+                    break;
+                case DeskItemId.FieldBooklet:
+                    _fieldBooklet.Draw(mouse, item.X, item.Y, _gameState, _config, isTopmost);
+                    if (IsBrownoutAttenuatingPassiveSurfaces)
+                    {
+                        ApplyBrownoutPassiveSurfaceLighting(item.X, item.Y, item.Width, item.Height);
                     }
                     break;
             }
+        }
+
+        // 7b. Day 12+ Printed Ceramic-Polymer Cert-Wafers on desk (matte e-ink, zero glow)
+        if (IsWaferWriterOperational && _deskWafers.Count > 0)
+        {
+            DrawDeskCertWafers(mouse);
         }
 
         // Day 3+ L->R extruding or anchored magnetic strip inside Warp Printer tray
@@ -2546,23 +3268,23 @@ public sealed partial class DeskScreen : IScreen
             _ => "CIV"
         };
 
-    private static string TruncateByPixelWidth(string value, int fontSize, int maxPixelWidth)
+    private static string TruncateByPixelWidth(string value, int fontSize, int maxPixelWidth, bool denseRow = false)
     {
         if (string.IsNullOrEmpty(value) || maxPixelWidth <= 0)
             return string.Empty;
 
-        if (PixelText.MeasureText(value, fontSize) <= maxPixelWidth)
+        if (UiText.MeasureWidth(value, fontSize, denseRow) <= maxPixelWidth)
             return value;
 
         int len = value.Length;
-        while (len > 1 && PixelText.MeasureText(value[..len], fontSize) > maxPixelWidth)
+        while (len > 1 && UiText.MeasureWidth(value[..len], fontSize, denseRow) > maxPixelWidth)
         {
             len--;
         }
         return value[..len];
     }
 
-    private static List<string> WrapTextByPixelWidth(string text, int fontSize, int maxPixelWidth, int maxLines)
+    private static List<string> WrapTextByPixelWidth(string text, int fontSize, int maxPixelWidth, int maxLines, bool denseRow = false)
     {
         List<string> lines = [];
         if (string.IsNullOrWhiteSpace(text) || maxLines <= 0)
@@ -2576,30 +3298,30 @@ public sealed partial class DeskScreen : IScreen
             string word = words[i];
             string candidate = current.Length == 0 ? word : $"{current} {word}";
 
-            if (PixelText.MeasureText(candidate, fontSize) <= maxPixelWidth)
+            if (UiText.MeasureWidth(candidate, fontSize, denseRow) <= maxPixelWidth)
             {
                 current = candidate;
             }
             else if (current.Length == 0)
             {
-                lines.Add(TruncateByPixelWidth(word, fontSize, maxPixelWidth));
+                lines.Add(TruncateByPixelWidth(word, fontSize, maxPixelWidth, denseRow));
                 if (lines.Count >= maxLines)
                     return lines;
             }
             else
             {
-                lines.Add(TruncateByPixelWidth(current, fontSize, maxPixelWidth));
+                lines.Add(TruncateByPixelWidth(current, fontSize, maxPixelWidth, denseRow));
                 if (lines.Count >= maxLines)
                     return lines;
-                current = PixelText.MeasureText(word, fontSize) <= maxPixelWidth
+                current = UiText.MeasureWidth(word, fontSize, denseRow) <= maxPixelWidth
                     ? word
-                    : TruncateByPixelWidth(word, fontSize, maxPixelWidth);
+                    : TruncateByPixelWidth(word, fontSize, maxPixelWidth, denseRow);
             }
         }
 
         if (current.Length > 0 && lines.Count < maxLines)
         {
-            lines.Add(TruncateByPixelWidth(current, fontSize, maxPixelWidth));
+            lines.Add(TruncateByPixelWidth(current, fontSize, maxPixelWidth, denseRow));
         }
 
         return lines;

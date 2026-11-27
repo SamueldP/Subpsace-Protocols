@@ -46,7 +46,9 @@ public sealed record ShipRenderOptions
     public bool WarpPrimed { get; init; } = true;
     public bool UncannyWarpPylonPulse { get; init; } = false;
     public bool CommsBroken { get; init; } = false;
+    public bool MilitaryCommsEncryption { get; init; } = false;
     public bool CargoHighDraw { get; init; } = false;
+    public bool CargoBioSignature { get; init; } = false;
     public bool HasDownstreamHullScorch { get; init; } = false;
     public int AnimTick { get; init; } = 0;
     public bool IsScriptedOverride { get; init; } = false;

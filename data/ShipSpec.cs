@@ -17,7 +17,12 @@ public enum ShipInfractionType
     PrefixOrganizationMismatch = 11,
     PrefixSpeciesMismatch = 12,
     UnexplainedCargoPowerDraw = 15,
-    TransponderIdMismatch = 16
+    TransponderIdMismatch = 16,
+    SpokenRouteDiscrepancy = 17,
+    SpokenCargoDiscrepancy = 18,
+    BannedCargoItem = 19,
+    CargoManifestDiscrepancy = 20,
+    WithheldIllicitCargoManifest = 21
 }
 
 public sealed class ShipInfraction
@@ -61,9 +66,20 @@ public sealed class ShipGroundTruth
     // Captain & route ground truth (for Day 3+ / Day 6+ progressive checks)
     public PortraitSpecies ActualCaptainSpecies { get; set; } = PortraitSpecies.Human;
     public string ActualOriginSystem { get; set; } = "Veridia";
+    public string SpokenOriginSystem { get; set; } = string.Empty;
+    public string SpokenCargoItem { get; set; } = string.Empty;
     public bool IsDay2GhostRouteSuspect { get; set; } = false;
     public bool IsCovertMissionTarget { get; set; } = false;
     public string CovertMissionId { get; set; } = string.Empty;
+
+    // Day 12+ Cert-Wafer Cargo Manifest ground truth
+    public bool ExpectsCargoManifestWafer { get; set; } = false;
+    public bool CargoManifestInitiallyOmitted { get; set; } = false;
+    public bool OmittedManifestIsDishonest { get; set; } = false;
+    public bool CargoManifestTransmitted { get; set; } = false;
+    public string WaferCargoManifestItem { get; set; } = string.Empty;
+    public string WaferCargoSecondaryNote { get; set; } = string.Empty;
+    public int CargoManifestAccountedExtraMass { get; set; } = 0;
 
     /// <summary>
     /// Exact list of active infractions on this vessel.
@@ -101,7 +117,11 @@ public sealed class ShipSpec
 
     public bool IsValid => GroundTruth.IsValid;
     public bool ProtocolReviewVerified { get; set; } = false;
+    public HashSet<ShipInfractionType> FlaggedInfractions { get; } = [];
     public int WeaponsPowerDownOrdersIssued { get; set; } = 0;
+    public string? StoryTag { get; set; } = null;
+    public bool EncounterHistoryRecorded { get; set; } = false;
+    public string DetentionReactionLine { get; set; } = string.Empty;
 
     // Rep-tier compliance timing delay (High >= +6: 0.20s, Mid: 0.55s, Low <= -5: 1.35s)
     public float ComplianceDelaySeconds { get; set; } = 0.50f;
@@ -129,6 +149,13 @@ public sealed class ShipSpec
     public string ConfrontationGuiltyExcuseSpeciesMismatch { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseCargoPower { get; set; } = string.Empty;
     public string ConfrontationGuiltyExcuseTransponderId { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseSpokenRoute { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseSpokenCargo { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseBannedCargo { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseManifestMismatch { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseWithheldManifest { get; set; } = string.Empty;
+    public string ConfrontationGuiltyExcuseMassMismatch { get; set; } = string.Empty;
+    public string HonestOmittedManifestReplyLine { get; set; } = string.Empty;
     public string ConfrontationInnocentProtest { get; set; } = string.Empty;
 
     public ShipRenderOptions BuildLiveShipRenderOptions(bool spsEnabled, int animTick) =>

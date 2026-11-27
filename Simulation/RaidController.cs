@@ -19,7 +19,7 @@ public sealed class RaidController
 {
     public BerthAuditKind CheckPendingSleepAudit(GameState state, Core.ConfigFlags config)
     {
-        if (state.Day >= Constants.DayUnlockWarpAndStrikes && state.SecurityStrikes >= config.MaxStrikesBeforeAudit)
+        if ((state.SecurityStrikesActive || state.Day >= config.DayUnlockWarpScanner) && state.SecurityStrikes >= config.MaxStrikesBeforeAudit)
         {
             return BerthAuditKind.ThreeStrikeBerthAudit;
         }

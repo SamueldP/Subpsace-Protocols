@@ -1,5 +1,13 @@
 namespace SubspaceProtocols.Core;
 
+public enum DebugBrownoutForceMode
+{
+    Auto = 0,
+    ForceOn = 1,
+    ForceDim = 2,
+    ForceOff = 3
+}
+
 /// <summary>
 /// Runtime dev-only playtesting flags and live tuners toggled from the F1 / Backtick Debug Overlay.
 /// Kept strictly separate from persisted GameState.
@@ -47,6 +55,11 @@ public sealed class DevDebugState
     public bool Use3xPortraitInLayoutB { get; set; } = true;
 
     /// <summary>
+    /// Allows skipping the 5-card intro sequence from the F1 Dev Debug Overlay when starting a new save.
+    /// </summary>
+    public bool SkipIntroSequence { get; set; } = false;
+
+    /// <summary>
     /// 0 = Auto (~65% valid / ~35% invalid), 1 = Force Valid, 2 = Force Invalid
     /// </summary>
     public int ForceSpawnValidityMode { get; set; } = 0;
@@ -54,6 +67,33 @@ public sealed class DevDebugState
     // One-shot command triggers consumed by DeskScreen.Update()
     public bool PendingEndShiftNow { get; set; } = false;
     public bool PendingForceReseedShip { get; set; } = false;
+    public bool PendingForceEmptyWaferHopper { get; set; } = false;
+    public bool PendingResetStokerStrain { get; set; } = false;
+    public bool PendingForceStokerOverload { get; set; } = false;
+
+    // Live Day 15 Stellar Stoker & Brownout debug telemetry / overrides
+    public DebugBrownoutForceMode BrownoutForceMode { get; set; } = DebugBrownoutForceMode.Auto;
+    public float LiveStokerSafeLoad { get; set; } = 15.0f;
+    public float LiveStokerShock { get; set; } = 0.0f;
+    public float LiveStokerPreviewShock { get; set; } = 0.0f;
+    public float LiveStokerTotal => LiveStokerSafeLoad + LiveStokerShock + LiveStokerPreviewShock;
+
+    public static void CycleWaferScoopMode(ConfigFlags config)
+    {
+        config.WaferScoopMode = config.WaferScoopMode switch
+        {
+            WaferScoopMode.PostVerdictAutoScoop => WaferScoopMode.CenterSwipeScoop,
+            WaferScoopMode.CenterSwipeScoop => WaferScoopMode.ModifierScoop,
+            _ => WaferScoopMode.PostVerdictAutoScoop
+        };
+    }
+
+    public static string GetWaferScoopShortLabel(WaferScoopMode mode) => mode switch
+    {
+        WaferScoopMode.CenterSwipeScoop => "SWIPE",
+        WaferScoopMode.ModifierScoop => "MODIFIER",
+        _ => "POST-VERD"
+    };
 
     public void CycleTimeScale()
     {

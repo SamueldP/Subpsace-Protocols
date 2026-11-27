@@ -122,11 +122,26 @@ public sealed class QuartersScreen : IScreen
     private readonly ShipGenerator _shipGenerator;
     private readonly WorldSim _worldSim;
     private readonly Action? _onRequestPause;
-    private readonly Action? _onFirstMorningQuarters;
-    private readonly Action? _onFirstEveningQuarters;
 
     private readonly TerminalOverlay _terminalOverlay;
     private readonly StarChartModal _starChartModal;
+    private readonly FieldBookletWidget _quartersBooklet = new();
+
+    private int _quartersBookletOpenX = 16;
+    private int _quartersBookletOpenY = 388;
+    private bool _draggingQuartersBooklet;
+    private int _bookletDragOffsetX;
+    private int _bookletDragOffsetY;
+    private int _bookletDragStartX;
+    private int _bookletDragStartY;
+
+    internal FieldBookletWidget Booklet => _quartersBooklet;
+    internal bool IsBookletOpen => _quartersBooklet.IsOpen;
+    internal string? ActiveHoverTooltipText { get; private set; }
+    internal bool IsDay1EveningRationCueActive =>
+        _gameState.Day == 1 &&
+        _gameState.QuartersPhase == QuartersPhase.Evening &&
+        _gameState.TonightRationOrder == NightlyRationOrder.None;
 
     public const float SleepCloseDurationSeconds = 0.80f;
     public const float SleepDarkHoldDurationSeconds = 1.40f;
@@ -162,13 +177,17 @@ public sealed class QuartersScreen : IScreen
         _gameState.Day == 1 &&
         _gameState.QuartersPhase == QuartersPhase.Morning &&
         !_gameState.Day1BrengopEmailRead;
-    public bool IsDoorGatedByDay6UnreadChuteDrop =>
+    public bool IsDoorGatedByDay6UnreadEmail =>
         _gameState.Day == 6 &&
         _gameState.QuartersPhase == QuartersPhase.Morning &&
         !_gameState.TerminalHackedUnlocked &&
-        _gameState.Day6UnsolicitedDropDelivered &&
-        !_gameState.ServiceChuteItems.Any(i => i.ItemId.StartsWith("d6_chute_blank", StringComparison.OrdinalIgnoreCase)) &&
         _gameState.Emails.Any(e => e.IsTerminalHackEmail && !e.IsRead);
+    public bool IsDoorGatedByDay6UncollectedChute =>
+        _gameState.Day == 6 &&
+        _gameState.QuartersPhase == QuartersPhase.Morning &&
+        _gameState.ServiceChuteItems.Any(i => i.ItemId.StartsWith("d6_chute_blank", StringComparison.OrdinalIgnoreCase));
+    public bool IsDoorGatedByDay6UnreadChuteDrop =>
+        IsDoorGatedByDay6UnreadEmail;
     public bool IsAnySubOverlayOpen =>
         _terminalOverlay.IsOpen || _starChartModal.IsOpen || _chuteTrayOpen || _ventDrawerOpen || _activeAuditResolution != null || _showingFailureScreen || _isSleepTransitionActive;
 
@@ -186,8 +205,8 @@ public sealed class QuartersScreen : IScreen
         _config = config;
         _devDebug = devDebug;
         _onRequestPause = onRequestPause;
-        _onFirstMorningQuarters = onFirstMorningQuarters;
-        _onFirstEveningQuarters = onFirstEveningQuarters;
+        _ = onFirstMorningQuarters;
+        _ = onFirstEveningQuarters;
 
         _economy = new EconomyEngine();
         _intelEconomy = new IntelEconomy();
@@ -212,6 +231,10 @@ public sealed class QuartersScreen : IScreen
         _sleepAuditAlarmPlayed = false;
         _activeAuditResolution = null;
         _showingFailureScreen = false;
+        _quartersBooklet.IsOpen = false;
+        _draggingQuartersBooklet = false;
+        _quartersBookletOpenX = 16;
+        _quartersBookletOpenY = 388;
         _terminalOverlay.Close();
         _starChartModal.Close(playAudio: false);
         _nudgeText = string.Empty;
@@ -241,19 +264,12 @@ public sealed class QuartersScreen : IScreen
                 }
             }
         }
-
-        if (_gameState.QuartersPhase == QuartersPhase.Morning)
-        {
-            _onFirstMorningQuarters?.Invoke();
-        }
-        else
-        {
-            _onFirstEveningQuarters?.Invoke();
-        }
     }
 
     public void OnExit()
     {
+        _quartersBooklet.IsOpen = false;
+        _draggingQuartersBooklet = false;
         _terminalOverlay.Close();
         _starChartModal.Close(playAudio: false);
         _chuteTrayOpen = false;
@@ -271,6 +287,14 @@ public sealed class QuartersScreen : IScreen
 
         if (_starChartModal.TryConsumeEscape())
             return true;
+
+        if (_quartersBooklet.IsOpen)
+        {
+            _quartersBooklet.IsOpen = false;
+            _draggingQuartersBooklet = false;
+            AudioHooks.Play("terminal_key_click");
+            return true;
+        }
 
         if (_chuteTrayOpen)
         {
@@ -447,7 +471,6 @@ public sealed class QuartersScreen : IScreen
                 if (_activeAuditResolution == null)
                 {
                     ShowNudge($"MORNING CYCLE -- DAY {_gameState.Day:D2}. CHECK TERMINAL & 0500 SERVICE CHUTE.", Palette.ClearanceTeal);
-                    _onFirstMorningQuarters?.Invoke();
                 }
             }
             return;
@@ -489,6 +512,46 @@ public sealed class QuartersScreen : IScreen
             return;
         }
 
+        // Field Booklet ("884-D — MY NOTES") dragging & open/minimize handling in Quarters
+        if (_draggingQuartersBooklet)
+        {
+            if (mouse.LeftDown)
+            {
+                _quartersBookletOpenX = Math.Clamp(mouse.X - _bookletDragOffsetX, 8, Constants.VirtualWidth - FieldBookletWidget.OpenW - 8);
+                _quartersBookletOpenY = Math.Clamp(mouse.Y - _bookletDragOffsetY, TopBarH + 8, Constants.VirtualHeight - FieldBookletWidget.OpenH - 8);
+                return;
+            }
+            _draggingQuartersBooklet = false;
+            return;
+        }
+
+        if (mouse.LeftPressed)
+        {
+            if (_quartersBooklet.IsOpen &&
+                mouse.IsHit(_quartersBookletOpenX, _quartersBookletOpenY, FieldBookletWidget.OpenW, FieldBookletWidget.OpenH))
+            {
+                if (_quartersBooklet.HandleInternalClick(mouse, _quartersBookletOpenX, _quartersBookletOpenY, _gameState, _config))
+                    return;
+
+                _draggingQuartersBooklet = true;
+                _bookletDragOffsetX = mouse.X - _quartersBookletOpenX;
+                _bookletDragOffsetY = mouse.Y - _quartersBookletOpenY;
+                _bookletDragStartX = mouse.X;
+                _bookletDragStartY = mouse.Y;
+                AudioHooks.Play("terminal_key_click");
+                return;
+            }
+
+            if (!_quartersBooklet.IsOpen &&
+                mouse.IsHit(16, 654, FieldBookletWidget.ClosedW, FieldBookletWidget.ClosedH))
+            {
+                _quartersBooklet.IsOpen = true;
+                _quartersBooklet.SyncWithGameState(_gameState, _config, jumpToNewestOnNewUnlock: true);
+                AudioHooks.Play("terminal_key_tab");
+                return;
+            }
+        }
+
         if (!mouse.LeftPressed)
             return;
 
@@ -501,17 +564,17 @@ public sealed class QuartersScreen : IScreen
         {
             if (_gameState.QuartersPhase == QuartersPhase.Morning)
             {
-                if (IsDoorGatedByDay1Email)
+                if (IsDoorGatedByDay1Email || IsDoorGatedByDay6UnreadEmail)
                 {
                     AudioHooks.Play("citation_buzz");
                     ShowNudge("Should probably read my emails first.", Palette.CrtAmberPrimary);
                     return;
                 }
 
-                if (IsDoorGatedByDay6UnreadChuteDrop)
+                if (IsDoorGatedByDay6UncollectedChute)
                 {
                     AudioHooks.Play("citation_buzz");
-                    ShowNudge("UNMARKED SLATE IN CHUTE -- CHECK TERMINAL [MESSAGES] FIRST.", Palette.CrtAmberPrimary);
+                    ShowNudge("I see there is something in my chute, let me check it out", Palette.CrtAmberPrimary);
                     return;
                 }
 
@@ -627,7 +690,6 @@ public sealed class QuartersScreen : IScreen
         _terminalOverlay.RefreshForumThreads();
         _activeAuditResolution = null;
         ShowNudge($"MORNING CYCLE -- DAY {_gameState.Day:D2}. CHECK TERMINAL & 0500 SERVICE CHUTE.", Palette.ClearanceTeal);
-        _onFirstMorningQuarters?.Invoke();
     }
 
     // =========================================================================
@@ -899,7 +961,16 @@ public sealed class QuartersScreen : IScreen
     // =========================================================================
     public void DrawVirtual(VirtualMouseState mouse)
     {
-        bool roomInteractive = !IsAnySubOverlayOpen;
+        ActiveHoverTooltipText = null;
+        int bx = _quartersBooklet.IsOpen ? _quartersBookletOpenX : 16;
+        int by = _quartersBooklet.IsOpen ? _quartersBookletOpenY : 654;
+        if (!IsAnySubOverlayOpen)
+        {
+            _quartersBooklet.SyncWithGameState(_gameState, _config, jumpToNewestOnNewUnlock: true);
+        }
+
+        bool overBooklet = !IsAnySubOverlayOpen && _quartersBooklet.ContainsPoint(mouse.X, mouse.Y, bx, by);
+        bool roomInteractive = !IsAnySubOverlayOpen && !overBooklet;
         VirtualMouseState roomMouse = roomInteractive
             ? mouse
             : mouse with { IsInsideViewport = false, LeftPressed = false };
@@ -915,15 +986,29 @@ public sealed class QuartersScreen : IScreen
         }
 
         // Diegetic bottom-center nudge banner positioned cleanly ABOVE the Coat Pocket tray
-        if (!string.IsNullOrEmpty(_nudgeText) && !IsAnySubOverlayOpen)
+        // (or Day 1 Evening ration order reminder until rations are ordered)
+        string? bottomCaption = !string.IsNullOrEmpty(_nudgeText)
+            ? _nudgeText
+            : (IsDay1EveningRationCueActive
+                ? "Long first shift. Better order rations on the terminal before sleeping."
+                : null);
+        Color bottomCol = !string.IsNullOrEmpty(_nudgeText) ? _nudgeColor : Palette.CrtAmberPrimary;
+
+        if (!string.IsNullOrEmpty(bottomCaption) && !IsAnySubOverlayOpen)
         {
-            int nw = Math.Min(860, Raylib.MeasureText(_nudgeText, 10) + 40);
+            int nw = Math.Min(860, UiText.MeasureWidth(bottomCaption, 10) + 40);
             int nx = (Constants.VirtualWidth - nw) / 2;
             const int ny = 604;
             Raylib.DrawRectangle(nx, ny, nw, 32, new Color(10, 14, 20, 240));
-            Raylib.DrawRectangleLines(nx, ny, nw, 32, _nudgeColor);
-            int tw = Raylib.MeasureText(_nudgeText, 10);
-            Raylib.DrawText(_nudgeText, nx + (nw - tw) / 2, ny + 11, 10, _nudgeColor);
+            Raylib.DrawRectangleLines(nx, ny, nw, 32, bottomCol);
+            int tw = UiText.MeasureWidth(bottomCaption, 10);
+            UiText.Draw(bottomCaption, nx + (nw - tw) / 2, ny + 11, 10, bottomCol);
+        }
+
+        // Physical "884-D — MY NOTES" Field Booklet (bottom-left minimized cover or unfolded draggable notes)
+        if (!IsAnySubOverlayOpen)
+        {
+            _quartersBooklet.Draw(mouse, bx, by, _gameState, _config, isTopmost: _quartersBooklet.IsOpen);
         }
 
         if (_chuteTrayOpen)
@@ -1027,34 +1112,38 @@ public sealed class QuartersScreen : IScreen
             ? Palette.ClearanceTeal
             : Palette.CrtAmberPrimary;
 
-        Raylib.DrawText(phaseLabel, 12, 11, 10, phaseCol);
+        UiText.Draw(phaseLabel, 12, 11, 10, phaseCol);
 
         // Pure Pact Scrip (SC) HUD -- ZERO Quarters Power (PU)
-        int sx = 248;
-        Raylib.DrawText($"PACT SCRIP: {_gameState.PactScrip} SC", sx, 11, 10, Palette.CrtAmberPrimary);
-        sx += 168;
+        int sx = Math.Max(248, 12 + UiText.MeasureWidth(phaseLabel, 10) + 20);
+        string scripText = $"PACT SCRIP: {_gameState.PactScrip} SC";
+        UiText.Draw(scripText, sx, 11, 10, Palette.CrtAmberPrimary);
+        sx += Math.Max(168, UiText.MeasureWidth(scripText, 10) + 18);
 
-        if (_gameState.Day >= 3)
+        if (_gameState.SecurityStrikesActive || _gameState.Day >= _config.DayUnlockWarpScanner)
         {
             Color strkCol = _gameState.SecurityStrikes >= _config.MaxStrikesBeforeAudit
                 ? Palette.AlertCrimson
                 : (_gameState.SecurityStrikes > 0 ? Palette.CrtAmberPrimary : Palette.ClearanceTeal);
-            Raylib.DrawText($"SECURITY STRIKES: {_gameState.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}", sx, 11, 10, strkCol);
-            sx += 188;
+            string strikesText = $"SECURITY STRIKES: {_gameState.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}";
+            UiText.Draw(strikesText, sx, 11, 10, strkCol);
+            sx += Math.Max(188, UiText.MeasureWidth(strikesText, 10) + 18);
         }
 
-        Raylib.DrawText($"POCKET: {_gameState.PocketItems.Count}/{_gameState.PocketCapacity}", sx, 11, 10, Palette.ClearanceTeal);
-        sx += 116;
+        string pocketText = $"POCKET: {_gameState.PocketItems.Count}/{_gameState.PocketCapacity}";
+        UiText.Draw(pocketText, sx, 11, 10, Palette.ClearanceTeal);
+        sx += Math.Max(116, UiText.MeasureWidth(pocketText, 10) + 18);
 
-        if (_gameState.HasShieldedPocketLining)
+        if (_gameState.HasShieldedPocketLining && sx < PauseBtnX - 24)
         {
-            Raylib.DrawText("[SHIELDED]", sx, 11, 10, Palette.ClearanceTeal);
+            string shieldedText = UiText.TruncateToWidth("[SHIELDED]", 10, PauseBtnX - 8 - sx);
+            UiText.Draw(shieldedText, sx, 11, 10, Palette.ClearanceTeal);
         }
 
         bool pHov = mouse.IsHit(PauseBtnX, PauseBtnY, PauseBtnW, PauseBtnH);
         Raylib.DrawRectangle(PauseBtnX, PauseBtnY, PauseBtnW, PauseBtnH, pHov ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(PauseBtnX, PauseBtnY, PauseBtnW, PauseBtnH, pHov ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText("||", PauseBtnX + 13, PauseBtnY + 7, 10, Palette.CrtAmberPrimary);
+        UiText.Draw("||", PauseBtnX + 13, PauseBtnY + 7, 10, Palette.CrtAmberPrimary);
     }
 
     private void DrawRoomInterior(VirtualMouseState mouse)
@@ -1103,7 +1192,7 @@ public sealed class QuartersScreen : IScreen
 
         // 5. Interactive Hotspots & Visual Props (clean artwork, ZERO permanent clutter text)
         DrawServiceChuteProp(mouse);
-        DrawDoorProp(mouse, isMorning, IsDoorGatedByDay1Email);
+        DrawDoorProp(mouse, isMorning, IsDoorGatedByDay1Email || IsDoorGatedByDay6UnreadEmail || IsDoorGatedByDay6UncollectedChute);
         DrawTerminalDeskProp(mouse);
         DrawVentStashProp(mouse);
         DrawFoodReplicatorProp();
@@ -1458,15 +1547,25 @@ public sealed class QuartersScreen : IScreen
     private void DrawFoodReplicatorProp()
     {
         bool dispensed = _gameState.QuartersPhase == QuartersPhase.Evening && _gameState.ReplicatorDispensedTonight;
+        bool cuePulse = IsDay1EveningRationCueActive;
+        float pulseT = cuePulse ? (0.5f + 0.5f * MathF.Sin(_elapsedTime * 3.0f)) : 0f;
 
-        Color border = dispensed ? new Color(64, 118, 114, 255) : Palette.WeatheredGunmetalMid;
+        Color border = dispensed
+            ? new Color(64, 118, 114, 255)
+            : (cuePulse
+                ? BlendRgb(Palette.OxidizedBronzeShadow, Palette.CrtAmberPrimary, 0.45f + pulseT * 0.55f)
+                : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangle(ReplicatorX, ReplicatorY, ReplicatorW, ReplicatorH, new Color(26, 31, 38, 255));
         Raylib.DrawRectangleLines(ReplicatorX, ReplicatorY, ReplicatorW, ReplicatorH, border);
 
         // Subtle upper dispenser chassis trim + status diode
         Raylib.DrawRectangle(ReplicatorX + 16, ReplicatorY + 10, ReplicatorW - 44, 6, new Color(18, 22, 28, 255));
         Raylib.DrawRectangle(ReplicatorX + ReplicatorW - 22, ReplicatorY + 10, 6, 6,
-            dispensed ? Palette.ClearanceTeal : new Color(32, 38, 46, 255));
+            dispensed
+                ? Palette.ClearanceTeal
+                : (cuePulse
+                    ? BlendRgb(Palette.CrtAmberDimmed, Palette.CrtAmberPrimary, pulseT)
+                    : new Color(32, 38, 46, 255)));
 
         // Dispenser alcove
         int alcX = ReplicatorX + 18;
@@ -1474,7 +1573,10 @@ public sealed class QuartersScreen : IScreen
         int alcW = ReplicatorW - 36;
         int alcH = 88;
         Raylib.DrawRectangle(alcX, alcY, alcW, alcH, dispensed ? new Color(42, 34, 20, 255) : Palette.OutlineVoid);
-        Raylib.DrawRectangleLines(alcX, alcY, alcW, alcH, dispensed ? Palette.OxidizedBronzeWorn : Palette.WeatheredGunmetalMid);
+        Raylib.DrawRectangleLines(alcX, alcY, alcW, alcH,
+            dispensed
+                ? Palette.OxidizedBronzeWorn
+                : (cuePulse ? border : Palette.WeatheredGunmetalMid));
 
         if (dispensed)
         {
@@ -1703,15 +1805,15 @@ public sealed class QuartersScreen : IScreen
         Raylib.DrawRectangleLines(CoatTrayX + 2, CoatTrayY + 2, CoatTrayW - 4, CoatTrayH - 4, Palette.OutlineVoid);
 
         // Compact Left Label Column
-        Raylib.DrawText("COAT POCKET", CoatTrayX + 12, CoatTrayY + 14, 10, Palette.ClearanceTeal);
-        Raylib.DrawText($"{_gameState.PocketItems.Count} / {cap} SLOTS", CoatTrayX + 12, CoatTrayY + 30, 10, Palette.CrtAmberPrimary);
+        UiText.Draw("COAT POCKET", CoatTrayX + 12, CoatTrayY + 14, 10, Palette.ClearanceTeal);
+        UiText.Draw($"{_gameState.PocketItems.Count} / {cap} SLOTS", CoatTrayX + 12, CoatTrayY + 30, 10, Palette.CrtAmberPrimary);
         if (_gameState.HasShieldedPocketLining)
         {
-            Raylib.DrawText("LINING: 1 SAFE", CoatTrayX + 12, CoatTrayY + 46, 10, Palette.ClearanceTeal);
+            UiText.Draw("LINING: 1 SAFE", CoatTrayX + 12, CoatTrayY + 46, 10, Palette.ClearanceTeal);
         }
         else
         {
-            Raylib.DrawText("CLICK -> VENT", CoatTrayX + 12, CoatTrayY + 46, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("CLICK -> VENT", CoatTrayX + 12, CoatTrayY + 46, 10, Palette.WeatheredGunmetalEdge);
         }
 
         // 3 Pocket Slots (1..cap unlocked, remaining dimmed)
@@ -1727,8 +1829,8 @@ public sealed class QuartersScreen : IScreen
                 Raylib.DrawRectangle(sx, CoatSlotY, CoatSlotW, CoatSlotH, new Color(10, 13, 17, 255));
                 Raylib.DrawRectangleLines(sx, CoatSlotY, CoatSlotW, CoatSlotH, new Color(28, 34, 42, 255));
                 const string lockTxt = "LOCKED";
-                int lw = Raylib.MeasureText(lockTxt, 10);
-                Raylib.DrawText(lockTxt, sx + (CoatSlotW - lw) / 2, CoatSlotY + 19, 10, new Color(46, 54, 64, 255));
+                int lw = UiText.MeasureWidth(lockTxt, 10);
+                UiText.Draw(lockTxt, sx + (CoatSlotW - lw) / 2, CoatSlotY + 19, 10, new Color(46, 54, 64, 255));
                 continue;
             }
 
@@ -1737,8 +1839,8 @@ public sealed class QuartersScreen : IScreen
                 Raylib.DrawRectangle(sx, CoatSlotY, CoatSlotW, CoatSlotH, Palette.OutlineVoid);
                 Raylib.DrawRectangleLines(sx, CoatSlotY, CoatSlotW, CoatSlotH, Palette.WeatheredGunmetalMid);
                 const string emptyTxt = "EMPTY";
-                int ew = Raylib.MeasureText(emptyTxt, 10);
-                Raylib.DrawText(emptyTxt, sx + (CoatSlotW - ew) / 2, CoatSlotY + 19, 10, Palette.WeatheredGunmetalEdge);
+                int ew = UiText.MeasureWidth(emptyTxt, 10);
+                UiText.Draw(emptyTxt, sx + (CoatSlotW - ew) / 2, CoatSlotY + 19, 10, Palette.WeatheredGunmetalEdge);
                 continue;
             }
 
@@ -1773,8 +1875,8 @@ public sealed class QuartersScreen : IScreen
                 ? item.TargetShipRegistration
                 : "UNREG";
 
-            Raylib.DrawText(TruncateText(title, 10, CoatSlotW - 12), sx + 6, CoatSlotY + 9, 10, rimCol);
-            Raylib.DrawText(TruncateText(sub, 10, CoatSlotW - 12), sx + 6, CoatSlotY + 26, 10, new Color(204, 212, 222, 255));
+            UiText.Draw(TruncateText(title, 10, CoatSlotW - 12), sx + 6, CoatSlotY + 9, 10, rimCol);
+            UiText.Draw(TruncateText(sub, 10, CoatSlotW - 12), sx + 6, CoatSlotY + 26, 10, new Color(204, 212, 222, 255));
         }
     }
 
@@ -1868,7 +1970,8 @@ public sealed class QuartersScreen : IScreen
         if (string.IsNullOrEmpty(tip))
             return;
 
-        int tw = Raylib.MeasureText(tip, 10);
+        ActiveHoverTooltipText = tip;
+        int tw = UiText.MeasureWidth(tip, 10);
         int boxW = tw + 20;
         const int boxH = 24;
         int bx = Math.Clamp(anchorX - boxW / 2, 12, Constants.VirtualWidth - boxW - 12);
@@ -1876,7 +1979,7 @@ public sealed class QuartersScreen : IScreen
 
         Raylib.DrawRectangle(bx, by, boxW, boxH, new Color(8, 11, 16, 255));
         Raylib.DrawRectangleLines(bx, by, boxW, boxH, accent);
-        Raylib.DrawText(tip, bx + 10, by + 7, 10, accent);
+        UiText.Draw(tip, bx + 10, by + 7, 10, accent);
     }
 
     // =========================================================================
@@ -1889,19 +1992,20 @@ public sealed class QuartersScreen : IScreen
         Raylib.DrawRectangleLines(ChuteTrayX, ChuteTrayY, ChuteTrayW, ChuteTrayH, Palette.ClearanceTeal);
 
         Raylib.DrawRectangle(ChuteTrayX + 2, ChuteTrayY + 2, ChuteTrayW - 4, 34, new Color(18, 32, 38, 255));
-        Raylib.DrawText($"0500 SERVICE CHUTE // CLICK ITEM -> COAT POCKET ({_gameState.PocketItems.Count}/{_gameState.PocketCapacity}  |  VENT: {_gameState.VentStashItems.Count}/{_config.VentStashCapacity})",
+        string chuteHdr = $"0500 SERVICE CHUTE // CLICK ITEM -> COAT POCKET ({_gameState.PocketItems.Count}/{_gameState.PocketCapacity}  |  VENT: {_gameState.VentStashItems.Count}/{_config.VentStashCapacity})";
+        UiText.Draw(UiText.TruncateToWidth(chuteHdr, 10, ChuteTrayW - 56),
             ChuteTrayX + 14, ChuteTrayY + 14, 10, Palette.ClearanceTeal);
         DrawModalCloseBtn(mouse, ChuteTrayX + ChuteTrayW - 36, ChuteTrayY + 8);
 
         if (_gameState.ServiceChuteItems.Count == 0)
         {
-            Raylib.DrawText("SERVICE CHUTE TRAY IS EMPTY.", ChuteTrayX + 240, ChuteTrayY + 160, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("SERVICE CHUTE TRAY IS EMPTY.", ChuteTrayX + 240, ChuteTrayY + 160, 10, Palette.WeatheredGunmetalEdge);
             int pending = _gameState.PendingChuteDeliveries.Count;
             string sub = pending > 0
                 ? $"{pending} ITEM(S) QUEUED FOR NEXT 0500 OVERNIGHT DROP (AFTER SLEEP)."
                 : "CARRYABLE GEAR ORDERED ON DECK 4 ARRIVES HERE AT 0500.";
-            int sw = Raylib.MeasureText(sub, 10);
-            Raylib.DrawText(sub, ChuteTrayX + (ChuteTrayW - sw) / 2, ChuteTrayY + 184, 10, Palette.CrtAmberDimmed);
+            int sw = UiText.MeasureWidth(sub, 10);
+            UiText.Draw(sub, ChuteTrayX + (ChuteTrayW - sw) / 2, ChuteTrayY + 184, 10, Palette.CrtAmberDimmed);
         }
         else
         {
@@ -1922,11 +2026,12 @@ public sealed class QuartersScreen : IScreen
                 Raylib.DrawRectangle(ChuteTrayX + 16, ry, rowW, 38, rowHov ? new Color(24, 34, 42, 255) : new Color(18, 24, 30, 255));
                 Raylib.DrawRectangleLines(ChuteTrayX + 16, ry, rowW, 38, rowHov ? Palette.ClearanceTeal : Palette.OxidizedBronzeWorn);
 
-                Raylib.DrawText(item.DisplayName, ChuteTrayX + 26, ry + 7, 10, Palette.CrtAmberPrimary);
+                int textMaxW = Math.Max(40, rowW - 312);
+                UiText.Draw(UiText.TruncateToWidth(item.DisplayName, 10, textMaxW), ChuteTrayX + 26, ry + 7, 10, Palette.CrtAmberPrimary);
                 string desc = item.IsMissionSlate
                     ? $"TARGET: {item.MissionTargetReg} ({item.TargetShipName})"
                     : "CLICK TO MOVE INTO COAT POCKET";
-                Raylib.DrawText(desc, ChuteTrayX + 26, ry + 21, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw(UiText.TruncateToWidth(desc, 10, textMaxW), ChuteTrayX + 26, ry + 21, 10, Palette.WeatheredGunmetalEdge);
 
                 string primaryLbl = item.ItemType == ContrabandPocketItem.TypeShieldedPocketLining
                     ? "INSTALL LINING"
@@ -1957,7 +2062,7 @@ public sealed class QuartersScreen : IScreen
 
         Raylib.DrawRectangle(VentDrawerX + 2, VentDrawerY + 2, VentDrawerW - 4, 34, new Color(26, 22, 16, 255));
         string shieldNote = _gameState.HasShieldedPocketLining ? " | SHIELDED LINING: ACTIVE (CONCEALS 1 COAT ITEM)" : string.Empty;
-        Raylib.DrawText($"UNDER-DESK VENT STASH // CLICK ITEMS TO TRANSFER{shieldNote}", VentDrawerX + 14, VentDrawerY + 14, 10, Palette.CrtAmberPrimary);
+        UiText.Draw($"UNDER-DESK VENT STASH // CLICK ITEMS TO TRANSFER{shieldNote}", VentDrawerX + 14, VentDrawerY + 14, 10, Palette.CrtAmberPrimary);
         DrawModalCloseBtn(mouse, VentDrawerX + VentDrawerW - 36, VentDrawerY + 8);
 
         const int visibleRows = 5;
@@ -1967,7 +2072,7 @@ public sealed class QuartersScreen : IScreen
         _ventStashScroll = Math.Clamp(_ventStashScroll, 0, maxVentScroll);
 
         // Left Column: Coat Pocket (carried to Booth 04; frisked during sleep raid)
-        Raylib.DrawText($"COAT POCKET ({_gameState.PocketItems.Count}/{_gameState.PocketCapacity}) -- CLICK TO STASH IN VENT",
+        UiText.Draw($"COAT POCKET ({_gameState.PocketItems.Count}/{_gameState.PocketCapacity}) -- CLICK TO STASH IN VENT",
             VentDrawerX + 16, VentDrawerY + 50, 10, Palette.ClearanceTeal);
         Raylib.DrawRectangle(VentDrawerX + 16, VentDrawerY + 68, 372, 268, new Color(12, 16, 22, 255));
         Raylib.DrawRectangleLines(VentDrawerX + 16, VentDrawerY + 68, 372, 268, Palette.WeatheredGunmetalEdge);
@@ -1984,8 +2089,8 @@ public sealed class QuartersScreen : IScreen
             bool rowHov = mouse.IsHit(VentDrawerX + 22, ry, leftRowW, 42);
             Raylib.DrawRectangle(VentDrawerX + 22, ry, leftRowW, 42, rowHov ? new Color(28, 36, 46, 255) : new Color(20, 26, 34, 255));
             Raylib.DrawRectangleLines(VentDrawerX + 22, ry, leftRowW, 42, rowHov ? Palette.CrtAmberPrimary : Palette.ClearanceTeal);
-            Raylib.DrawText(TruncateText(item.DisplayName, 10, 220), VentDrawerX + 28, ry + 7, 10, Palette.CrtAmberPrimary);
-            Raylib.DrawText(string.IsNullOrEmpty(item.TargetShipRegistration) ? item.ItemType : item.TargetShipRegistration,
+            UiText.Draw(TruncateText(item.DisplayName, 10, 220), VentDrawerX + 28, ry + 7, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(string.IsNullOrEmpty(item.TargetShipRegistration) ? item.ItemType : item.TargetShipRegistration,
                 VentDrawerX + 28, ry + 23, 10, Palette.WeatheredGunmetalEdge);
 
             DrawSmallModalBtn(mouse, VentDrawerX + 22 + leftRowW - 110, ry + 6, 104, 30, "STASH ->", Palette.CrtAmberPrimary);
@@ -1997,7 +2102,7 @@ public sealed class QuartersScreen : IScreen
         }
 
         // Right Column: Vent Stash (safe on clean-log standard sweeps; seized on dirty-log deep sweeps)
-        Raylib.DrawText($"VENT STASH ({_gameState.VentStashItems.Count}/{_config.VentStashCapacity}) -- CLICK TO RETRIEVE TO COAT",
+        UiText.Draw($"VENT STASH ({_gameState.VentStashItems.Count}/{_config.VentStashCapacity}) -- CLICK TO RETRIEVE TO COAT",
             VentDrawerX + 412, VentDrawerY + 50, 10, Palette.CrtAmberPrimary);
         Raylib.DrawRectangle(VentDrawerX + 412, VentDrawerY + 68, 372, 268, new Color(12, 16, 22, 255));
         Raylib.DrawRectangleLines(VentDrawerX + 412, VentDrawerY + 68, 372, 268, Palette.OxidizedBronzeWorn);
@@ -2014,8 +2119,8 @@ public sealed class QuartersScreen : IScreen
             bool rowHov = mouse.IsHit(VentDrawerX + 418, ry, rightRowW, 42);
             Raylib.DrawRectangle(VentDrawerX + 418, ry, rightRowW, 42, rowHov ? new Color(32, 28, 22, 255) : new Color(22, 20, 16, 255));
             Raylib.DrawRectangleLines(VentDrawerX + 418, ry, rightRowW, 42, rowHov ? Palette.ClearanceTeal : Palette.OxidizedBronzeWorn);
-            Raylib.DrawText(TruncateText(item.DisplayName, 10, 220), VentDrawerX + 424, ry + 7, 10, Palette.CrtAmberPrimary);
-            Raylib.DrawText(string.IsNullOrEmpty(item.TargetShipRegistration) ? item.ItemType : item.TargetShipRegistration,
+            UiText.Draw(TruncateText(item.DisplayName, 10, 220), VentDrawerX + 424, ry + 7, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(string.IsNullOrEmpty(item.TargetShipRegistration) ? item.ItemType : item.TargetShipRegistration,
                 VentDrawerX + 424, ry + 23, 10, Palette.WeatheredGunmetalEdge);
             DrawSmallModalBtn(mouse, VentDrawerX + 418 + rightRowW - 106, ry + 6, 100, 30, "<- TAKE", Palette.ClearanceTeal);
         }
@@ -2029,7 +2134,7 @@ public sealed class QuartersScreen : IScreen
         string ventNote = unscrubbed > 0
             ? $"WARNING: {unscrubbed} UNSCRUBBED LOG(S) -- SCRUB IN CRYPTO / LOGS OR RAID WILL BREACH VENT!"
             : "LOGS CLEAN: VENT STASH STAYS UNDISCOVERED DURING STANDARD KORDANI SWEEPS.";
-        Raylib.DrawText(ventNote, VentDrawerX + 16, VentDrawerY + VentDrawerH - 32, 10,
+        UiText.Draw(ventNote, VentDrawerX + 16, VentDrawerY + VentDrawerH - 32, 10,
             unscrubbed > 0 ? Palette.AlertCrimson : Palette.ClearanceTeal);
         DrawSmallModalBtn(mouse, VentDrawerX + VentDrawerW - 156, VentDrawerY + VentDrawerH - 44, 140, 32, "CLOSE [ESC]", Palette.ClearanceTeal);
     }
@@ -2040,11 +2145,11 @@ public sealed class QuartersScreen : IScreen
         bool dnHov = mouse.IsHit(x, y + h - 18, 14, 18);
         Raylib.DrawRectangle(x, y, 14, 18, upHov ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, 14, 18, Palette.CrtAmberPrimary);
-        Raylib.DrawText("^", x + 4, y + 4, 10, Palette.CrtAmberPrimary);
+        UiText.Draw("^", x + 4, y + 4, 10, Palette.CrtAmberPrimary);
 
         Raylib.DrawRectangle(x, y + h - 18, 14, 18, dnHov ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y + h - 18, 14, 18, Palette.CrtAmberPrimary);
-        Raylib.DrawText("v", x + 4, y + h - 14, 10, Palette.CrtAmberPrimary);
+        UiText.Draw("v", x + 4, y + h - 14, 10, Palette.CrtAmberPrimary);
 
         int trackY = y + 20;
         int trackH = Math.Max(20, h - 40);
@@ -2066,10 +2171,10 @@ public sealed class QuartersScreen : IScreen
         string hdr = audit.Kind == BerthAuditKind.ThreeStrikeBerthAudit
             ? "03:15 WAKE-UP RAID // KORDANI TWO-TIER 3-STRIKE BERTH AUDIT"
             : "03:15 WAKE-UP RAID // KORDANI STELLAR STOKER SABOTAGE AUDIT";
-        int hw = Raylib.MeasureText(hdr, 10);
-        Raylib.DrawText(hdr, AuditModalX + (AuditModalW - hw) / 2, AuditModalY + 22, 10, Palette.CrtAmberPrimary);
+        int hw = UiText.MeasureWidth(hdr, 10);
+        UiText.Draw(hdr, AuditModalX + (AuditModalW - hw) / 2, AuditModalY + 22, 10, Palette.CrtAmberPrimary);
 
-        Raylib.DrawText("KORDANI SECURITY TROOPERS UNSEALED BERTH 04 DURING SLEEP CYCLE.",
+        UiText.Draw("KORDANI SECURITY TROOPERS UNSEALED BERTH 04 DURING SLEEP CYCLE.",
             AuditModalX + 24, AuditModalY + 62, 10, Palette.AlertCrimson);
 
         Raylib.DrawRectangle(AuditModalX + 24, AuditModalY + 86, AuditModalW - 48, 344, Palette.OutlineVoid);
@@ -2083,7 +2188,7 @@ public sealed class QuartersScreen : IScreen
                 : (line.Contains("CLEAN") || line.Contains("CLEAR") || line.Contains("CONCEALED") || line.Contains("UNDISCOVERED")
                     ? Palette.ClearanceTeal
                     : Palette.CrtAmberPrimary);
-            Raylib.DrawText(TruncateText(line, 10, AuditModalW - 76), AuditModalX + 38, ly, 10, lCol);
+            UiText.Draw(TruncateText(line, 10, AuditModalW - 76), AuditModalX + 38, ly, 10, lCol);
             ly += 30;
         }
 
@@ -2104,8 +2209,8 @@ public sealed class QuartersScreen : IScreen
         string title = isDetainment
             ? "FAILURE ENDING // SECURITY DETAINMENT"
             : "FAILURE ENDING // DEBT FORECLOSURE";
-        int tw = Raylib.MeasureText(title, 20);
-        Raylib.DrawText(title, 280 + (720 - tw) / 2, 184, 20, Palette.AlertCrimson);
+        int tw = UiText.MeasureWidth(title, 20);
+        UiText.Draw(title, 280 + (720 - tw) / 2, 184, 20, Palette.AlertCrimson);
 
         string body1 = isDetainment
             ? "KORDANI SECURITY TROOPERS BREACHED BERTH 04 AIRLOCK AFTER SEIZING CONTRABAND / LOGS."
@@ -2114,9 +2219,9 @@ public sealed class QuartersScreen : IScreen
             ? "PORT OFFICER CREDENTIALS REVOKED. TRANSFERRED TO KORR-VATH DETENTION BLOCK."
             : "PORT OFFICER BADGE STRIPPED. PERMANENTLY REASSIGNED TO LOWER REACTOR DECKS.";
 
-        Raylib.DrawText(body1, 280 + (720 - Raylib.MeasureText(body1, 10)) / 2, 268, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawText(body2, 280 + (720 - Raylib.MeasureText(body2, 10)) / 2, 294, 10, Palette.CrtAmberDimmed);
-        Raylib.DrawText($"FINAL RECORD: DAY {_gameState.Day:D2}  |  SCRIP: {_gameState.PactScrip} SC  |  STRIKES: {_gameState.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}",
+        UiText.Draw(body1, 280 + (720 - UiText.MeasureWidth(body1, 10)) / 2, 268, 10, Palette.CrtAmberPrimary);
+        UiText.Draw(body2, 280 + (720 - UiText.MeasureWidth(body2, 10)) / 2, 294, 10, Palette.CrtAmberDimmed);
+        UiText.Draw($"FINAL RECORD: DAY {_gameState.Day:D2}  |  SCRIP: {_gameState.PactScrip} SC  |  STRIKES: {_gameState.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}",
             416, 356, 10, Palette.WeatheredGunmetalEdge);
 
         DrawSmallModalBtn(mouse, 460, 500, 360, 44, "[ RETURN TO MAIN MENU ]", Palette.CrtAmberPrimary);
@@ -2127,7 +2232,7 @@ public sealed class QuartersScreen : IScreen
         bool hov = mouse.IsHit(x, y, 28, 24);
         Raylib.DrawRectangle(x, y, 28, 24, hov ? Palette.AlertCrimson : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, 28, 24, Palette.AlertCrimson);
-        Raylib.DrawText("X", x + 10, y + 7, 10, hov ? Palette.OutlineVoid : Palette.AlertCrimson);
+        UiText.Draw("X", x + 10, y + 7, 10, hov ? Palette.OutlineVoid : Palette.AlertCrimson);
     }
 
     private static void DrawSmallModalBtn(VirtualMouseState mouse, int x, int y, int w, int h, string label, Color accent)
@@ -2135,18 +2240,18 @@ public sealed class QuartersScreen : IScreen
         bool hov = mouse.IsHit(x, y, w, h);
         Raylib.DrawRectangle(x, y, w, h, hov ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, w, h, hov ? Palette.CrtAmberPrimary : accent);
-        int tw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, x + Math.Max(4, (w - tw) / 2), y + (h - 10) / 2, 10, hov ? Palette.CrtAmberPrimary : accent);
+        int tw = UiText.MeasureWidth(label, 10);
+        UiText.Draw(label, x + Math.Max(4, (w - tw) / 2), y + (h - 10) / 2, 10, hov ? Palette.CrtAmberPrimary : accent);
     }
 
     private static string TruncateText(string value, int fontSize, int maxPx)
     {
         if (string.IsNullOrEmpty(value) || maxPx <= 0)
             return string.Empty;
-        if (Raylib.MeasureText(value, fontSize) <= maxPx)
+        if (UiText.MeasureWidth(value, fontSize) <= maxPx)
             return value;
         int len = value.Length;
-        while (len > 1 && Raylib.MeasureText(value[..len], fontSize) > maxPx)
+        while (len > 1 && UiText.MeasureWidth(value[..len], fontSize) > maxPx)
             len--;
         return value[..len];
     }

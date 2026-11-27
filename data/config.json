@@ -1,5 +1,6 @@
 {
   "enableGravityGauge": true,
+  "enableStokerDial": true,
   "enableDockingDrone": false,
   "enableDebugMenu": true,
   "enableDenyTurnBack": false,
@@ -7,10 +8,20 @@
   // Booth 04 Layout Mode (OptionA_Classic | OptionB1_CommsSwap | OptionB2_CommsSwapFlush)
   "deskUpperLayoutMode": "OptionB2_CommsSwapFlush",
 
+  // Procedural Ship Art Renderer (V1_Classic | V2_HiBit)
+  "shipArtVersion": "V2_HiBit",
+
+  // Cert-Wafer Scooping Mode (PostVerdictAutoScoop | CenterSwipeScoop | ModifierScoop)
+  "waferScoopMode": "PostVerdictAutoScoop",
+
+  // Active UI Font Preset ("PixelOperatorMono-Bold", "ConsolasBold", "Consolas", "CascadiaMonoSemiBold", "LucidaConsole", "CourierNewBold", "SegoeUISemibold", "TahomaBold", "VerdanaBold", "TrebuchetBold", "Bahnschrift", "RaylibDefault", or assets/fonts stem)
+  "uiFontPreset": "PixelOperatorMono-Bold",
+  "uiFontSizeOffset": 0,
+
   // Non-blocking CRT Comms Dialogue typewriter streaming speed (chars/sec at 1.0x AnimSpeedMultiplier)
   "dialogueTypewriterCharsPerSec": 65,
 
-  // Scripted talking-head hail pacing (Day 1 Commander Vorst, Day 3 Kordani Officer, future tentpole hails)
+  // Scripted talking-head hail pacing (Day 1 Commander Vorst, Day 4 Kordani Officer, future tentpole hails)
   "talkingHeadCharsPerSec": 32,
   "talkingHeadLinePauseSeconds": 0.95,
   "talkingHeadAdvanceMode": "AutoAdvance",
@@ -18,12 +29,17 @@
   // Clock-out Booth 04 sequential shutdown duration (configurable 3.8-4.2s, scaled by AnimSpeedMultiplier)
   "clockOutPowerDownDelaySeconds": 4.0,
 
+  // Encounter Compliance & Invalid-Ship Tunables (Build 4.5)
+  "shieldsUpBaseChance": 0.38,
+  "invalidShipRateEarly": 0.38,
+  "invalidShipRateMid": 0.45,
+
   // Subtle Variable Shift Clock (seconds per stage)
   "shiftDurationDay1": 210,
-  "shiftDurationDays2To4": 240,
-  "shiftDurationDays5To9": 255,
-  "shiftDurationDays10To15": 270,
-  "shiftDurationDays16Plus": 285,
+  "shiftDurationDays2To5": 240,
+  "shiftDurationDays6To11": 255,
+  "shiftDurationDays12To17": 270,
+  "shiftDurationDays18Plus": 285,
 
   // Economy & Requisition Playtest Placeholders (Pure SC Economy // TODO: BALANCE during playtesting)
   "berthLeaseCost": 30,
@@ -39,26 +55,32 @@
   "pocketUpgrade2Cost": 60,
   "pocketUpgrade3Cost": 120,
   "pocketUpgrade2MinDay": 6,
-  "pocketUpgrade3MinDay": 13,
+  "pocketUpgrade3MinDay": 15,
   "auditDeferralFeeCost": 50,
 
   // Security Strikes, Clean-Audit Fine & Stoker Overload (// TODO: BALANCE)
   "maxStrikesBeforeAudit": 3,
   "cleanAuditFine": 40,
   "cleanAuditKordaniRepDrop": -2,
-  "stokerOverloadFine": 35,
+  "stokerOverloadFine": 35, // TODO: BALANCE
+  "stokerIdleBaseline": 15.0,
+  "stokerSafeLoadCap": 65.0,
+  "stokerSafeLoadStepFactor": 0.30,
+  "stokerUncalibratedShock": 33.0,
 
   // Quarters Contraband Vent Stash (// TODO: BALANCE against 90 SC Shielded Pocket Lining)
   "ventStashCapacity": 3,
 
-  // Configurable Rule Escalation & Hardware Unlock Days
-  "dayUnlockManualPart1": 5,
-  "dayUnlockManualHulls": 7,
-  "dayUnlockWaferCargo": 10,
-  "dayUnlockStoker": 13,
-  "dayUnlockFaceBribes": 16,
-  "dayUnlockCargoBioScan": 19,
-  "dayUnlockHostilityDestroy": 20,
-  "dayUnlockTransitPass": 22,
-  "dayPactClimax": 23
+  // Configurable Rule Escalation & Hardware Unlock Days (28-Day Spaced Schedule)
+  "dayUnlockWarpScanner": 4,
+  "dayUnlockManualPart1": 8,
+  "dayUnlockManualHulls": 10,
+  "dayUnlockWaferCargo": 12,
+  "dayUnlockStoker": 15,
+  "dayUnlockFaceBribes": 18,
+  "dayUnlockCargoBioScan": 21,
+  "dayUnlockHostilityDestroy": 22,
+  "dayUnlockTransitPass": 24,
+  "dayPactClimax": 26,
+  "campaignFinalDay": 28
 }

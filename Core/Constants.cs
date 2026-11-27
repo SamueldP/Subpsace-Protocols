@@ -17,16 +17,22 @@ public static class Constants
     public const int PortraitHeight = 64;
     public const int ShipWidth = 120;
     public const int ShipHeight = 56;
+    public const int CorridorSpriteWidth = 16;
+    public const int CorridorSpriteHeight = 32;
+    public const int CorridorSpritePreviewScale = 3;
 
     // Shift Timing & Station Cycle Calendar (CYC YYYY.MM)
     public const float ShiftDurationSeconds = 270.0f; // Stage 4 baseline fallback
-    public const int DefaultShiftDurationDay1 = 210;       // 3m 30s
-    public const int DefaultShiftDurationDays2To4 = 240;   // 4m 00s
-    public const int DefaultShiftDurationDays5To9 = 255;   // 4m 15s
-    public const int DefaultShiftDurationDays10To15 = 270; // 4m 30s
-    public const int DefaultShiftDurationDays16Plus = 285; // 4m 45s
-    public const int MaxCampaignDay = 25;
+    public const int DefaultShiftDurationDay1 = 210;        // 3m 30s
+    public const int DefaultShiftDurationDays2To5 = 240;    // 4m 00s
+    public const int DefaultShiftDurationDays6To11 = 255;   // 4m 15s
+    public const int DefaultShiftDurationDays12To17 = 270;  // 4m 30s
+    public const int DefaultShiftDurationDays18Plus = 285;  // 4m 45s
+    public const int MaxCampaignDay = 28;
     public const int PreGeneratedQueueSize = 16;      // Pre-loaded deterministic daily shift queue
+    public const float DefaultShieldsUpBaseChance = 0.38f;
+    public const float DefaultInvalidShipRateEarly = 0.38f; // Days 1-5
+    public const float DefaultInvalidShipRateMid = 0.45f;   // Days 6+
     public const int BaseStationCycleYear = 2409;
     public const int BaseStationCycleMonth = 4;
 
@@ -69,20 +75,23 @@ public static class Constants
     public const int RepHighThreshold = 6;
     public const int RepKordaniDestroyUnlock = 8;
 
-    // Progressive Rule Escalation & Hardware Unlock Days
+    // Progressive Rule Escalation & Hardware Unlock Days (28-Day Spaced Schedule)
     public const int DayUnlockSpsAndCombat = 2;
-    public const int DayUnlockWarpAndStrikes = 3;
-    public const int DefaultDayUnlockManualPart1 = 5;
-    public const int DefaultDayUnlockManualHulls = 7;
-    public const int DefaultDayUnlockWaferCargo = 10;
-    public const int DefaultDayUnlockStoker = 13;
-    public const int DefaultDayUnlockFaceBribes = 16;
-    public const int DefaultDayUnlockCargoBioScan = 19;
-    public const int DefaultDayUnlockHostilityDestroy = 20;
-    public const int DefaultDayUnlockTransitPass = 22;
-    public const int DefaultDayPactClimax = 23;
+    public const int DayGhostRouteSuspect = 3;
+    public const int DefaultDayUnlockWarpScanner = 4;
+    public const int DayUnlockWarpAndStrikes = DefaultDayUnlockWarpScanner;
+    public const int DefaultDayUnlockManualPart1 = 8;
+    public const int DefaultDayUnlockManualHulls = 10;
+    public const int DefaultDayUnlockWaferCargo = 12;
+    public const int DefaultDayUnlockStoker = 15;
+    public const int DefaultDayUnlockFaceBribes = 18;
+    public const int DefaultDayUnlockCargoBioScan = 21;
+    public const int DefaultDayUnlockHostilityDestroy = 22;
+    public const int DefaultDayUnlockTransitPass = 24;
+    public const int DefaultDayPactClimax = 26;
+    public const int DefaultCampaignFinalDay = 28;
     public const int DefaultPocketUpgrade2MinDay = 6;
-    public const int DefaultPocketUpgrade3MinDay = 13;
+    public const int DefaultPocketUpgrade3MinDay = 15;
 
     // Canonical Ship Registration Prefixes (03_Gameplay_Rules/Documents_and_Data/Data_Slate_and_Telemetry.md)
     public static readonly string[] AllTrackedPrefixes =

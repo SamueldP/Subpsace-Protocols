@@ -41,6 +41,65 @@ public sealed class PixelBuffer
         return copy;
     }
 
+    /// <summary>
+    /// Crisp nearest-neighbor 2x integer upscale copying both RGBA and hex pixels directly.
+    /// </summary>
+    public PixelBuffer Upscale2x()
+    {
+        int dstW = Width * 2;
+        int dstH = Height * 2;
+        PixelBuffer dst = new(dstW, dstH);
+
+        for (int y = 0; y < Height; y++)
+        {
+            int srcRow = y * Width;
+            int dstRow0 = (y * 2) * dstW;
+            int dstRow1 = dstRow0 + dstW;
+            for (int x = 0; x < Width; x++)
+            {
+                int srcIdx = srcRow + x;
+                Color? rgba = _rgbaPixels[srcIdx];
+                if (!rgba.HasValue)
+                    continue;
+
+                string? hex = _hexPixels[srcIdx];
+                int dx = x * 2;
+
+                dst._rgbaPixels[dstRow0 + dx] = rgba;
+                dst._rgbaPixels[dstRow0 + dx + 1] = rgba;
+                dst._rgbaPixels[dstRow1 + dx] = rgba;
+                dst._rgbaPixels[dstRow1 + dx + 1] = rgba;
+
+                dst._hexPixels[dstRow0 + dx] = hex;
+                dst._hexPixels[dstRow0 + dx + 1] = hex;
+                dst._hexPixels[dstRow1 + dx] = hex;
+                dst._hexPixels[dstRow1 + dx + 1] = hex;
+            }
+        }
+
+        return dst;
+    }
+
+    /// <summary>
+    /// Returns a horizontally mirrored copy of this buffer (preserving RGBA and hex pixels).
+    /// </summary>
+    public PixelBuffer MirrorHorizontal()
+    {
+        PixelBuffer dst = new(Width, Height);
+        for (int y = 0; y < Height; y++)
+        {
+            int row = y * Width;
+            for (int x = 0; x < Width; x++)
+            {
+                int srcIdx = row + x;
+                int dstIdx = row + (Width - 1 - x);
+                dst._rgbaPixels[dstIdx] = _rgbaPixels[srcIdx];
+                dst._hexPixels[dstIdx] = _hexPixels[srcIdx];
+            }
+        }
+        return dst;
+    }
+
     public void Clear(string? hexColor = null)
     {
         Color? rgba = hexColor != null ? Palette.FromHex(hexColor) : null;

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Raylib_cs;
 using SubspaceProtocols.Core;
 using SubspaceProtocols.Data;
@@ -36,7 +37,7 @@ public sealed class TerminalOverlay
         (88, 196, "MESSAGES", false),
         (292, 196, "FORUM", false),
         (496, 196, "PACT REQ", false),
-        (716, 212, "CRYPTO / LOGS", true),
+        (716, 212, "CRYPTOGRAPHY", true),
         (936, 200, "DECK 4", true)
     ];
     private const int CloseBtnX = 1144;
@@ -269,7 +270,7 @@ public sealed class TerminalOverlay
     public void RefreshForumThreads()
     {
         _forumDb = ForumDatabase.Load();
-        _visibleForumThreads = _economy.GetVisibleForumThreads(_gameState, _forumDb);
+        _visibleForumThreads = _economy.GetVisibleForumThreads(_gameState, _forumDb, _config);
         if (_selectedForumThreadIndex >= _visibleForumThreads.Count)
         {
             _selectedForumThreadIndex = 0;
@@ -641,7 +642,7 @@ public sealed class TerminalOverlay
         // Button 1: DECRYPT MESSAGE [0 SC] (logs [UNAUTH_IO])
         if (mouse.IsHit(CryptoLeftX + 12, CryptoLeftY + 38, CryptoLeftW - 24, 44))
         {
-            var (ok, msg, _) = _economy.TryDecryptNextMessage(_gameState);
+            var (ok, msg, _) = _economy.TryDecryptNextMessage(_gameState, _config);
             SetStatus(msg, isError: !ok);
             AudioHooks.Play(ok ? "terminal_key_confirm" : "citation_buzz");
             return;
@@ -700,7 +701,8 @@ public sealed class TerminalOverlay
                     match.Mission.MissionId,
                     match.MatchingSlate,
                     match.SlateIsInVentStash,
-                    _covertMissionDb);
+                    _covertMissionDb,
+                    _config);
                 SetStatus(res.Message, isError: !res.Success);
                 if (!res.Success)
                 {
@@ -767,7 +769,7 @@ public sealed class TerminalOverlay
 
             if (!listing.IsActive && mouse.IsHit(accBtnX, accBtnY, 102, 30))
             {
-                var (ok, msg) = _economy.TryAcceptCovertContract(_gameState, listing.Mission.MissionId, _covertMissionDb);
+                var (ok, msg) = _economy.TryAcceptCovertContract(_gameState, listing.Mission.MissionId, _covertMissionDb, _config);
                 SetStatus(msg, !ok);
                 AudioHooks.Play(ok ? "terminal_key_confirm" : "citation_buzz");
                 return;
@@ -914,7 +916,7 @@ public sealed class TerminalOverlay
             Raylib.DrawRectangleLines(boxX, boxY, boxW, boxH, (tick % 2 == 0) ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
             Raylib.DrawRectangleLines(boxX + 2, boxY + 2, boxW - 4, boxH - 4, Palette.FromHex("#a78bfa"));
 
-            Raylib.DrawText("[SYS_OVERRIDE // PORT 04 TUNNEL INJECTED]", boxX + 18, boxY + 14, 10, Palette.AlertCrimson);
+            UiText.Draw("[SYS_OVERRIDE // PORT 04 TUNNEL INJECTED]", boxX + 18, boxY + 14, 10, Palette.AlertCrimson);
             Raylib.DrawLine(boxX + 14, boxY + 30, boxX + boxW - 14, boxY + 30, Palette.AlertCrimson);
 
             string[] hexLines =
@@ -929,7 +931,7 @@ public sealed class TerminalOverlay
             for (int li = 0; li < showLines; li++)
             {
                 Color lineCol = li >= 2 ? Palette.FromHex("#a78bfa") : ((li % 2 == 0) ? Palette.CrtAmberPrimary : Palette.AlertCrimson);
-                Raylib.DrawText(hexLines[li], boxX + 18, boxY + 44 + li * 22, 10, lineCol);
+                UiText.Draw(hexLines[li], boxX + 18, boxY + 44 + li * 22, 10, lineCol);
             }
 
             // Progress bar at bottom of hijack box
@@ -1001,6 +1003,16 @@ public sealed class TerminalOverlay
                 tabBg = new Color(38, 22, 72, 255);
                 tabFg = Color.White;
             }
+            else if (i == 2 && !selected &&
+                     _gameState.Day == 1 &&
+                     _gameState.QuartersPhase == QuartersPhase.Evening &&
+                     _gameState.TonightRationOrder == NightlyRationOrder.None)
+            {
+                float pulse = 0.5f + 0.5f * MathF.Sin(_visualTime * 3.2f);
+                tabBorder = Palette.CrtAmberPrimary;
+                tabBg = new Color((byte)(28 + (int)MathF.Round(pulse * 20f)), (byte)(22 + (int)MathF.Round(pulse * 12f)), (byte)12, (byte)255);
+                tabFg = Palette.CrtAmberPrimary;
+            }
 
             Raylib.DrawRectangle(drawX, drawY, tw, TabH, tabBg);
             Raylib.DrawRectangleLines(drawX, drawY, tw, TabH, tabBorder);
@@ -1010,9 +1022,9 @@ public sealed class TerminalOverlay
             }
 
             string display = (i == 0 && unread > 0) ? $"{label} ({unread})" : label;
-            int labelW = Raylib.MeasureText(display, 10);
+            int labelW = UiText.MeasureWidth(display, 10);
             int textX = drawX + (tw - labelW) / 2;
-            Raylib.DrawText(display, textX, drawY + 15, 10, tabFg);
+            UiText.Draw(display, textX, drawY + 15, 10, tabFg);
 
             if (i == 0 && unread > 0)
             {
@@ -1024,8 +1036,8 @@ public sealed class TerminalOverlay
         bool closeHover = !_hackGlitchActive && mouse.IsHit(CloseBtnX, CloseBtnY, CloseBtnW, CloseBtnH);
         Raylib.DrawRectangle(CloseBtnX + jx, CloseBtnY + jy, CloseBtnW, CloseBtnH, closeHover ? Palette.AlertCrimson : new Color(28, 20, 22, 255));
         Raylib.DrawRectangleLines(CloseBtnX + jx, CloseBtnY + jy, CloseBtnW, CloseBtnH, closeHover ? Palette.CrtAmberPrimary : Palette.AlertCrimson);
-        int xw = Raylib.MeasureText("[X]", 10);
-        Raylib.DrawText("[X]", CloseBtnX + jx + (CloseBtnW - xw) / 2, CloseBtnY + jy + 15, 10, closeHover ? Palette.OutlineVoid : Palette.AlertCrimson);
+        int xw = UiText.MeasureWidth("[X]", 10);
+        UiText.Draw("[X]", CloseBtnX + jx + (CloseBtnW - xw) / 2, CloseBtnY + jy + 15, 10, closeHover ? Palette.OutlineVoid : Palette.AlertCrimson);
     }
 
     private static Color GetTabAccentColor(bool isUnofficial) =>
@@ -1054,18 +1066,18 @@ public sealed class TerminalOverlay
         Raylib.DrawRectangle(InboxX, InboxY, InboxW, InboxH, new Color(10, 14, 20, 255));
         Raylib.DrawRectangleLines(InboxX, InboxY, InboxW, InboxH, Palette.ClearanceTeal);
         Raylib.DrawRectangle(InboxX + 1, InboxY + 1, InboxW - 2, 24, new Color(18, 34, 40, 255));
-        Raylib.DrawText($"INBOX // {sorted.Count} MSG ({_gameState.UnreadEmailCount} UNREAD)", InboxX + 8, InboxY + 7, 10, Palette.ClearanceTeal);
+        UiText.Draw($"INBOX // {sorted.Count} MSG ({_gameState.UnreadEmailCount} UNREAD)", InboxX + 8, InboxY + 7, 10, Palette.ClearanceTeal);
 
         int inboxBarX = InboxX + InboxW - 18;
         DrawPixelScrollButtons(mouse, inboxBarX, InboxY + 28, InboxY + InboxH - 18, _inboxScroll > 0, _inboxScroll < maxInboxScroll);
 
         if (sorted.Count == 0)
         {
-            Raylib.DrawText("INBOX EMPTY", InboxX + 116, InboxY + 216, 10, Palette.WeatheredGunmetalEdge);
-            Raylib.DrawText("NO SUBSPACE MAIL RECEIVED.", InboxX + 76, InboxY + 236, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("INBOX EMPTY", InboxX + 116, InboxY + 216, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("NO SUBSPACE MAIL RECEIVED.", InboxX + 76, InboxY + 236, 10, Palette.WeatheredGunmetalEdge);
             if (_gameState.Day == 1 && _gameState.QuartersPhase == QuartersPhase.Morning)
             {
-                Raylib.DrawText("MORNING SHIP ROSTERS BEGIN DAY 02.", InboxX + 56, InboxY + 264, 10, Palette.CrtAmberDimmed);
+                UiText.Draw("MORNING SHIP ROSTERS BEGIN DAY 02.", InboxX + 56, InboxY + 264, 10, Palette.CrtAmberDimmed);
             }
         }
         else
@@ -1117,20 +1129,20 @@ public sealed class TerminalOverlay
 
                     // Clear leading [NEW] badge + bold high-contrast subject
                     const string badge = "[NEW]";
-                    int badgeW = Raylib.MeasureText(badge, 10);
+                    int badgeW = UiText.MeasureWidth(badge, 10);
                     Raylib.DrawRectangle(InboxX + 12, ry + 5, badgeW + 4, 13, accentBar);
-                    Raylib.DrawText(badge, InboxX + 14, ry + 7, 10, Palette.OutlineVoid);
+                    UiText.Draw(badge, InboxX + 14, ry + 7, 10, Palette.OutlineVoid);
 
                     int subjX = InboxX + 20 + badgeW;
                     string prefixTag = mail.IsEncrypted ? "[ENC] " : (mail.IsMorningRoster ? "[ROSTER] " : string.Empty);
                     string subj = TruncateText(prefixTag + mail.Subject, 10, InboxW - 46 - badgeW);
                     Color subjCol = mail.IsTerminalHackEmail || mail.IsEncrypted ? Palette.CrtAmberPrimary : Color.White;
                     // Crisp 1px pixel-bold subject
-                    Raylib.DrawText(subj, subjX, ry + 7, 10, subjCol);
-                    Raylib.DrawText(subj, subjX + 1, ry + 7, 10, subjCol);
+                    UiText.Draw(subj, subjX, ry + 7, 10, subjCol);
+                    UiText.Draw(subj, subjX + 1, ry + 7, 10, subjCol);
 
-                    Raylib.DrawText(TruncateText(mail.Sender, 10, InboxW - 44), InboxX + 14, ry + 23, 10, new Color(216, 224, 232, 255));
-                    Raylib.DrawText($"DAY {mail.DayReceived:D2} {mail.PhaseReceived}", InboxX + 14, ry + 37, 10, Palette.CrtAmberDimmed);
+                    UiText.Draw(TruncateText(mail.Sender, 10, InboxW - 44), InboxX + 14, ry + 23, 10, new Color(216, 224, 232, 255));
+                    UiText.Draw($"DAY {mail.DayReceived:D2} {mail.PhaseReceived}", InboxX + 14, ry + 37, 10, Palette.CrtAmberDimmed);
                 }
                 else
                 {
@@ -1138,9 +1150,9 @@ public sealed class TerminalOverlay
                     string prefixTag = mail.IsEncrypted ? "[ENC] " : (mail.IsMorningRoster ? "[ROSTER] " : string.Empty);
                     string subj = TruncateText(prefixTag + mail.Subject, 10, InboxW - 44);
                     Color subjCol = sel ? Palette.ClearanceTeal : new Color(118, 130, 142, 255);
-                    Raylib.DrawText(subj, InboxX + 12, ry + 7, 10, subjCol);
-                    Raylib.DrawText(TruncateText(mail.Sender, 10, InboxW - 44), InboxX + 12, ry + 23, 10, new Color(86, 96, 108, 255));
-                    Raylib.DrawText($"DAY {mail.DayReceived:D2} {mail.PhaseReceived}", InboxX + 12, ry + 37, 10, new Color(60, 68, 78, 255));
+                    UiText.Draw(subj, InboxX + 12, ry + 7, 10, subjCol);
+                    UiText.Draw(TruncateText(mail.Sender, 10, InboxW - 44), InboxX + 12, ry + 23, 10, new Color(86, 96, 108, 255));
+                    UiText.Draw($"DAY {mail.DayReceived:D2} {mail.PhaseReceived}", InboxX + 12, ry + 37, 10, new Color(60, 68, 78, 255));
                 }
             }
         }
@@ -1158,32 +1170,34 @@ public sealed class TerminalOverlay
 
             if (!string.IsNullOrWhiteSpace(activeMail.Recipient))
             {
-                PixelText.DrawText($"FROM:    {TruncateText(activeMail.Sender, 10, ReaderW - 88)}", ReaderX + 14, ReaderY + 8, 10,
+                UiText.Draw($"FROM:    {TruncateText(activeMail.Sender, 10, ReaderW - 88)}", ReaderX + 14, ReaderY + 8, 10,
                     activeMail.IsTerminalHackEmail ? Palette.AlertCrimson : Palette.ClearanceTeal);
-                PixelText.DrawText($"TO:      {TruncateText(activeMail.Recipient, 10, ReaderW - 88)}", ReaderX + 14, ReaderY + 23, 10,
+                UiText.Draw($"TO:      {TruncateText(activeMail.Recipient, 10, ReaderW - 88)}", ReaderX + 14, ReaderY + 23, 10,
                     Palette.ClearanceTeal);
-                PixelText.DrawText($"SUBJECT: {TruncateText(activeMail.Subject, 10, ReaderW - 88)}", ReaderX + 14, ReaderY + 38, 10,
+                UiText.Draw($"SUBJECT: {TruncateText(activeMail.Subject, 10, ReaderW - 88)}", ReaderX + 14, ReaderY + 38, 10,
                     activeMail.IsEncrypted || activeMail.IsTerminalHackEmail ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
-                PixelText.DrawText($"TIME:    {activeMail.CycleTimestamp}  |  DAY {activeMail.DayReceived:D2} ({activeMail.PhaseReceived})",
+                UiText.Draw(TruncateText($"TIME:    {activeMail.CycleTimestamp}  |  DAY {activeMail.DayReceived:D2} ({activeMail.PhaseReceived})", 10, ReaderW - 28),
                     ReaderX + 14, ReaderY + 53, 10, Palette.WeatheredGunmetalEdge);
             }
             else
             {
-                Raylib.DrawText($"FROM:    {activeMail.Sender}", ReaderX + 14, ReaderY + 10, 10,
+                UiText.Draw(TruncateText($"FROM:    {activeMail.Sender}", 10, ReaderW - 28), ReaderX + 14, ReaderY + 10, 10,
                     activeMail.IsTerminalHackEmail ? Palette.AlertCrimson : Palette.ClearanceTeal);
-                Raylib.DrawText($"SUBJECT: {TruncateText(activeMail.Subject, 10, ReaderW - 104)}", ReaderX + 14, ReaderY + 28, 10,
+                UiText.Draw($"SUBJECT: {TruncateText(activeMail.Subject, 10, ReaderW - 104)}", ReaderX + 14, ReaderY + 28, 10,
                     activeMail.IsEncrypted || activeMail.IsTerminalHackEmail ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
-                Raylib.DrawText($"TIME:    {activeMail.CycleTimestamp}  |  DAY {activeMail.DayReceived:D2} ({activeMail.PhaseReceived})",
+                UiText.Draw(TruncateText($"TIME:    {activeMail.CycleTimestamp}  |  DAY {activeMail.DayReceived:D2} ({activeMail.PhaseReceived})", 10, ReaderW - 28),
                     ReaderX + 14, ReaderY + 46, 10, Palette.WeatheredGunmetalEdge);
 
-                string statusLine = activeMail.IsEncrypted
-                    ? "STATUS:  CIPHER LOCKED (DECRYPT IN CRYPTO / LOGS -- 0 SC)"
-                    : (activeMail.IsTerminalHackEmail ? "STATUS:  ANOMALOUS RELAY // PORT 04 OVERRIDE" : "STATUS:  VERIFIED");
-                Raylib.DrawText(statusLine, ReaderX + 14, ReaderY + 61, 10,
+                string statusLine = !string.IsNullOrWhiteSpace(activeMail.CustomStatusLine)
+                    ? $"STATUS:  {activeMail.CustomStatusLine}"
+                    : (activeMail.IsEncrypted
+                        ? "STATUS:  CIPHER LOCKED (DECRYPT IN CRYPTOGRAPHY -- 0 SC)"
+                        : (activeMail.IsTerminalHackEmail ? "STATUS:  ANOMALOUS RELAY // PORT 04 OVERRIDE" : "STATUS:  VERIFIED"));
+                UiText.Draw(TruncateText(statusLine, 10, ReaderW - 28), ReaderX + 14, ReaderY + 61, 10,
                     activeMail.IsEncrypted || activeMail.IsTerminalHackEmail ? Palette.AlertCrimson : Palette.ClearanceTeal);
             }
 
-            List<string> bodyLines = WrapMultilineText(activeMail.Body, 10, ReaderW - 48);
+            List<string> bodyLines = WrapMultilineText(StripAuthoringTodoTags(activeMail.Body), 10, ReaderW - 48);
             int visibleRows = (activeMail.IsEncrypted && _gameState.TerminalHackedUnlocked) ? 21 : 26;
             int maxScroll = Math.Max(0, bodyLines.Count - visibleRows);
             _readerScroll = Math.Clamp(_readerScroll, 0, maxScroll);
@@ -1205,7 +1219,7 @@ public sealed class TerminalOverlay
                            ln.StartsWith("FIDUCIARY OBLIGATIONS", StringComparison.Ordinal)
                             ? Palette.CrtAmberPrimary
                             : new Color(216, 224, 232, 255)));
-                PixelText.DrawText(ln, ReaderX + 16, textY + i * 15, 10, col);
+                UiText.Draw(ln, ReaderX + 16, textY + i * 15, 10, col);
             }
 
             if (activeMail.IsEncrypted && _gameState.TerminalHackedUnlocked)
@@ -1217,11 +1231,11 @@ public sealed class TerminalOverlay
         else
         {
             const string standby = "SELECT A TRANSMISSION TO VIEW";
-            int sw = Raylib.MeasureText(standby, 10);
-            Raylib.DrawText(standby, ReaderX + (ReaderW - sw) / 2, ReaderY + ReaderH / 2 - 12, 10, Palette.WeatheredGunmetalEdge);
+            int sw = UiText.MeasureWidth(standby, 10);
+            UiText.Draw(standby, ReaderX + (ReaderW - sw) / 2, ReaderY + ReaderH / 2 - 12, 10, Palette.WeatheredGunmetalEdge);
             const string sub = "READER PANE IN STANDBY";
-            int subW = Raylib.MeasureText(sub, 10);
-            Raylib.DrawText(sub, ReaderX + (ReaderW - subW) / 2, ReaderY + ReaderH / 2 + 8, 10, new Color(48, 56, 68, 255));
+            int subW = UiText.MeasureWidth(sub, 10);
+            UiText.Draw(sub, ReaderX + (ReaderW - subW) / 2, ReaderY + ReaderH / 2 + 8, 10, new Color(48, 56, 68, 255));
         }
     }
 
@@ -1240,14 +1254,14 @@ public sealed class TerminalOverlay
 
         Raylib.DrawRectangle(ForumHdrX, ForumHdrY, ForumHdrW, ForumHdrH, forumHeaderBg);
         Raylib.DrawRectangleLines(ForumHdrX, ForumHdrY, ForumHdrW, ForumHdrH, forumBorder);
-        Raylib.DrawText(_forumDb.BoardName, ForumHdrX + 12, ForumHdrY + 8, 10, forumLink);
+        UiText.Draw(_forumDb.BoardName, ForumHdrX + 12, ForumHdrY + 8, 10, forumLink);
         string boardMeta = $"HABITAT RING B LOCAL NODE  |  ACTIVE THREADS: {_visibleForumThreads.Count}  |  DAY {_gameState.Day:D2}";
-        Raylib.DrawText(boardMeta, ForumHdrX + 12, ForumHdrY + 25, 10, new Color(156, 184, 222, 255));
+        UiText.Draw(boardMeta, ForumHdrX + 12, ForumHdrY + 25, 10, new Color(156, 184, 222, 255));
 
         Raylib.DrawRectangle(ForumListX, ForumListY, ForumListW, ForumListH, new Color(10, 14, 24, 255));
         Raylib.DrawRectangleLines(ForumListX, ForumListY, ForumListW, ForumListH, forumBorder);
         Raylib.DrawRectangle(ForumListX + 1, ForumListY + 1, ForumListW - 2, 22, new Color(18, 28, 50, 255));
-        Raylib.DrawText("THREAD INDEX (BOARD / SUBJECT)", ForumListX + 8, ForumListY + 6, 10, forumLink);
+        UiText.Draw("THREAD INDEX (BOARD / SUBJECT)", ForumListX + 8, ForumListY + 6, 10, forumLink);
 
         int lBarX = ForumListX + ForumListW - 18;
         DrawPixelScrollButtons(mouse, lBarX, ForumListY + 26, ForumListY + ForumListH - 18,
@@ -1272,11 +1286,11 @@ public sealed class TerminalOverlay
             Raylib.DrawRectangle(ForumListX + 6, ry, ForumListW - 28, 54, rBg);
             Raylib.DrawRectangleLines(ForumListX + 6, ry, ForumListW - 28, 54, sel ? forumLink : new Color(36, 54, 88, 255));
 
-            Raylib.DrawText($"[{th.BoardTag}] ({th.Posts.Count} POSTS)", ForumListX + 12, ry + 6, 10, tagCol);
-            List<string> tLines = WrapMultilineText(th.Title, 10, ForumListW - 44);
+            UiText.Draw($"[{th.BoardTag}] ({th.Posts.Count} POSTS)", ForumListX + 12, ry + 6, 10, tagCol);
+            List<string> tLines = WrapMultilineText(StripAuthoringTodoTags(th.Title), 10, ForumListW - 44);
             for (int tl = 0; tl < Math.Min(2, tLines.Count); tl++)
             {
-                Raylib.DrawText(TruncateText(tLines[tl], 10, ForumListW - 44), ForumListX + 12, ry + 21 + tl * 13, 10,
+                UiText.Draw(TruncateText(tLines[tl], 10, ForumListW - 44), ForumListX + 12, ry + 21 + tl * 13, 10,
                     sel ? Color.White : new Color(196, 212, 236, 255));
             }
         }
@@ -1289,7 +1303,7 @@ public sealed class TerminalOverlay
             ForumThreadModel active = _visibleForumThreads[_selectedForumThreadIndex];
             Raylib.DrawRectangle(ForumStreamX + 1, ForumStreamY + 1, ForumStreamW - 2, 30, new Color(20, 32, 56, 255));
             Raylib.DrawLine(ForumStreamX + 1, ForumStreamY + 31, ForumStreamX + ForumStreamW - 2, ForumStreamY + 31, forumBorder);
-            Raylib.DrawText(TruncateText($"[{active.BoardTag}] {active.Title}", 10, ForumStreamW - 24),
+            UiText.Draw(TruncateText($"[{active.BoardTag}] {StripAuthoringTodoTags(active.Title)}", 10, ForumStreamW - 24),
                 ForumStreamX + 10, ForumStreamY + 10, 10, Palette.CrtAmberPrimary);
 
             List<(string Text, Color Col, bool IsHeader, bool IsDivider)> streamLines = [];
@@ -1297,7 +1311,7 @@ public sealed class TerminalOverlay
             {
                 ForumPostModel post = active.Posts[p];
                 streamLines.Add(($"@{post.Handle}  [{post.RoleTag}]   --   {post.Timestamp}", forumLink, true, false));
-                foreach (string wrapped in WrapMultilineText(post.Body, 10, ForumStreamW - 48))
+                foreach (string wrapped in WrapMultilineText(StripAuthoringTodoTags(post.Body), 10, ForumStreamW - 48))
                 {
                     streamLines.Add((wrapped, new Color(214, 224, 240, 255), false, false));
                 }
@@ -1323,7 +1337,7 @@ public sealed class TerminalOverlay
                 if (row.IsHeader)
                 {
                     Raylib.DrawRectangle(ForumStreamX + 8, py - 2, ForumStreamW - 32, 14, new Color(18, 28, 48, 255));
-                    Raylib.DrawText(TruncateText(row.Text, 10, ForumStreamW - 44), ForumStreamX + 14, py, 10, row.Col);
+                    UiText.Draw(TruncateText(row.Text, 10, ForumStreamW - 44), ForumStreamX + 14, py, 10, row.Col);
                 }
                 else if (row.IsDivider)
                 {
@@ -1331,7 +1345,7 @@ public sealed class TerminalOverlay
                 }
                 else
                 {
-                    Raylib.DrawText(TruncateText(row.Text, 10, ForumStreamW - 44), ForumStreamX + 16, py, 10, row.Col);
+                    UiText.Draw(TruncateText(row.Text, 10, ForumStreamW - 44), ForumStreamX + 16, py, 10, row.Col);
                 }
                 py += 16;
             }
@@ -1354,11 +1368,11 @@ public sealed class TerminalOverlay
 
         Raylib.DrawRectangle(ViewX + 8, ViewY + 8, ViewW - 16, 44, headerBg);
         Raylib.DrawRectangleLines(ViewX + 8, ViewY + 8, ViewW - 16, 44, bmcMuted);
-        Raylib.DrawText("BRENGOP MERCANTILE CONSORTIUM // OFFICIAL REQUISITION", ViewX + 20, ViewY + 16, 10, bmcYellow);
+        UiText.Draw("BRENGOP MERCANTILE CONSORTIUM // OFFICIAL REQUISITION", ViewX + 20, ViewY + 16, 10, bmcYellow);
         string phaseTag = _gameState.QuartersPhase == QuartersPhase.Evening
             ? "EVENING REQUISITION WINDOW OPEN  |  FLAT PACT SCRIP (SC) BILLING  |  RATIONS DISPENSE ON REPLICATOR"
             : "MORNING SHIFT WINDOW  |  NIGHTLY RATIONS ORDERABLE IN EVENING QUARTERS";
-        Raylib.DrawText(phaseTag, ViewX + 20, ViewY + 34, 10, bmcMuted);
+        UiText.Draw(phaseTag, ViewX + 20, ViewY + 34, 10, bmcMuted);
 
         bool isEvening = _gameState.QuartersPhase == QuartersPhase.Evening;
         bool foodOrdered = _gameState.TonightRationOrder != NightlyRationOrder.None;
@@ -1396,24 +1410,24 @@ public sealed class TerminalOverlay
         const int summaryY = 344;
         Raylib.DrawRectangle(PactRowX, summaryY, PactRowW, 116, new Color(24, 22, 13, 255));
         Raylib.DrawRectangleLines(PactRowX, summaryY, PactRowW, 116, bmcBrass);
-        Raylib.DrawText("DIETARY FOCUS & REQUISITION ADVISORY", PactRowX + 14, summaryY + 14, 10, bmcYellow);
+        UiText.Draw("DIETARY FOCUS & REQUISITION ADVISORY", PactRowX + 14, summaryY + 14, 10, bmcYellow);
         string currentSwayDesc = _gameState.CurrentHungerTier switch
         {
             HungerTier.HighTierRations => "CURRENT SWAY TIER: HIGH-TIER RATIONS (0 SPS CURSOR SWAY)",
             HungerTier.MediumNutrientPaste => "CURRENT SWAY TIER: NUTRIENT PASTE (MEDIUM SPS CURSOR SWAY)",
             _ => "CURRENT SWAY TIER: DRY / UNFED 2+ DAYS (MAX SPS CURSOR SWAY)"
         };
-        Raylib.DrawText(currentSwayDesc, PactRowX + 14, summaryY + 38, 10, Palette.ClearanceTeal);
-        Raylib.DrawText("FOOD RATIONS ARE THE SOLE DRIVER OF NEXT-SHIFT SPS PROBE STABILITY.",
+        UiText.Draw(currentSwayDesc, PactRowX + 14, summaryY + 38, 10, Palette.ClearanceTeal);
+        UiText.Draw("FOOD RATIONS ARE THE SOLE DRIVER OF NEXT-SHIFT SPS PROBE STABILITY.",
             PactRowX + 14, summaryY + 58, 10, bmcMuted);
-        Raylib.DrawText($"NIGHTLY BERTH LEASE (-{_config.BerthLeaseCost} SC) IS AUTO-SETTLED AT CLOCK-OUT.",
+        UiText.Draw($"NIGHTLY BERTH LEASE (-{_config.BerthLeaseCost} SC) IS AUTO-SETTLED AT CLOCK-OUT.",
             PactRowX + 14, summaryY + 78, 10, bmcMuted);
 
         Raylib.DrawRectangle(ViewX + 8, ViewY + ViewH - 36, ViewW - 16, 28, new Color(28, 25, 12, 255));
         Raylib.DrawRectangleLines(ViewX + 8, ViewY + ViewH - 36, ViewW - 16, 28, bmcBrass);
         const string disc = "ALL DEDUCTIONS FINAL. BERTH LEASE AUTO-SETTLED AT CLOCK-OUT.";
-        int dw = Raylib.MeasureText(disc, 10);
-        Raylib.DrawText(disc, ViewX + (ViewW - dw) / 2, ViewY + ViewH - 27, 10, bmcYellow);
+        int dw = UiText.MeasureWidth(disc, 10);
+        UiText.Draw(disc, ViewX + (ViewW - dw) / 2, ViewY + ViewH - 27, 10, bmcYellow);
     }
 
     // =========================================================================
@@ -1432,7 +1446,7 @@ public sealed class TerminalOverlay
         Raylib.DrawRectangle(CryptoLeftX, CryptoLeftY, CryptoLeftW, CryptoLeftH, new Color(10, 17, 13, 255));
         Raylib.DrawRectangleLines(CryptoLeftX, CryptoLeftY, CryptoLeftW, CryptoLeftH, diagGreen);
         Raylib.DrawRectangle(CryptoLeftX + 1, CryptoLeftY + 1, CryptoLeftW - 2, 28, new Color(14, 30, 20, 255));
-        Raylib.DrawText("BERTH_04 // CRYPTO_DIAG_v2.3 (MISSIONS-ONLY)", CryptoLeftX + 12, CryptoLeftY + 9, 10, diagGreen);
+        UiText.Draw("BERTH_04 // CRYPTO_DIAG_v2.3 (MISSIONS-ONLY)", CryptoLeftX + 12, CryptoLeftY + 9, 10, diagGreen);
 
         int encCount = _gameState.Emails.Count(e => e.IsEncrypted);
         int unscrubbed = Math.Max(_gameState.UnscrubbedLogCount, _gameState.UnauthorizedLogCount);
@@ -1463,15 +1477,15 @@ public sealed class TerminalOverlay
         string traceLine = unscrubbed > 0
             ? $"TRACE LOGS: EXPOSED ({unscrubbed}) -- VENT AT RISK IN RAIDS"
             : "TRACE LOGS: CLEAN -- UNDER-DESK VENT SAFE IN RAIDS";
-        Raylib.DrawText(TruncateText(traceLine, 10, CryptoLeftW - 44), CryptoLeftX + 20, statY + 13, 10,
+        UiText.Draw(TruncateText(traceLine, 10, CryptoLeftW - 44), CryptoLeftX + 20, statY + 13, 10,
             unscrubbed > 0 ? Palette.AlertCrimson : Palette.ClearanceTeal);
 
         // 4. Direct MISSION DISPATCH Panel (y = CryptoLeftY + 186, h = 298 -> bottom 596)
         Raylib.DrawRectangle(DispatchBoxX, DispatchBoxY, DispatchBoxW, DispatchBoxH, new Color(7, 11, 9, 255));
         Raylib.DrawRectangleLines(DispatchBoxX, DispatchBoxY, DispatchBoxW, DispatchBoxH, diagGreen);
         Raylib.DrawRectangle(DispatchBoxX + 1, DispatchBoxY + 1, DispatchBoxW - 2, 38, new Color(13, 24, 18, 255));
-        Raylib.DrawText("// MISSION DISPATCH (INTERCEPT CONTRACTS)", DispatchBoxX + 10, DispatchBoxY + 6, 10, diagGreen);
-        Raylib.DrawText("WARNING: TRANSMITTING WRITES [AUDIT_FLAG] TO HEX LOGS.", DispatchBoxX + 10, DispatchBoxY + 22, 10, Palette.AlertCrimson);
+        UiText.Draw("// MISSION DISPATCH (INTERCEPT CONTRACTS)", DispatchBoxX + 10, DispatchBoxY + 6, 10, diagGreen);
+        UiText.Draw("WARNING: TRANSMITTING WRITES [AUDIT_FLAG] TO HEX LOGS.", DispatchBoxX + 10, DispatchBoxY + 22, 10, Palette.AlertCrimson);
 
         List<MissionDispatchMatch> dispatches = _intelEconomy.GetActiveInterceptDispatches(_gameState, _covertMissionDb);
         int maxDispScroll = Math.Max(0, dispatches.Count - 3);
@@ -1487,11 +1501,11 @@ public sealed class TerminalOverlay
         if (dispatches.Count == 0)
         {
             int unmatched = _intelEconomy.CountUnmatchedCapturedSlates(_gameState, _covertMissionDb);
-            Raylib.DrawText("NO ACTIVE INTERCEPT CONTRACTS.", DispatchBoxX + 106, DispatchBoxY + 122, 10, Palette.WeatheredGunmetalEdge);
-            Raylib.DrawText("ACCEPT INTERCEPT CONTRACTS ON [DECK 4].", DispatchBoxX + 82, DispatchBoxY + 144, 10, diagGreenDim);
+            UiText.Draw("NO ACTIVE INTERCEPT CONTRACTS.", DispatchBoxX + 106, DispatchBoxY + 122, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("ACCEPT INTERCEPT CONTRACTS ON [DECK 4].", DispatchBoxX + 82, DispatchBoxY + 144, 10, diagGreenDim);
             if (unmatched > 0)
             {
-                Raylib.DrawText($"UNMATCHED CAPTURED SLATES HELD: {unmatched}", DispatchBoxX + 100, DispatchBoxY + 174, 10, Palette.CrtAmberDimmed);
+                UiText.Draw($"UNMATCHED CAPTURED SLATES HELD: {unmatched}", DispatchBoxX + 100, DispatchBoxY + 174, 10, Palette.CrtAmberDimmed);
             }
         }
         else
@@ -1512,23 +1526,23 @@ public sealed class TerminalOverlay
                 Raylib.DrawRectangle(DispatchBoxX + 8, cy, cardW, 74, cBg);
                 Raylib.DrawRectangleLines(DispatchBoxX + 8, cy, cardW, 74, cBorder);
 
-                // Line 1: Requesting contact + Target Prefix
-                Raylib.DrawText(TruncateText(match.Mission.AssigningFaction, 10, cardW - 110),
+                // Line 1: Requesting contact + Target Prefix/Registration
+                UiText.Draw(TruncateText(StripAuthoringTodoTags(match.Mission.AssigningFaction), 10, cardW - 110),
                     DispatchBoxX + 16, cy + 7, 10, ready ? Palette.CrtAmberPrimary : diagGreen);
-                string tgtTag = $"TGT: {match.Mission.TargetPrefix}";
-                int tw = Raylib.MeasureText(tgtTag, 10);
-                Raylib.DrawText(tgtTag, DispatchBoxX + 8 + cardW - tw - 8, cy + 7, 10, Palette.ClearanceTeal);
+                string tgtTag = $"TGT: {match.EffectiveTargetLabel}";
+                int tw = UiText.MeasureWidth(tgtTag, 10);
+                UiText.Draw(tgtTag, DispatchBoxX + 8 + cardW - tw - 8, cy + 7, 10, Palette.ClearanceTeal);
 
                 // Line 2: Contract title
-                Raylib.DrawText(TruncateText(match.Mission.Title, 10, cardW - 16),
+                UiText.Draw(TruncateText(StripAuthoringTodoTags(match.Mission.Title), 10, cardW - 16),
                     DispatchBoxX + 16, cy + 22, 10, ready ? Color.White : new Color(138, 160, 146, 255));
 
                 if (ready && match.MatchingSlate != null)
                 {
                     string src = match.SlateIsInVentStash ? "VENT" : "POCKET";
-                    Raylib.DrawText(TruncateText($"{match.MatchingSlate.TargetShipRegistration} [{src}]", 10, cardW - 186),
+                    UiText.Draw(TruncateText($"{match.MatchingSlate.TargetShipRegistration} [{src}]", 10, cardW - 186),
                         DispatchBoxX + 16, cy + 40, 10, Palette.ClearanceTeal);
-                    Raylib.DrawText("LOGS [AUDIT_FLAG]", DispatchBoxX + 16, cy + 54, 10, Palette.AlertCrimson);
+                    UiText.Draw("LOGS [AUDIT_FLAG]", DispatchBoxX + 16, cy + 54, 10, Palette.AlertCrimson);
 
                     int txBtnW = 166;
                     int txBtnX = DispatchBoxX + 8 + cardW - txBtnW - 6;
@@ -1538,7 +1552,7 @@ public sealed class TerminalOverlay
                 }
                 else
                 {
-                    Raylib.DrawText($"AWAITING {match.Mission.TargetPrefix} CAPTURED SLATE (BOOTH 04 SLATE BUS)",
+                    UiText.Draw(TruncateText($"AWAITING {match.EffectiveTargetLabel} CAPTURED SLATE (BOOTH 04 SLATE BUS)", 10, cardW - 16),
                         DispatchBoxX + 16, cy + 46, 10, Palette.WeatheredGunmetalEdge);
                 }
             }
@@ -1548,9 +1562,9 @@ public sealed class TerminalOverlay
         Raylib.DrawRectangle(CryptoRightX, CryptoRightY, CryptoRightW, CryptoRightH, new Color(9, 14, 11, 255));
         Raylib.DrawRectangleLines(CryptoRightX, CryptoRightY, CryptoRightW, CryptoRightH, diagGreen);
         Raylib.DrawRectangle(CryptoRightX + 1, CryptoRightY + 1, CryptoRightW - 2, 28, new Color(14, 30, 20, 255));
-        Raylib.DrawText("SECURITY HEX LOGS // SLATE_BUS & SUBSPACE I/O TABLE", CryptoRightX + 12, CryptoRightY + 9, 10, diagGreen);
+        UiText.Draw("SECURITY HEX LOGS // SLATE_BUS & SUBSPACE I/O TABLE", CryptoRightX + 12, CryptoRightY + 9, 10, diagGreen);
 
-        Raylib.DrawText("ADDR      DAY  FLAG          EVENT", CryptoRightX + 12, CryptoRightY + 36, 10, diagGreenDim);
+        UiText.Draw("ADDR      DAY  FLAG          EVENT", CryptoRightX + 12, CryptoRightY + 36, 10, diagGreenDim);
         Raylib.DrawLine(CryptoRightX + 8, CryptoRightY + 50, CryptoRightX + CryptoRightW - 24, CryptoRightY + 50, diagGreenDim);
 
         int lBarX = CryptoRightX + CryptoRightW - 18;
@@ -1559,7 +1573,7 @@ public sealed class TerminalOverlay
 
         if (_gameState.SecurityLogs.Count == 0)
         {
-            Raylib.DrawText("0x00:000  D01  [SYS_OK]      NO UNAUTHORIZED I/O LOGGED.",
+            UiText.Draw("0x00:000  D01  [SYS_OK]      NO UNAUTHORIZED I/O LOGGED.",
                 CryptoRightX + 16, CryptoRightY + 64, 10, diagGreenDim);
         }
         else
@@ -1586,10 +1600,10 @@ public sealed class TerminalOverlay
                     ? new Color(92, 104, 112, 255)
                     : new Color(204, 226, 210, 255);
 
-                Raylib.DrawText(entry.HexAddr, CryptoRightX + 12, ly + 4, 10, diagGreen);
-                Raylib.DrawText($"D{entry.Day:D2}", CryptoRightX + 76, ly + 4, 10, Palette.CrtAmberDimmed);
-                Raylib.DrawText(entry.Tag, CryptoRightX + 108, ly + 4, 10, tagCol);
-                Raylib.DrawText(TruncateText(entry.Description, 10, descMaxPx), CryptoRightX + 196, ly + 4, 10, descCol);
+                UiText.Draw(entry.HexAddr, CryptoRightX + 12, ly + 4, 10, diagGreen);
+                UiText.Draw($"D{entry.Day:D2}", CryptoRightX + 76, ly + 4, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(entry.Tag, CryptoRightX + 108, ly + 4, 10, tagCol);
+                UiText.Draw(TruncateText(entry.Description, 10, descMaxPx), CryptoRightX + 196, ly + 4, 10, descCol);
             }
         }
     }
@@ -1607,8 +1621,8 @@ public sealed class TerminalOverlay
         Raylib.DrawRectangleLines(ViewX, ViewY, ViewW, ViewH, dosDim);
 
         // Retro DOS/BBS Header Banner
-        Raylib.DrawText("> TUNNEL: D4_VENT_RELAY // BAUD 2400 // NO_LOG", ViewX + 16, ViewY + 14, 10, dosAmber);
-        Raylib.DrawText("SIG:", ViewX + ViewW - 118, ViewY + 14, 10, dosDim);
+        UiText.Draw("> TUNNEL: D4_VENT_RELAY // BAUD 2400 // NO_LOG", ViewX + 16, ViewY + 14, 10, dosAmber);
+        UiText.Draw("SIG:", ViewX + ViewW - 118, ViewY + 14, 10, dosDim);
         int barsActive = ((int)(_visualTime * 3f) % 5 == 0) ? 4 : 5;
         for (int s = 0; s < 5; s++)
         {
@@ -1618,15 +1632,15 @@ public sealed class TerminalOverlay
         }
 
         string fullDoubleRule = new string('=', 156);
-        Raylib.DrawText(TruncateText(fullDoubleRule, 10, ViewW - 32), ViewX + 16, ViewY + 34, 10, dosDim);
-        Raylib.DrawText("[CHUTE DROP: 0500]  //  LOWER-DECK CONTRACT BOARD & EXCHANGE  --  ZERO BRENGOP RECEIPTS",
+        UiText.Draw(TruncateText(fullDoubleRule, 10, ViewW - 32), ViewX + 16, ViewY + 34, 10, dosDim);
+        UiText.Draw("[CHUTE DROP: 0500]  //  LOWER-DECK CONTRACT BOARD & EXCHANGE  --  ZERO BRENGOP RECEIPTS",
             ViewX + 16, ViewY + 52, 10, dosAmber);
-        Raylib.DrawText(TruncateText(fullDoubleRule, 10, ViewW - 32), ViewX + 16, ViewY + 68, 10, dosDim);
+        UiText.Draw(TruncateText(fullDoubleRule, 10, ViewW - 32), ViewX + 16, ViewY + 68, 10, dosDim);
 
         // Left Column: (104, 192, 536, 412) -- CONTRACTS & DROPS
         Raylib.DrawRectangle(Deck4LeftX, Deck4LeftY, Deck4LeftW, Deck4LeftH, new Color(13, 10, 7, 255));
         Raylib.DrawRectangleLines(Deck4LeftX, Deck4LeftY, Deck4LeftW, Deck4LeftH, dosDim);
-        Raylib.DrawText("> CONTRACTS & DROPS [COVERT BOARD]", Deck4LeftX + 12, Deck4LeftY + 9, 10, dosAmber);
+        UiText.Draw("> CONTRACTS & DROPS [COVERT BOARD]", Deck4LeftX + 12, Deck4LeftY + 9, 10, dosAmber);
         Raylib.DrawLine(Deck4LeftX + 10, Deck4LeftY + 24, Deck4LeftX + Deck4LeftW - 10, Deck4LeftY + 24, dosDim);
 
         List<EconomyEngine.Deck4ContractListing> contracts = _economy.GetDeck4ContractListings(_gameState, _covertMissionDb);
@@ -1642,8 +1656,8 @@ public sealed class TerminalOverlay
 
         if (contracts.Count == 0)
         {
-            Raylib.DrawText("NO NEW COVERT CONTRACTS POSTED TODAY.", Deck4LeftX + 128, Deck4LeftY + 86, 10, dosDim);
-            Raylib.DrawText("CHECK BACK LATER FOR NEW COVERT OPERATIONS.", Deck4LeftX + 106, Deck4LeftY + 108, 10, new Color(110, 76, 32, 255));
+            UiText.Draw("NO NEW COVERT CONTRACTS POSTED TODAY.", Deck4LeftX + 128, Deck4LeftY + 86, 10, dosDim);
+            UiText.Draw("CHECK BACK LATER FOR NEW COVERT OPERATIONS.", Deck4LeftX + 106, Deck4LeftY + 108, 10, new Color(110, 76, 32, 255));
         }
         else
         {
@@ -1665,21 +1679,23 @@ public sealed class TerminalOverlay
 
                 string typeTag = spec.IsDeliveryMission ? "[DELIVERY]" : "[INTERCEPT]";
                 Color typeCol = spec.IsDeliveryMission ? Palette.AlertCrimson : Palette.ClearanceTeal;
-                Raylib.DrawText(typeTag, Deck4LeftX + 18, cy + 7, 10, typeCol);
-                int tagW = Raylib.MeasureText(typeTag, 10);
-                Raylib.DrawText(TruncateText(spec.Title, 10, cardW - tagW - 92), Deck4LeftX + 24 + tagW, cy + 7, 10, dosAmber);
+                UiText.Draw(typeTag, Deck4LeftX + 18, cy + 7, 10, typeCol);
+                int tagW = UiText.MeasureWidth(typeTag, 10);
+                UiText.Draw(TruncateText(StripAuthoringTodoTags(spec.Title), 10, cardW - tagW - 92), Deck4LeftX + 24 + tagW, cy + 7, 10, dosAmber);
 
                 string payTag = $"+{spec.RewardScrip} SC";
-                int payW = Raylib.MeasureText(payTag, 10);
-                Raylib.DrawText(payTag, Deck4LeftX + 10 + cardW - payW - 8, cy + 7, 10, Palette.ClearanceTeal);
+                int payW = UiText.MeasureWidth(payTag, 10);
+                UiText.Draw(payTag, Deck4LeftX + 10 + cardW - payW - 8, cy + 7, 10, Palette.ClearanceTeal);
 
+                string autoTarget = IntelEconomy.ResolveEffectiveTargetRegistration(_gameState, spec);
+                string autoTargetLabel = !string.IsNullOrWhiteSpace(autoTarget) ? autoTarget : spec.TargetPrefix;
                 string reqLine = spec.IsDeliveryMission
                     ? $"DROPS SEALED SLATE AT 0500 -> UPLOAD TO {spec.TargetRegistration}"
                     : (spec.AutoActivateOnHack
-                        ? "FREE 0500 BLANK SLATE -> INTERCEPT MNG- -> CRYPTO"
+                        ? $"FREE 0500 BLANK SLATE -> INTERCEPT {autoTargetLabel} -> CRYPTO"
                         : $"REQUIRES BLANK SLATE ({_config.BlankDataSlateCost} SC) -> INTERCEPT {spec.TargetPrefix}");
-                Raylib.DrawText(TruncateText(reqLine, 10, cardW - 122), Deck4LeftX + 18, cy + 25, 10, new Color(214, 196, 152, 255));
-                Raylib.DrawText(TruncateText($"CONTACT: {spec.AssigningFaction}", 10, cardW - 122),
+                UiText.Draw(TruncateText(StripAuthoringTodoTags(reqLine), 10, cardW - 122), Deck4LeftX + 18, cy + 25, 10, new Color(214, 196, 152, 255));
+                UiText.Draw(TruncateText($"CONTACT: {StripAuthoringTodoTags(spec.AssigningFaction)}", 10, cardW - 122),
                     Deck4LeftX + 18, cy + 44, 10, dosDim);
 
                 int accBtnX = Deck4LeftX + 10 + cardW - 108;
@@ -1692,25 +1708,25 @@ public sealed class TerminalOverlay
 
         // Gear Purchases Section (Deck4LeftY + 188 .. 404)
         Raylib.DrawLine(Deck4LeftX + 10, Deck4LeftY + 186, Deck4LeftX + Deck4LeftW - 10, Deck4LeftY + 186, dosDim);
-        Raylib.DrawText("> GREY-MARKET GEAR [0500 CHUTE / TAILORING]", Deck4LeftX + 12, Deck4LeftY + 193, 10, dosAmber);
+        UiText.Draw("> GREY-MARKET GEAR [0500 CHUTE / TAILORING]", Deck4LeftX + 12, Deck4LeftY + 193, 10, dosAmber);
 
         int lBtnX = Deck4LeftX + Deck4LeftW - 152;
 
         // Gear 1: BLANK DATA SLATE [ORDER - 15 SC]
         int pendingBlanks = _gameState.PendingChuteDeliveries.Count(i => i.ItemType == ContrabandPocketItem.TypeBlankDataSlate);
-        Raylib.DrawText($"01. BLANK DATA SLATE (UNREG)  [{_config.BlankDataSlateCost} SC]", Deck4LeftX + 12, Deck4LeftY + 218, 10, dosAmber);
+        UiText.Draw($"01. BLANK DATA SLATE (UNREG)  [{_config.BlankDataSlateCost} SC]", Deck4LeftX + 12, Deck4LeftY + 218, 10, dosAmber);
         string blankSub = pendingBlanks > 0
             ? $"    FOR INTERCEPT JOBS (IN 0500 TRANSIT: x{pendingBlanks})"
             : "    REQUIRED FOR DECK 4 INTERCEPT CONTRACTS (0500 DROP).";
-        Raylib.DrawText(blankSub, Deck4LeftX + 12, Deck4LeftY + 236, 10, pendingBlanks > 0 ? Palette.ClearanceTeal : dosDim);
+        UiText.Draw(blankSub, Deck4LeftX + 12, Deck4LeftY + 236, 10, pendingBlanks > 0 ? Palette.ClearanceTeal : dosDim);
         DrawActionButton(mouse, lBtnX, Deck4LeftY + 220, 140, 34, $"[ORDER - {_config.BlankDataSlateCost} SC]",
             dosAmber, _gameState.PactScrip >= _config.BlankDataSlateCost);
 
         Raylib.DrawLine(Deck4LeftX + 10, Deck4LeftY + 266, Deck4LeftX + Deck4LeftW - 10, Deck4LeftY + 266, new Color(64, 40, 14, 255));
 
         // Gear 2: SHIELDED POCKET LINING [ORDER - 90 SC]
-        Raylib.DrawText($"02. SHIELDED POCKET LINING  [{_config.ShieldedPocketLiningCost} SC]", Deck4LeftX + 12, Deck4LeftY + 282, 10, dosAmber);
-        Raylib.DrawText("    CONCEALS 1 COAT SLATE DURING BERTH RAIDS (0500 DROP).", Deck4LeftX + 12, Deck4LeftY + 300, 10, dosDim);
+        UiText.Draw($"02. SHIELDED POCKET LINING  [{_config.ShieldedPocketLiningCost} SC]", Deck4LeftX + 12, Deck4LeftY + 282, 10, dosAmber);
+        UiText.Draw("    CONCEALS 1 COAT SLATE DURING BERTH RAIDS (0500 DROP).", Deck4LeftX + 12, Deck4LeftY + 300, 10, dosDim);
         string shieldBtn = _gameState.HasShieldedPocketLining
             ? "[INSTALLED]"
             : (_gameState.ShieldedLiningOrdered ? "[0500 TRANSIT]" : $"[ORDER - {_config.ShieldedPocketLiningCost} SC]");
@@ -1723,8 +1739,8 @@ public sealed class TerminalOverlay
 
         // Gear 3: POCKET CAPACITY UPGRADE (D06: 60 SC / D09: 120 SC)
         var (canUpg, nextCap, upgCost, minDay, _) = _economy.GetNextPocketUpgradeInfo(_gameState, _config);
-        Raylib.DrawText($"03. POCKET CAPACITY UPGRADE  (NOW: {_gameState.PocketCapacity}/3)", Deck4LeftX + 12, Deck4LeftY + 346, 10, dosAmber);
-        Raylib.DrawText(_gameState.PocketCapacity >= 3
+        UiText.Draw($"03. POCKET CAPACITY UPGRADE  (NOW: {_gameState.PocketCapacity}/3)", Deck4LeftX + 12, Deck4LeftY + 346, 10, dosAmber);
+        UiText.Draw(_gameState.PocketCapacity >= 3
             ? "    MAXIMUM TAILORED POCKET CAPACITY (3/3) REACHED."
             : $"    EXPANDS POCKET TO {nextCap} SLOTS (UNLOCKS DAY {minDay:D2}).",
             Deck4LeftX + 12, Deck4LeftY + 364, 10, canUpg ? Palette.ClearanceTeal : dosDim);
@@ -1738,16 +1754,16 @@ public sealed class TerminalOverlay
         DrawDashedRect(Deck4RightX, Deck4RightY, Deck4RightW, Deck4RightH, dosAmber);
 
         const string fixerTitle = "// BACK-CHANNEL // STRIKE EXPUNGEMENT";
-        int ftw = Raylib.MeasureText(fixerTitle, 10);
-        Raylib.DrawText(fixerTitle, Deck4RightX + (Deck4RightW - ftw) / 2, Deck4RightY + 14, 10, dosAmber);
+        int ftw = UiText.MeasureWidth(fixerTitle, 10);
+        UiText.Draw(fixerTitle, Deck4RightX + (Deck4RightW - ftw) / 2, Deck4RightY + 14, 10, dosAmber);
 
-        Raylib.DrawText($"AUDIT DEFERRAL FEE  [{_config.AuditDeferralFeeCost} SC -> -1 STRIKE]", Deck4RightX + 16, Deck4RightY + 56, 10, dosAmber);
-        Raylib.DrawText("SOLE BACK-CHANNEL STRIKE CLEARER BEFORE 3/3 KORDANI RAID.", Deck4RightX + 16, Deck4RightY + 78, 10, dosDim);
+        UiText.Draw($"AUDIT DEFERRAL FEE  [{_config.AuditDeferralFeeCost} SC -> -1 STRIKE]", Deck4RightX + 16, Deck4RightY + 56, 10, dosAmber);
+        UiText.Draw("SOLE BACK-CHANNEL STRIKE CLEARER BEFORE 3/3 KORDANI RAID.", Deck4RightX + 16, Deck4RightY + 78, 10, dosDim);
 
-        bool strikesOnline = _gameState.Day >= 3;
+        bool strikesOnline = _gameState.SecurityStrikesActive || _gameState.Day >= _config.DayUnlockWarpScanner;
         bool canDefer = strikesOnline && _gameState.SecurityStrikes > 0 && _gameState.PactScrip >= _config.AuditDeferralFeeCost;
         string deferLabel = !strikesOnline
-            ? "LOCKED -- SECURITY STRIKES ACTIVATE DAY 03"
+            ? $"LOCKED -- SECURITY STRIKES ACTIVATE DAY {_config.DayUnlockWarpScanner:D2}"
             : (_gameState.SecurityStrikes <= 0
                 ? $"NO ACTIVE STRIKES ON RECORD (0/{_config.MaxStrikesBeforeAudit})"
                 : $"[ORDER - {_config.AuditDeferralFeeCost} SC]  (EXPUNGE 1 STRIKE)");
@@ -1755,24 +1771,24 @@ public sealed class TerminalOverlay
             canDefer ? dosAmber : dosDim, canDefer);
 
         string dashSep = string.Concat(Enumerable.Repeat("- ", 72));
-        Raylib.DrawText(TruncateText(dashSep, 10, Deck4RightW - 32),
+        UiText.Draw(TruncateText(dashSep, 10, Deck4RightW - 32),
             Deck4RightX + 16, Deck4RightY + 188, 10, dosDim);
 
         // Compact Pocket / Vent / Chute / Active Contracts Status Block
-        Raylib.DrawText("> BERTH SMUGGLING STATUS", Deck4RightX + 16, Deck4RightY + 212, 10, dosAmber);
-        Raylib.DrawText($"  COAT POCKET SLOTS:    {_gameState.PocketItems.Count} / {_gameState.PocketCapacity}",
+        UiText.Draw("> BERTH SMUGGLING STATUS", Deck4RightX + 16, Deck4RightY + 212, 10, dosAmber);
+        UiText.Draw($"  COAT POCKET SLOTS:    {_gameState.PocketItems.Count} / {_gameState.PocketCapacity}",
             Deck4RightX + 16, Deck4RightY + 236, 10, Palette.ClearanceTeal);
-        Raylib.DrawText($"  UNDER-DESK VENT:      {_gameState.VentStashItems.Count} / {_config.VentStashCapacity}",
+        UiText.Draw($"  UNDER-DESK VENT:      {_gameState.VentStashItems.Count} / {_config.VentStashCapacity}",
             Deck4RightX + 16, Deck4RightY + 254, 10, dosAmber);
-        Raylib.DrawText($"  SHIELDED LINING:      {(_gameState.HasShieldedPocketLining ? "INSTALLED (1 SAFE)" : (_gameState.ShieldedLiningOrdered ? "IN TRANSIT (0500)" : "NOT INSTALLED"))}",
+        UiText.Draw($"  SHIELDED LINING:      {(_gameState.HasShieldedPocketLining ? "INSTALLED (1 SAFE)" : (_gameState.ShieldedLiningOrdered ? "IN TRANSIT (0500)" : "NOT INSTALLED"))}",
             Deck4RightX + 16, Deck4RightY + 272, 10, _gameState.HasShieldedPocketLining ? Palette.ClearanceTeal : dosDim);
-        Raylib.DrawText($"  0500 CHUTE QUEUED:    {_gameState.PendingChuteDeliveries.Count} ITEM(S)",
+        UiText.Draw($"  0500 CHUTE QUEUED:    {_gameState.PendingChuteDeliveries.Count} ITEM(S)",
             Deck4RightX + 16, Deck4RightY + 290, 10, dosDim);
 
         int activeCount = _gameState.ActiveInterceptMissionIds.Count + (string.IsNullOrWhiteSpace(_gameState.ActiveCovertMissionId) ? 0 : 1);
-        Raylib.DrawText($"  ACTIVE CONTRACTS:     {activeCount}  |  COMPLETED: {_gameState.CovertTasksCompleted}",
+        UiText.Draw($"  ACTIVE CONTRACTS:     {activeCount}  |  COMPLETED: {_gameState.CovertTasksCompleted}",
             Deck4RightX + 16, Deck4RightY + 308, 10, Palette.ClearanceTeal);
-        Raylib.DrawText("  STASH SLATES IN VENT & SCRUB LOGS BEFORE SLEEPING AT 3/3.",
+        UiText.Draw("  STASH SLATES IN VENT & SCRUB LOGS BEFORE SLEEPING AT 3/3.",
             Deck4RightX + 16, Deck4RightY + 344, 10, dosDim);
     }
 
@@ -1786,21 +1802,18 @@ public sealed class TerminalOverlay
         Raylib.DrawRectangle(FooterX, FooterY, FooterW, FooterH, new Color(12, 16, 22, 255));
         Raylib.DrawRectangleLines(FooterX, FooterY, FooterW, FooterH, Palette.WeatheredGunmetalEdge);
 
-        string leftStats = $"PACT SCRIP: {_gameState.PactScrip} SC   |   COAT POCKET: {_gameState.PocketItems.Count} / {_gameState.PocketCapacity}   |   VENT STASH: {_gameState.VentStashItems.Count} / {_config.VentStashCapacity}";
-        Raylib.DrawText(leftStats, FooterX + 14, FooterY + 15, 10, Palette.CrtAmberPrimary);
+        string rightText = !string.IsNullOrEmpty(_statusMessage)
+            ? TruncateText(_statusMessage, 10, 460)
+            : "[ESC] CLOSE";
+        Color rightCol = !string.IsNullOrEmpty(_statusMessage)
+            ? _statusColor
+            : Palette.WeatheredGunmetalEdge;
+        int rw = UiText.MeasureWidth(rightText, 10);
+        int leftMaxW = Math.Max(120, FooterW - rw - 40);
 
-        if (!string.IsNullOrEmpty(_statusMessage))
-        {
-            string trimmed = TruncateText(_statusMessage, 10, 460);
-            int mw = Raylib.MeasureText(trimmed, 10);
-            Raylib.DrawText(trimmed, FooterX + FooterW - mw - 14, FooterY + 15, 10, _statusColor);
-        }
-        else
-        {
-            const string escHint = "[ESC] CLOSE";
-            int ew = Raylib.MeasureText(escHint, 10);
-            Raylib.DrawText(escHint, FooterX + FooterW - ew - 14, FooterY + 15, 10, Palette.WeatheredGunmetalEdge);
-        }
+        string leftStats = $"PACT SCRIP: {_gameState.PactScrip} SC   |   COAT POCKET: {_gameState.PocketItems.Count} / {_gameState.PocketCapacity}   |   VENT STASH: {_gameState.VentStashItems.Count} / {_config.VentStashCapacity}";
+        UiText.Draw(TruncateText(leftStats, 10, leftMaxW), FooterX + 14, FooterY + 15, 10, Palette.CrtAmberPrimary);
+        UiText.Draw(rightText, FooterX + FooterW - rw - 14, FooterY + 15, 10, rightCol);
     }
 
     // =========================================================================
@@ -1810,8 +1823,9 @@ public sealed class TerminalOverlay
     {
         Raylib.DrawRectangle(x, y, w, h, new Color(22, 21, 13, 255));
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        Raylib.DrawText(title, x + 12, y + 8, 10, titleCol);
-        Raylib.DrawText(sub, x + 12, y + 25, 10, Palette.FromHex("#968826"));
+        int textMaxW = Math.Max(40, w - 216);
+        UiText.Draw(TruncateText(title, 10, textMaxW), x + 12, y + 8, 10, titleCol);
+        UiText.Draw(TruncateText(sub, 10, textMaxW), x + 12, y + 25, 10, Palette.FromHex("#968826"));
     }
 
     private void DrawCryptoActionBtn(
@@ -1830,8 +1844,8 @@ public sealed class TerminalOverlay
         Color border = !enabled ? Palette.WeatheredGunmetalMid : (hov ? Palette.CrtAmberPrimary : accent);
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        Raylib.DrawText(title, x + 12, y + 7, 10, enabled ? accent : Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText(TruncateText(subtitle, 10, w - 24), x + 12, y + 24, 10, enabled ? new Color(184, 210, 194, 255) : Palette.WeatheredGunmetalEdge);
+        UiText.Draw(title, x + 12, y + 7, 10, enabled ? accent : Palette.WeatheredGunmetalEdge);
+        UiText.Draw(TruncateText(subtitle, 10, w - 24), x + 12, y + 24, 10, enabled ? new Color(184, 210, 194, 255) : Palette.WeatheredGunmetalEdge);
     }
 
     private void DrawActionButton(
@@ -1850,8 +1864,8 @@ public sealed class TerminalOverlay
         Color fg = !enabled ? Palette.WeatheredGunmetalEdge : (hov ? Palette.CrtAmberPrimary : accent);
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        int tw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, x + Math.Max(6, (w - tw) / 2), y + (h - 10) / 2, 10, fg);
+        int tw = UiText.MeasureWidth(label, 10);
+        UiText.Draw(label, x + Math.Max(6, (w - tw) / 2), y + (h - 10) / 2, 10, fg);
     }
 
     private static void DrawPixelScrollButtons(
@@ -1900,14 +1914,29 @@ public sealed class TerminalOverlay
         }
     }
 
+    private static readonly Regex AuthoringTodoTagRegex = new(
+        @"\s*\[TODO(?::[^\]]*)?\]",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    internal static string StripAuthoringTodoTags(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+
+        if (!text.Contains("[TODO", StringComparison.OrdinalIgnoreCase))
+            return text;
+
+        return AuthoringTodoTagRegex.Replace(text, string.Empty).TrimEnd();
+    }
+
     private static string TruncateText(string value, int fontSize, int maxPx)
     {
         if (string.IsNullOrEmpty(value) || maxPx <= 0)
             return string.Empty;
-        if (PixelText.MeasureText(value, fontSize) <= maxPx)
+        if (UiText.MeasureWidth(value, fontSize) <= maxPx)
             return value;
         int len = value.Length;
-        while (len > 1 && PixelText.MeasureText(value[..len], fontSize) > maxPx)
+        while (len > 1 && UiText.MeasureWidth(value[..len], fontSize) > maxPx)
             len--;
         return value[..len];
     }
@@ -1927,7 +1956,7 @@ public sealed class TerminalOverlay
                 continue;
             }
 
-            if (PixelText.MeasureText(para, fontSize) <= maxPx)
+            if (UiText.MeasureWidth(para, fontSize) <= maxPx)
             {
                 result.Add(para);
                 continue;
@@ -1938,7 +1967,7 @@ public sealed class TerminalOverlay
             foreach (string word in words)
             {
                 string cand = current.Length == 0 ? word : $"{current} {word}";
-                if (PixelText.MeasureText(cand, fontSize) <= maxPx)
+                if (UiText.MeasureWidth(cand, fontSize) <= maxPx)
                 {
                     current = cand;
                 }

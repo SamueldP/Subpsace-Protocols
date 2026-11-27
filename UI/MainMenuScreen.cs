@@ -18,13 +18,15 @@ public sealed class MainMenuScreen : IScreen
     private readonly ScreenManager _screenManager;
     private readonly GameState _gameState;
     private readonly Core.ConfigFlags _config;
+    private readonly DevDebugState? _devDebug;
     private SaveSlotSummary[] _slotSummaries = [];
 
-    public MainMenuScreen(ScreenManager screenManager, GameState gameState, Core.ConfigFlags config)
+    public MainMenuScreen(ScreenManager screenManager, GameState gameState, Core.ConfigFlags config, DevDebugState? devDebug = null)
     {
         _screenManager = screenManager;
         _gameState = gameState;
         _config = config;
+        _devDebug = devDebug;
     }
 
     public void OnEnter()
@@ -57,8 +59,8 @@ public sealed class MainMenuScreen : IScreen
                     _gameState.SuppressDiskPersistence = false;
                     _gameState.ResetForNewSave(slot.SlotNumber);
                     RefreshSlots();
-                    // Prompt 4: New Game strictly starts in Day 1 Morning Quarters (not directly on Desk)
-                    _screenManager.SwitchTo(ScreenId.Quarters);
+                    // New save opens the 5-card intro before fading into Day 1 Morning Quarters (unless skipped in F1)
+                    _screenManager.SwitchTo(_devDebug?.SkipIntroSequence == true ? ScreenId.Quarters : ScreenId.Intro);
                     return;
                 }
             }
@@ -112,29 +114,52 @@ public sealed class MainMenuScreen : IScreen
         Raylib.DrawRectangle(1, 32, Constants.VirtualWidth - 2, 144, Palette.BrownDwarfGlowDeep);
         Raylib.DrawLine(1, 176, Constants.VirtualWidth - 2, 176, Palette.BrownDwarfGlowRim);
 
-        // Centered Title Header Panel (1280x720)
-        const int titleX = 340;
-        const int titleY = 56;
-        const int titleW = 600;
-        const int titleH = 116;
+        // Centered Title Header Panel (1280x720) with crisp 2x (128x128) app_icon.jpg Station Logo Emblem
+        const int titleX = ContentX; // 300
+        const int titleY = 38;
+        const int titleW = ContentW; // 680
+        const int titleH = 148;
         Raylib.DrawRectangle(titleX, titleY, titleW, titleH, Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(titleX, titleY, titleW, titleH, Palette.OxidizedBronzeWorn);
         Raylib.DrawRectangleLines(titleX + 4, titleY + 4, titleW - 8, titleH - 8, Palette.OutlineVoid);
 
-        const string titleStr = "SUBSPACE PROTOCOLS";
-        int titleTw = Raylib.MeasureText(titleStr, 20);
-        Raylib.DrawText(titleStr, titleX + (titleW - titleTw) / 2, titleY + 20, 20, Palette.CrtAmberPrimary);
+        int textPaneX = titleX + 12;
+        int textPaneW = titleW - 24;
 
-        const string sub1 = "VOID GATE 3 (VG-3) // BOOTH 04 CUSTOMS & DOCKING TERMINAL";
-        int sub1W = Raylib.MeasureText(sub1, 10);
-        Raylib.DrawText(sub1, titleX + (titleW - sub1W) / 2, titleY + 56, 10, Palette.CrtAmberDimmed);
+        if (AssetManager.TryGetAppLogoTexture(out Texture2D logoTex))
+        {
+            const int logoSize = 128; // Crisp 2x integer scale of 64x64 pixel-art logo
+            int logoX = titleX + 12;
+            int logoY = titleY + (titleH - logoSize) / 2;
+            Raylib.DrawRectangle(logoX - 2, logoY - 2, logoSize + 4, logoSize + 4, Palette.OutlineVoid);
+            Raylib.DrawTexturePro(
+                logoTex,
+                new System.Numerics.Vector2(0, 0) is var _ ? new Rectangle(0, 0, logoTex.Width, logoTex.Height) : default,
+                new Rectangle(logoX, logoY, logoSize, logoSize),
+                System.Numerics.Vector2.Zero,
+                0f,
+                Color.White);
+            Raylib.DrawRectangleLines(logoX - 1, logoY - 1, logoSize + 2, logoSize + 2, Palette.CrtAmberDimmed);
+            Raylib.DrawRectangleLines(logoX - 2, logoY - 2, logoSize + 4, logoSize + 4, Palette.OxidizedBronzeWorn);
 
-        const string sub2 = "LEGACY FTC CONSORTIUM OS v4.08 -- BULWARK PACT OVERRIDE";
-        int sub2W = Raylib.MeasureText(sub2, 10);
-        Raylib.DrawText(sub2, titleX + (titleW - sub2W) / 2, titleY + 80, 10, Palette.ClearanceTeal);
+            textPaneX = logoX + logoSize + 14;
+            textPaneW = (titleX + titleW - 10) - textPaneX;
+        }
+
+        string titleStr = UiText.TruncateToWidth("SUBSPACE PROTOCOLS", 20, textPaneW - 8);
+        int titleTw = UiText.MeasureWidth(titleStr, 20);
+        UiText.Draw(titleStr, textPaneX + Math.Max(4, (textPaneW - titleTw) / 2), titleY + 28, 20, Palette.CrtAmberPrimary);
+
+        string sub1 = UiText.TruncateToWidth("VOID GATE 3 (VG-3) // BOOTH 04 CUSTOMS & DOCKING TERMINAL", 10, textPaneW - 8, denseRow: true);
+        int sub1W = UiText.MeasureWidth(sub1, 10, denseRow: true);
+        UiText.Draw(sub1, textPaneX + Math.Max(4, (textPaneW - sub1W) / 2), titleY + 70, 10, Palette.CrtAmberDimmed, denseRow: true);
+
+        string sub2 = UiText.TruncateToWidth("LEGACY FTC CONSORTIUM OS v4.08 -- BULWARK PACT OVERRIDE", 10, textPaneW - 8, denseRow: true);
+        int sub2W = UiText.MeasureWidth(sub2, 10, denseRow: true);
+        UiText.Draw(sub2, textPaneX + Math.Max(4, (textPaneW - sub2W) / 2), titleY + 96, 10, Palette.ClearanceTeal, denseRow: true);
 
         // Save Slot Panel Header
-        Raylib.DrawText(
+        UiText.Draw(
             "PORT OFFICER ASSIGNMENT PROFILES (3 SAVE SLOTS -- NEW SAVE STARTS ON DAY 01)",
             ContentX, 214, 10, Palette.CrtAmberPrimary);
 
@@ -147,19 +172,21 @@ public sealed class MainMenuScreen : IScreen
             Raylib.DrawRectangleLines(ContentX, rowY, ContentW, SlotH,
                 slot.Exists ? Palette.CrtAmberDimmed : Palette.WeatheredGunmetalEdge);
 
-            Raylib.DrawText($"SAVE SLOT {slot.SlotNumber:D2}", ContentX + 16, rowY + 9, 10, Palette.CrtAmberPrimary);
+            UiText.Draw($"SAVE SLOT {slot.SlotNumber:D2}", ContentX + 16, rowY + 9, 10, Palette.CrtAmberPrimary);
 
             if (!slot.Exists)
             {
-                Raylib.DrawText("STATUS: [ EMPTY ]", ContentX + 16, rowY + 27, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw("STATUS: [ EMPTY ]", ContentX + 16, rowY + 27, 10, Palette.WeatheredGunmetalEdge);
                 DrawMenuButton(mouse, ContentX + 428, rowY + 10, 236, 28, "START NEW SAVE (DAY 01)", Palette.ClearanceTeal);
             }
             else
             {
                 string phaseTag = slot.QuartersPhase == QuartersPhase.Morning ? "AM" : "PM";
-                string strikesPart = slot.Day >= 3 ? $"  |  STRIKES: {slot.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}" : string.Empty;
+                string strikesPart = (slot.SecurityStrikesActive || slot.Day >= _config.DayUnlockWarpScanner)
+                    ? $"  |  STRIKES: {slot.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}"
+                    : string.Empty;
                 string summary = $"DAY {slot.Day:D2} ({phaseTag})  |  {slot.PactScrip} SC{strikesPart}";
-                Raylib.DrawText(summary, ContentX + 16, rowY + 27, 10, Palette.ClearanceTeal);
+                UiText.Draw(summary, ContentX + 16, rowY + 27, 10, Palette.ClearanceTeal);
 
                 DrawMenuButton(mouse, ContentX + 428, rowY + 10, 128, 28, "LOAD SAVE", Palette.CrtAmberPrimary);
                 DrawMenuButton(mouse, ContentX + 564, rowY + 10, 100, 28, "DELETE", Palette.AlertCrimson);
@@ -173,7 +200,7 @@ public sealed class MainMenuScreen : IScreen
         // Footer bar (pure ASCII)
         Raylib.DrawRectangle(0, Constants.VirtualHeight - 28, Constants.VirtualWidth, 28, Palette.OutlineVoid);
         Raylib.DrawLine(0, Constants.VirtualHeight - 28, Constants.VirtualWidth, Constants.VirtualHeight - 28, Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText(
+        UiText.Draw(
             $"ACTIVE SLOT: {_gameState.ActiveSaveSlot:D2}  |  DAY {_gameState.Day:D2}  |  1280x720 NATIVE  |  F1 / `: DEV DEBUG & DAY JUMP  |  F11 / ALT+ENTER: FULLSCREEN",
             20, Constants.VirtualHeight - 19, 10, Palette.CrtAmberDimmed);
     }
@@ -186,8 +213,8 @@ public sealed class MainMenuScreen : IScreen
 
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        int tw = Raylib.MeasureText(text, 10);
-        Raylib.DrawText(text, x + Math.Max(8, (w - tw) / 2), y + (h - 10) / 2, 10, hovered ? Palette.CrtAmberPrimary : fg);
+        int tw = UiText.MeasureWidth(text, 10);
+        UiText.Draw(text, x + Math.Max(8, (w - tw) / 2), y + (h - 10) / 2, 10, hovered ? Palette.CrtAmberPrimary : fg);
     }
 
     public void Unload() { }

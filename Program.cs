@@ -77,6 +77,7 @@ public static class Program
             Constants.VirtualWidth,
             Constants.VirtualHeight,
             "Subspace Protocols -- Void Gate 3 (Booth 04)");
+        AssetManager.TryApplyWindowIcon();
         Raylib.SetExitKey(KeyboardKey.Null); // ESC toggles the CRT Pause Menu, never closes the window
         Raylib.SetWindowMinSize(640, 360);
         Raylib.SetTargetFPS(60);
@@ -88,6 +89,11 @@ public static class Program
             Raylib.SetTextureFilter(defaultFont.Texture, TextureFilter.Point);
         }
 
+        FontManager.Initialize(config.UiFontPreset, headlessMode: !Raylib.IsWindowReady());
+        FontManager.SetFontSizeOffset(config.UiFontSizeOffset);
+        AudioHooks.Initialize(headlessMode: isSmokeTest);
+        FactionDialoguePool.EnsureLoaded();
+
         using VirtualCanvas virtualCanvas = new();
         virtualCanvas.ApplyOptimalMonitorScaling(allowBorderlessFullscreen: !isSmokeTest);
 
@@ -97,8 +103,11 @@ public static class Program
         PauseMenuOverlay pauseMenu = new(screenManager, gameState, virtualCanvas, openContextRules);
         DebugOverlay debugOverlay = new(screenManager, gameState, config, devDebug, openContextRules);
 
-        screenManager.RegisterScreen(ScreenId.MainMenu, new MainMenuScreen(screenManager, gameState, config));
-        screenManager.RegisterScreen(ScreenId.Corridor, new CorridorScreen(screenManager, gameState));
+        IntroScreen introScreen = new(screenManager, devDebug);
+        CorridorScreen corridorScreen = new(screenManager, gameState);
+        screenManager.RegisterScreen(ScreenId.MainMenu, new MainMenuScreen(screenManager, gameState, config, devDebug));
+        screenManager.RegisterScreen(ScreenId.Intro, introScreen);
+        screenManager.RegisterScreen(ScreenId.Corridor, corridorScreen);
         DeskScreen deskScreen = new(
             screenManager,
             gameState,
@@ -116,7 +125,8 @@ public static class Program
             () => tutorialOverlay.OnFirstEveningQuarters(),
             devDebug);
         screenManager.RegisterScreen(ScreenId.Quarters, quartersScreen);
-        screenManager.RegisterScreen(ScreenId.ArtTest, new ArtTestScreen(screenManager));
+        ArtTestScreen artTestScreen = new(screenManager, config);
+        screenManager.RegisterScreen(ScreenId.ArtTest, artTestScreen);
 
         screenManager.SwitchTo(isArtTestFlag ? ScreenId.ArtTest : ScreenId.MainMenu);
 
@@ -124,6 +134,7 @@ public static class Program
         ScreenId[] smokeRouteOrder =
         [
             ScreenId.MainMenu,
+            ScreenId.Intro,
             ScreenId.Corridor,
             ScreenId.Desk,
             ScreenId.Quarters,
@@ -188,8 +199,8 @@ public static class Program
                     tutorialOverlay.ForceCloseSilent();
                     deskScreen.SmokeVerifyPrompt371Interactions();
 
-                    gameState.Day3PreShiftHailCompleted = true;
-                    gameState.AdvanceToDay(3);
+                    gameState.Day4PreShiftHailCompleted = true;
+                    gameState.AdvanceToDay(config.DayUnlockWarpScanner);
                     screenManager.SwitchTo(ScreenId.Desk);
                     tutorialOverlay.ForceCloseSilent();
                     deskScreen.SmokeVerifyPrompt371Interactions();
@@ -252,6 +263,91 @@ public static class Program
                         gameState,
                         config,
                         devDebug);
+                    RunShipRendererV2VerificationSuite(
+                        virtualCanvas,
+                        screenManager,
+                        deskScreen,
+                        artTestScreen,
+                        tutorialOverlay,
+                        pauseMenu,
+                        debugOverlay,
+                        gameState,
+                        config);
+                    RunBuild45VerificationSuite(
+                        virtualCanvas,
+                        screenManager,
+                        deskScreen,
+                        artTestScreen,
+                        tutorialOverlay,
+                        pauseMenu,
+                        debugOverlay,
+                        gameState,
+                        config);
+                    RunBuild46VerificationSuite(
+                        virtualCanvas,
+                        screenManager,
+                        deskScreen,
+                        tutorialOverlay,
+                        pauseMenu,
+                        debugOverlay,
+                        gameState,
+                        config);
+                    RunBuild47VerificationSuite(
+                        virtualCanvas,
+                        screenManager,
+                        deskScreen,
+                        quartersScreen,
+                        introScreen,
+                        tutorialOverlay,
+                        pauseMenu,
+                        debugOverlay,
+                        gameState,
+                        config,
+                        devDebug);
+                    RunBuild475VerificationSuite(
+                        virtualCanvas,
+                        screenManager,
+                        deskScreen,
+                        quartersScreen,
+                        tutorialOverlay,
+                        pauseMenu,
+                        debugOverlay,
+                        gameState,
+                        config,
+                        devDebug);
+                    RunBuild51VerificationSuite(
+                        virtualCanvas,
+                        screenManager,
+                        deskScreen,
+                        quartersScreen,
+                        tutorialOverlay,
+                        pauseMenu,
+                        debugOverlay,
+                        gameState,
+                        config,
+                        devDebug);
+                    RunBuild52VerificationSuite(
+                        virtualCanvas,
+                        screenManager,
+                        deskScreen,
+                        quartersScreen,
+                        corridorScreen,
+                        tutorialOverlay,
+                        pauseMenu,
+                        debugOverlay,
+                        gameState,
+                        config,
+                        devDebug);
+                    RunBuild521Day6TargetSyncVerificationSuite(
+                        virtualCanvas,
+                        screenManager,
+                        deskScreen,
+                        quartersScreen,
+                        tutorialOverlay,
+                        pauseMenu,
+                        debugOverlay,
+                        gameState,
+                        config);
 
                     if (!string.IsNullOrWhiteSpace(dumpFramesDir))
                     {
@@ -260,6 +356,7 @@ public static class Program
                             screenManager,
                             deskScreen,
                             quartersScreen,
+                            artTestScreen,
                             tutorialOverlay,
                             pauseMenu,
                             debugOverlay,
@@ -288,12 +385,32 @@ public static class Program
         screenManager.UnloadAllScreens();
         AssetManager.UnloadAll();
         virtualCanvas.Dispose();
+        FontManager.Shutdown();
+        AudioHooks.Shutdown();
         Raylib.CloseWindow();
 
-        if (isSmokeTest && PixelBuffer.ActiveProceduralTextureCount != 0)
+        if (isSmokeTest)
         {
-            throw new InvalidOperationException(
-                $"VRAM texture leak detected: {PixelBuffer.ActiveProceduralTextureCount} procedural textures still active.");
+            if (PixelBuffer.ActiveProceduralTextureCount != 0)
+            {
+                throw new InvalidOperationException(
+                    $"VRAM texture leak detected: {PixelBuffer.ActiveProceduralTextureCount} procedural textures still active.");
+            }
+            if (FontManager.ActiveGpuFontCount != 0)
+            {
+                throw new InvalidOperationException(
+                    $"GPU font leak detected: {FontManager.ActiveGpuFontCount} fonts still active.");
+            }
+            if (AudioHooks.ActiveSoundAliasCount != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Audio sound alias leak detected: {AudioHooks.ActiveSoundAliasCount} aliases still active.");
+            }
+            if (AudioHooks.ActiveSoundCount != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Audio sound leak detected: {AudioHooks.ActiveSoundCount} sounds still active.");
+            }
         }
 
         return 0;
@@ -493,12 +610,15 @@ public static class Program
         if (!shift.IsInRandomOverflow)
             throw new InvalidOperationException("ShiftController did not enter random overflow after 16 ships.");
 
-        // 1. Verify Day 1 Simplified Single Rule (ONLY TransponderIdMismatch, NO shields/weapons, NO typos)
+        // 1. Verify Day 1 Simplified Single Rule (ONLY TransponderIdMismatch, shields may spawn UP on Day 1+, weapons MUST stay cold)
+        int d1ShieldedCount = 0;
         for (int i = 0; i < 60; i++)
         {
             ShipSpec day1Ship = generator.GenerateShipForSlot(simState, i);
-            if (day1Ship.GroundTruth.ActualShieldsUp || day1Ship.GroundTruth.ActualWeaponsHot)
-                throw new InvalidOperationException("Day 1 ship must spawn with shields down & weapons cold.");
+            if (day1Ship.GroundTruth.ActualWeaponsHot)
+                throw new InvalidOperationException("Day 1 ship must spawn with weapons cold.");
+            if (day1Ship.GroundTruth.ActualShieldsUp)
+                d1ShieldedCount++;
 
             if (!day1Ship.IsValid)
             {
@@ -512,6 +632,8 @@ public static class Program
                     throw new InvalidOperationException("Day 1 TransponderIdMismatch had matching IDs.");
             }
         }
+        if (d1ShieldedCount == 0)
+            throw new InvalidOperationException("Day 1 ships should spawn shields-up frequently under Build 4.5 ShieldsUpBaseChance.");
 
         // Day 1 Detain on invalid ship without Protocol Review triggers Brengop Clerical Warning;
         // confirming via Protocol Review first succeeds accurately (+10 SC)
@@ -534,11 +656,14 @@ public static class Program
             }
         }
 
-        // 2. Verify Day 2 Escalation (ONLY TransponderIdMismatch + SpoofedWeaponsHot, plus Ghost Route slot 1 or 2 deterministic from RunSeed)
+        // 2. Verify Day 2 Escalation (ONLY TransponderIdMismatch + SpoofedWeaponsHot, NO Ghost Route on Day 2)
         GameState d2State = new() { Day = 2, PactScrip = 45, RunSeed = 20260410, SuppressDiskPersistence = true };
         HashSet<ShipInfractionType> seenD2 = [];
         for (int i = 0; i < 60; i++)
         {
+            ShipSpec s2 = generator.GenerateShipForSlot(d2State, i, reseedNonce: 0u, DebugSpawnValidityMode.Auto);
+            if (s2.GroundTruth.IsDay2GhostRouteSuspect)
+                throw new InvalidOperationException("Ghost Route suspect moved to Day 3 breather and must NOT spawn on Day 2.");
             ShipSpec inv2 = generator.GenerateShipForSlot(d2State, i, reseedNonce: 4u, DebugSpawnValidityMode.ForceInvalid);
             ShipInfractionType t = inv2.GroundTruth.ActiveInfractions[0].Type;
             seenD2.Add(t);
@@ -548,92 +673,162 @@ public static class Program
         if (!seenD2.Contains(ShipInfractionType.TransponderIdMismatch) || !seenD2.Contains(ShipInfractionType.SpoofedWeaponsHot))
             throw new InvalidOperationException("Day 2 must generate both TransponderIdMismatch and SpoofedWeaponsHot.");
 
-        int ghostSlot = ShipGenerator.GetDay2GhostRouteQueueSlot(d2State);
-        if (ghostSlot is not (1 or 2) || ShipGenerator.GetDay2GhostRouteQueueSlot(d2State.RunSeed) != ghostSlot)
-            throw new InvalidOperationException($"Day 2 Ghost Route slot must deterministically be 1 or 2, got {ghostSlot}.");
-        ShipSpec ghostSuspect = generator.GenerateShipForSlot(d2State, ghostSlot);
+        // Day 3 Breather spawns hardcoded Ghost Route suspect (slot 1 or 2 deterministic from RunSeed)
+        GameState ghostDay3State = new() { Day = Constants.DayGhostRouteSuspect, PactScrip = 45, RunSeed = 20260410, SuppressDiskPersistence = true };
+        int ghostSlot = ShipGenerator.GetGhostRouteQueueSlot(ghostDay3State);
+        if (ghostSlot is not (1 or 2) || ShipGenerator.GetDay2GhostRouteQueueSlot(ghostDay3State.RunSeed) != ghostSlot)
+            throw new InvalidOperationException($"Day 3 Ghost Route slot must deterministically be 1 or 2, got {ghostSlot}.");
+        ShipSpec ghostSuspect = generator.GenerateShipForSlot(ghostDay3State, ghostSlot);
         if (!ghostSuspect.GroundTruth.IsDay2GhostRouteSuspect)
-            throw new InvalidOperationException($"Day 2 Ghost Route suspect must spawn on its deterministic slot ({ghostSlot}).");
+            throw new InvalidOperationException($"Day 3 Ghost Route suspect must spawn on its deterministic slot ({ghostSlot}).");
         HashSet<int> reachableGhostSlots = [];
         for (int seed = 1; seed <= 32; seed++)
         {
-            reachableGhostSlots.Add(ShipGenerator.GetDay2GhostRouteQueueSlot(seed));
+            reachableGhostSlots.Add(ShipGenerator.GetGhostRouteQueueSlot(seed));
         }
         if (!reachableGhostSlots.Contains(1) || !reachableGhostSlots.Contains(2) || reachableGhostSlots.Count != 2)
-            throw new InvalidOperationException("Day 2 Ghost Route slot randomization must reach both slot 1 and slot 2 across seeds.");
+            throw new InvalidOperationException("Day 3 Ghost Route slot randomization must reach both slot 1 and slot 2 across seeds.");
 
-        // 2b. Verify Build 4.3.6 25-Day Stagger:
-        //   Days 3-4: TransponderIdMismatch + SpoofedWeaponsHot + FalsifiedOriginWaveform ONLY (Day 4 is a breather shift)
-        //   Days 5-6: Adds ExpiredRegistration + PrefixOrganizationMismatch + PrefixSpeciesMismatch (NO PrefixHullSilhouetteMismatch, NO UnexplainedCargoPowerDraw)
-        //   Days 7-9: Adds PrefixHullSilhouetteMismatch (NO UnexplainedCargoPowerDraw)
-        //   Day 10+:  Adds UnexplainedCargoPowerDraw (SPS Violet Cargo Bay)
+        // 2b. Verify Build 4.5 28-Day Stagger:
+        //   Day 3 (Breather): TransponderIdMismatch + SpoofedWeaponsHot ONLY
+        //   Days 4-7: Adds FalsifiedOriginWaveform ONLY (Days 5 & 7 are breathers)
+        //   Days 8-9: Adds ExpiredRegistration + PrefixOrganizationMismatch + PrefixSpeciesMismatch (NO Hulls, NO Cargo)
+        //   Days 10-11: Adds PrefixHullSilhouetteMismatch (NO Cargo)
+        //   Day 12+: Adds UnexplainedCargoPowerDraw (SPS Violet Cargo Bay)
         {
-            for (int day = 3; day <= 4; day++)
+            GameState d3PoolState = new() { Day = 3, PactScrip = 45, SuppressDiskPersistence = true };
+            for (int i = 0; i < 80; i++)
             {
-                GameState d34PoolState = new() { Day = day, PactScrip = 45, SuppressDiskPersistence = true };
-                HashSet<ShipInfractionType> seenD34 = [];
-                for (int i = 0; i < 120; i++)
-                {
-                    ShipSpec s = generator.GenerateShipForSlot(d34PoolState, i, reseedNonce: 7u, DebugSpawnValidityMode.ForceInvalid);
-                    ShipInfractionType t = s.GroundTruth.ActiveInfractions[0].Type;
-                    seenD34.Add(t);
-                    if (t is not (ShipInfractionType.TransponderIdMismatch or ShipInfractionType.SpoofedWeaponsHot or ShipInfractionType.FalsifiedOriginWaveform))
-                        throw new InvalidOperationException($"Day {day} generated disallowed post-Day-4 infraction: {t}");
-                }
-                if (!seenD34.Contains(ShipInfractionType.FalsifiedOriginWaveform))
-                    throw new InvalidOperationException($"Day {day} must generate FalsifiedOriginWaveform.");
+                ShipSpec s = generator.GenerateShipForSlot(d3PoolState, i, reseedNonce: 7u, DebugSpawnValidityMode.ForceInvalid);
+                ShipInfractionType t = s.GroundTruth.ActiveInfractions[0].Type;
+                if (t is not (ShipInfractionType.TransponderIdMismatch or ShipInfractionType.SpoofedWeaponsHot))
+                    throw new InvalidOperationException($"Day 3 breather generated disallowed post-Day-3 infraction: {t}");
             }
 
-            for (int day = 5; day <= 6; day++)
+            for (int day = 4; day <= 7; day++)
             {
-                GameState d56PoolState = new() { Day = day, PactScrip = 45, SuppressDiskPersistence = true };
-                HashSet<ShipInfractionType> seenD56 = [];
+                GameState d47PoolState = new() { Day = day, PactScrip = 45, SuppressDiskPersistence = true };
+                HashSet<ShipInfractionType> seenD47 = [];
+                for (int i = 0; i < 120; i++)
+                {
+                    ShipSpec s = generator.GenerateShipForSlot(d47PoolState, i, reseedNonce: 7u, DebugSpawnValidityMode.ForceInvalid);
+                    ShipInfractionType t = s.GroundTruth.ActiveInfractions[0].Type;
+                    seenD47.Add(t);
+                    if (t is not (ShipInfractionType.TransponderIdMismatch
+                        or ShipInfractionType.SpoofedWeaponsHot
+                        or ShipInfractionType.FalsifiedOriginWaveform
+                        or ShipInfractionType.SpokenRouteDiscrepancy))
+                    {
+                        throw new InvalidOperationException($"Day {day} generated disallowed post-Day-7 infraction: {t}");
+                    }
+                }
+                if (!seenD47.Contains(ShipInfractionType.FalsifiedOriginWaveform) ||
+                    !seenD47.Contains(ShipInfractionType.SpokenRouteDiscrepancy))
+                {
+                    throw new InvalidOperationException($"Day {day} must generate FalsifiedOriginWaveform and SpokenRouteDiscrepancy.");
+                }
+            }
+
+            for (int day = 8; day <= 9; day++)
+            {
+                GameState d89PoolState = new() { Day = day, PactScrip = 45, SuppressDiskPersistence = true };
+                HashSet<ShipInfractionType> seenD89 = [];
                 for (int i = 0; i < 180; i++)
                 {
-                    ShipSpec s = generator.GenerateShipForSlot(d56PoolState, i, reseedNonce: 9u, DebugSpawnValidityMode.ForceInvalid);
+                    ShipSpec s = generator.GenerateShipForSlot(d89PoolState, i, reseedNonce: 9u, DebugSpawnValidityMode.ForceInvalid);
                     ShipInfractionType t = s.GroundTruth.ActiveInfractions[0].Type;
-                    seenD56.Add(t);
-                    if (t is ShipInfractionType.PrefixHullSilhouetteMismatch or ShipInfractionType.UnexplainedCargoPowerDraw)
+                    seenD89.Add(t);
+                    if (t is ShipInfractionType.PrefixHullSilhouetteMismatch
+                        or ShipInfractionType.UnexplainedCargoPowerDraw
+                        or ShipInfractionType.BannedCargoItem
+                        or ShipInfractionType.SpokenCargoDiscrepancy
+                        or ShipInfractionType.CargoManifestDiscrepancy
+                        or ShipInfractionType.WithheldIllicitCargoManifest
+                        or ShipInfractionType.StokerMassMismatch)
+                    {
                         throw new InvalidOperationException($"Day {day} generated disallowed infraction: {t}");
+                    }
                 }
-                if (!seenD56.Contains(ShipInfractionType.ExpiredRegistration) ||
-                    !seenD56.Contains(ShipInfractionType.PrefixOrganizationMismatch) ||
-                    !seenD56.Contains(ShipInfractionType.PrefixSpeciesMismatch))
+                if (!seenD89.Contains(ShipInfractionType.ExpiredRegistration) ||
+                    !seenD89.Contains(ShipInfractionType.PrefixOrganizationMismatch) ||
+                    !seenD89.Contains(ShipInfractionType.PrefixSpeciesMismatch))
                 {
                     throw new InvalidOperationException($"Day {day} must generate ExpiredRegistration, PrefixOrganizationMismatch, and PrefixSpeciesMismatch.");
                 }
             }
 
-            for (int day = 7; day <= 9; day++)
+            for (int day = 10; day <= 11; day++)
             {
-                GameState d79State = new() { Day = day, PactScrip = 45, SuppressDiskPersistence = true };
-                HashSet<ShipInfractionType> seenD79 = [];
+                GameState d1011State = new() { Day = day, PactScrip = 45, SuppressDiskPersistence = true };
+                HashSet<ShipInfractionType> seenD1011 = [];
                 for (int i = 0; i < 180; i++)
                 {
-                    ShipSpec s = generator.GenerateShipForSlot(d79State, i, reseedNonce: 13u, DebugSpawnValidityMode.ForceInvalid);
+                    ShipSpec s = generator.GenerateShipForSlot(d1011State, i, reseedNonce: 13u, DebugSpawnValidityMode.ForceInvalid);
                     ShipInfractionType t = s.GroundTruth.ActiveInfractions[0].Type;
-                    seenD79.Add(t);
-                    if (t == ShipInfractionType.UnexplainedCargoPowerDraw)
-                        throw new InvalidOperationException($"Day {day} generated disallowed Day 10+ UnexplainedCargoPowerDraw.");
+                    seenD1011.Add(t);
+                    if (t is ShipInfractionType.UnexplainedCargoPowerDraw
+                        or ShipInfractionType.BannedCargoItem
+                        or ShipInfractionType.SpokenCargoDiscrepancy
+                        or ShipInfractionType.CargoManifestDiscrepancy
+                        or ShipInfractionType.WithheldIllicitCargoManifest
+                        or ShipInfractionType.StokerMassMismatch)
+                    {
+                        throw new InvalidOperationException($"Day {day} generated disallowed Day 12+ cargo infraction: {t}.");
+                    }
                 }
-                if (!seenD79.Contains(ShipInfractionType.PrefixHullSilhouetteMismatch))
+                if (!seenD1011.Contains(ShipInfractionType.PrefixHullSilhouetteMismatch))
                     throw new InvalidOperationException($"Day {day} must generate PrefixHullSilhouetteMismatch.");
             }
 
-            GameState d10State = new() { Day = 10, PactScrip = 45, SuppressDiskPersistence = true };
-            HashSet<ShipInfractionType> seenD10 = [];
-            for (int i = 0; i < 200; i++)
+            for (int day = 12; day <= 14; day++)
             {
-                ShipSpec s = generator.GenerateShipForSlot(d10State, i, reseedNonce: 17u, DebugSpawnValidityMode.ForceInvalid);
-                seenD10.Add(s.GroundTruth.ActiveInfractions[0].Type);
+                GameState d12State = new() { Day = day, PactScrip = 45, SuppressDiskPersistence = true };
+                HashSet<ShipInfractionType> seenD12 = [];
+                for (int i = 0; i < 260; i++)
+                {
+                    ShipSpec s = generator.GenerateShipForSlot(d12State, i, reseedNonce: 17u, DebugSpawnValidityMode.ForceInvalid);
+                    ShipInfractionType t = s.GroundTruth.ActiveInfractions[0].Type;
+                    if (t == ShipInfractionType.StokerMassMismatch)
+                        throw new InvalidOperationException($"Day {day} generated disallowed Day 15+ StokerMassMismatch.");
+                    seenD12.Add(t);
+                }
+                if (day == 12 &&
+                    (!seenD12.Contains(ShipInfractionType.UnexplainedCargoPowerDraw) ||
+                     !seenD12.Contains(ShipInfractionType.BannedCargoItem)))
+                {
+                    throw new InvalidOperationException("Day 12 must unlock UnexplainedCargoPowerDraw and BannedCargoItem.");
+                }
             }
-            if (!seenD10.Contains(ShipInfractionType.UnexplainedCargoPowerDraw))
-                throw new InvalidOperationException("Day 10 must unlock UnexplainedCargoPowerDraw (SPS Violet Cargo Bay).");
+
+            GameState d15PoolState = new() { Day = Constants.DefaultDayUnlockStoker, PactScrip = 90, SuppressDiskPersistence = true };
+            HashSet<ShipInfractionType> seenD15 = [];
+            bool sawSlagDenseOverweight = false;
+            for (int i = 0; i < 320; i++)
+            {
+                ShipSpec s = generator.GenerateShipForSlot(d15PoolState, i, reseedNonce: 23u, DebugSpawnValidityMode.ForceInvalid);
+                foreach (ShipInfraction inf in s.GroundTruth.ActiveInfractions)
+                {
+                    seenD15.Add(inf.Type);
+                }
+                if (string.Equals(s.GroundTruth.WaferCargoManifestItem, "Raw Slag Isotope", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (s.GroundTruth.ActualMass <= s.Slate.DeclaredTonnage ||
+                        !s.GroundTruth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.StokerMassMismatch))
+                    {
+                        throw new InvalidOperationException("Day 15+ Raw Slag Isotope (DenseMass) failed to roll overweight physical mass.");
+                    }
+                    sawSlagDenseOverweight = true;
+                }
+            }
+            if (!seenD15.Contains(ShipInfractionType.StokerMassMismatch) || !sawSlagDenseOverweight)
+            {
+                throw new InvalidOperationException("Day 15 must unlock StokerMassMismatch and pair Raw Slag Isotope with overweight physical mass.");
+            }
         }
 
         // 2c. Verify Security Strikes unified strictly to /3 (no silent mid-shift 5-strike game over)
         {
-            GameState strikeState = new() { Day = 3, PactScrip = 45, SuppressDiskPersistence = true };
+            GameState strikeState = new() { Day = 4, SecurityStrikesActive = true, PactScrip = 45, SuppressDiskPersistence = true };
             for (int i = 0; i < 5; i++)
             {
                 validator.AddSecurityStrike(strikeState, 1);
@@ -642,41 +837,42 @@ public static class Program
                 throw new InvalidOperationException("AddSecurityStrike must NOT trigger silent mid-shift 5-strike Fail_SecurityDetainment; 3/3 triggers Sleep Kordani Berth Audit.");
         }
 
-        // 3. Verify Day 3 Escalation (Protocol Review required, Security Strikes active, full pool without typos)
-        GameState d3State = new() { Day = 3, PactScrip = 45, SuppressDiskPersistence = true };
-        ShipSpec d3Valid = generator.GenerateShipForSlot(d3State, 0, forceValidity: DebugSpawnValidityMode.ForceValid);
-        d3Valid.GroundTruth.ActualShieldsUp = false;
-        d3Valid.GroundTruth.ActualWeaponsHot = false;
-        ShipSpec d3Invalid = generator.GenerateShipForSlot(d3State, 1, forceValidity: DebugSpawnValidityMode.ForceInvalid);
+        // 3. Verify Day 4 Escalation (Protocol Review required, Security Strikes active, full pool without typos)
+        GameState d4State = new() { Day = 4, SecurityStrikesActive = true, PactScrip = 45, SuppressDiskPersistence = true };
+        ShipSpec d4Valid = generator.GenerateShipForSlot(d4State, 0, forceValidity: DebugSpawnValidityMode.ForceValid);
+        d4Valid.GroundTruth.ActualShieldsUp = false;
+        d4Valid.GroundTruth.ActualWeaponsHot = false;
+        ShipSpec d4Invalid = generator.GenerateShipForSlot(d4State, 1, forceValidity: DebugSpawnValidityMode.ForceInvalid);
 
         // Case 1: Valid + Grant Access -> +10 SC
-        DecisionEvaluationResult c1 = validator.EvaluateDecision(d3State, d3Valid, PlayerDecision.GrantAccess, worldSim);
+        DecisionEvaluationResult c1 = validator.EvaluateDecision(d4State, d4Valid, PlayerDecision.GrantAccess, worldSim);
         if (!c1.IsAccurate || c1.IsCitation || c1.ScripDelta != 10)
-            throw new InvalidOperationException("Day 3 Case 1 (Valid + GrantAccess) failed.");
+            throw new InvalidOperationException("Day 4 Case 1 (Valid + GrantAccess) failed.");
 
-        // Case 4: Day 3 Invalid + Detain + ProtocolReviewVerified == false -> Citation!
-        d3Invalid.ProtocolReviewVerified = false;
-        DecisionEvaluationResult c4 = validator.EvaluateDecision(d3State, d3Invalid, PlayerDecision.Detain, worldSim);
+        // Case 4: Day 4 Invalid + Detain + ProtocolReviewVerified == false -> Citation!
+        d4Invalid.ProtocolReviewVerified = false;
+        DecisionEvaluationResult c4 = validator.EvaluateDecision(d4State, d4Invalid, PlayerDecision.Detain, worldSim);
         if (c4.IsAccurate || !c4.IsCitation || c4.ViolationReason != ValidationEngine.UnverifiedDetentionReason)
-            throw new InvalidOperationException("Day 3 Case 4 (Unverified Detain) failed.");
+            throw new InvalidOperationException("Day 4 Case 4 (Unverified Detain) failed.");
 
-        // Case 5: Day 3 Invalid + Detain + ProtocolReviewVerified == true -> Accurate (+10 SC)
-        d3Invalid.ProtocolReviewVerified = true;
-        DecisionEvaluationResult c5 = validator.EvaluateDecision(d3State, d3Invalid, PlayerDecision.Detain, worldSim);
+        // Case 5: Day 4 Invalid + Detain + ProtocolReviewVerified == true -> Accurate (+10 SC)
+        d4Invalid.ProtocolReviewVerified = true;
+        DecisionEvaluationResult c5 = validator.EvaluateDecision(d4State, d4Invalid, PlayerDecision.Detain, worldSim);
         if (!c5.IsAccurate || c5.IsCitation || c5.ScripDelta != 10)
-            throw new InvalidOperationException("Day 3 Case 5 (Verified Detain) failed.");
+            throw new InvalidOperationException("Day 4 Case 5 (Verified Detain) failed.");
 
         // Verify live Pay Per Ship tuner changes payout immediately
-        d3State.BasePayPerShipScrip = 15;
-        DecisionEvaluationResult cPay15 = validator.EvaluateDecision(d3State, d3Valid, PlayerDecision.GrantAccess, worldSim);
+        d4State.BasePayPerShipScrip = 15;
+        DecisionEvaluationResult cPay15 = validator.EvaluateDecision(d4State, d4Valid, PlayerDecision.GrantAccess, worldSim);
         if (!cPay15.IsAccurate || cPay15.ScripDelta != 15)
             throw new InvalidOperationException("Live BasePayPerShipScrip tuner (15 SC) did not affect ValidationEngine payout.");
 
-        // Verify Day 3 Live Kordani Hail lines for BOTH Branch A and Branch B
-        string[] branchA = Day2And3ScriptedDialogue.BuildDay3KordaniHailLines(true, "ORN-442-K", "Oruun-4");
-        string[] branchB = Day2And3ScriptedDialogue.BuildDay3KordaniHailLines(false, "ORN-442-K", "Oruun-4");
-        if (branchA.Length < 3 || branchB.Length < 3)
-            throw new InvalidOperationException("Day 3 Kordani Live Hail lines missing for Branch A or Branch B.");
+        // Verify Day 4 Live Kordani Hail lines for BOTH Branch A and Branch B
+        string[] branchA = Day2And3ScriptedDialogue.BuildDay4KordaniHailLines(true, "ORN-442-K", "Oruun-4");
+        string[] branchB = Day2And3ScriptedDialogue.BuildDay4KordaniHailLines(false, "ORN-442-K", "Oruun-4");
+        if (branchA.Length < 4 || branchB.Length < 4 ||
+            !branchA[0].Contains("Our boarding teams investigated the vessel you detained yesterday", StringComparison.Ordinal))
+            throw new InvalidOperationException("Day 4 Kordani Live Hail lines missing or diverged for Branch A or Branch B.");
 
         // Verify Hold Timer Until First Hail & variable Day 1 (210s) shift_horn trigger
         ShiftController timerShift = new();
@@ -896,14 +1092,14 @@ public static class Program
             }
         }
 
-        // 4. Build 4.3.6: Day 6/13 Pocket Capacity Upgrade Gates, Day 10+ Covert Delivery Missions, Day 6 Hack Drop & Guaranteed MNG- Target,
+        // 4. Build 4.5: Day 6/15 Pocket Capacity Upgrade Gates, Day 12+ Covert Delivery Missions, Day 6 Hack Drop & Guaranteed MNG- Target,
         //    Missions-Only CRYPTO / LOGS Direct [TRANSMIT] Dispatch & Option A DECK 4 50 SC Strike Clearing
-        if (config.PocketUpgrade2MinDay != 6 || config.PocketUpgrade3MinDay != 13)
-            throw new InvalidOperationException($"Expected Day 6 / Day 13 Pocket Capacity upgrade gates, found Day {config.PocketUpgrade2MinDay} / Day {config.PocketUpgrade3MinDay}.");
+        if (config.PocketUpgrade2MinDay != 6 || config.PocketUpgrade3MinDay != 15)
+            throw new InvalidOperationException($"Expected Day 6 / Day 15 Pocket Capacity upgrade gates, found Day {config.PocketUpgrade2MinDay} / Day {config.PocketUpgrade3MinDay}.");
         if (config.ClockOutPowerDownDelaySeconds < 3.8f || config.ClockOutPowerDownDelaySeconds > 4.2f)
             throw new InvalidOperationException($"Expected ClockOutPowerDownDelaySeconds in [3.8, 4.2], found {config.ClockOutPowerDownDelaySeconds}.");
 
-        // Verify Pocket Upgrade Day 6 (60 SC) and Day 13 (120 SC) locks
+        // Verify Pocket Upgrade Day 6 (60 SC) and Day 15 (120 SC) locks
         state.PocketCapacity = 1;
         state.PactScrip = 300;
         state.Day = 5;
@@ -912,34 +1108,34 @@ public static class Program
         state.Day = 6;
         if (!economy.TryPurchasePocketCapacityUpgrade(state, config).Success || state.PocketCapacity != 2)
             throw new InvalidOperationException("Pocket Capacity 1->2 upgrade failed on Day 6.");
-        state.Day = 12;
+        state.Day = 14;
         if (economy.GetNextPocketUpgradeInfo(state, config).CanUpgrade)
-            throw new InvalidOperationException("Pocket Capacity 2->3 upgrade must be locked on Day 12.");
-        state.Day = 13;
+            throw new InvalidOperationException("Pocket Capacity 2->3 upgrade must be locked on Day 14.");
+        state.Day = 15;
         if (!economy.TryPurchasePocketCapacityUpgrade(state, config).Success || state.PocketCapacity != 3)
-            throw new InvalidOperationException("Pocket Capacity 2->3 upgrade failed on Day 13.");
+            throw new InvalidOperationException("Pocket Capacity 2->3 upgrade failed on Day 15.");
 
-        // Verify NO covert delivery emails trigger on Days 1-9; OP-01 / OP-02 live on Day 10+
+        // Verify NO covert delivery emails trigger on Days 1-11; OP-01 / OP-02 live on Day 12+
         CovertMissionDatabase missionDb = CovertMissionDatabase.Load();
         foreach (CovertMissionSpec spec in missionDb.Missions)
         {
             if (spec.MinAvailableDay < 6)
                 throw new InvalidOperationException($"Covert mission {spec.MissionId} illegally available before Day 6.");
-            if (spec.IsDeliveryMission && spec.MinAvailableDay < 10)
-                throw new InvalidOperationException($"Covert delivery mission {spec.MissionId} illegally available before Day 10.");
-            if (spec.IsDeliveryMission && spec.TriggerEmailDay is > 0 and < 10)
-                throw new InvalidOperationException($"Covert delivery email {spec.MissionId} illegally triggers before Day 10.");
+            if (spec.IsDeliveryMission && spec.MinAvailableDay < 12)
+                throw new InvalidOperationException($"Covert delivery mission {spec.MissionId} illegally available before Day 12.");
+            if (spec.IsDeliveryMission && spec.TriggerEmailDay is > 0 and < 12)
+                throw new InvalidOperationException($"Covert delivery email {spec.MissionId} illegally triggers before Day 12.");
         }
 
-        GameState d19State = new() { SuppressDiskPersistence = true };
-        d19State.ResetForNewSave(1);
-        for (int d = 1; d <= 9; d++)
+        GameState d111State = new() { SuppressDiskPersistence = true };
+        d111State.ResetForNewSave(1);
+        for (int d = 1; d <= 11; d++)
         {
-            economy.DeliverScheduledEmailsForPhase(d19State, d, QuartersPhase.Morning, config);
-            economy.DeliverScheduledEmailsForPhase(d19State, d, QuartersPhase.Evening, config);
+            economy.DeliverScheduledEmailsForPhase(d111State, d, QuartersPhase.Morning, config);
+            economy.DeliverScheduledEmailsForPhase(d111State, d, QuartersPhase.Evening, config);
         }
-        if (d19State.Emails.Any(e => e.IsEncrypted))
-            throw new InvalidOperationException("Encrypted covert delivery emails must NEVER trigger on Days 1-9.");
+        if (d111State.Emails.Any(e => e.IsEncrypted))
+            throw new InvalidOperationException("Encrypted covert delivery emails must NEVER trigger on Days 1-11.");
 
         // Day 6 Morning unsolicited drop (free Blank Data Slate in 0500 chute + CHECK YOUR CHUTE email) & guaranteed MNG- in queue + Morning Roster
         GameState d6State = new() { SuppressDiskPersistence = true };
@@ -951,9 +1147,9 @@ public static class Program
         if (!dropped ||
             d6State.TerminalHackedUnlocked ||
             !d6State.ServiceChuteItems.Any(i => i.ItemType == ContrabandPocketItem.TypeBlankDataSlate) ||
-            !d6State.Emails.Any(e => e.IsTerminalHackEmail && e.Sender == "UNKNOWN // RELAY_D4" && e.Subject == "CHECK YOUR CHUTE" && !e.IsRead))
+            !d6State.Emails.Any(e => e.IsTerminalHackEmail && e.Sender == "unknown" && e.Subject == "Check your chute" && e.CustomStatusLine == "asf.as\u2026tje" && !e.IsRead))
         {
-            throw new InvalidOperationException("Day 6 Morning unsolicited 0500 Blank Data Slate drop or CHECK YOUR CHUTE email failed.");
+            throw new InvalidOperationException("Day 6 Morning unsolicited 0500 Blank Data Slate drop or Check your chute email failed.");
         }
 
         List<ShipSpec> day6Queue = generator.GenerateDailyQueue(d6State, Constants.PreGeneratedQueueSize);
@@ -972,9 +1168,9 @@ public static class Program
         {
             ItemId = "test_mng_cap_1",
             ItemType = ContrabandPocketItem.TypeCopiedDataSlate,
-            DisplayName = "STOLEN SLATE: MNG-402-B",
+            DisplayName = $"STOLEN SLATE: {d6State.Day6IntroTargetReg}",
             TargetShipPrefix = "MNG-",
-            TargetShipRegistration = "MNG-402-B",
+            TargetShipRegistration = d6State.Day6IntroTargetReg,
             OriginStarSystem = "Oruun-4"
         };
         d6State.VentStashItems.Add(mngCaptured);
@@ -993,18 +1189,18 @@ public static class Program
             throw new InvalidOperationException("Day 6 MNG- direct [TRANSMIT] failed to credit +45 SC, log [AUDIT_FLAG], or decrement MNG- power.");
         }
 
-        // Day 10+ Covert Delivery Missions: Accept Type 1 Delivery (queues sealed Mission Slate for 0500) + Type 2 Intercept + DECRYPT [0 SC]
-        state.AdvanceToDay(10);
+        // Day 12+ Covert Delivery Missions: Accept Type 1 Delivery (queues sealed Mission Slate for 0500) + Type 2 Intercept + DECRYPT [0 SC]
+        state.AdvanceToDay(12);
         state.TerminalHackedUnlocked = true;
         state.QuartersPhase = QuartersPhase.Evening;
-        economy.DeliverScheduledEmailsForPhase(state, 10, QuartersPhase.Evening, config);
+        economy.DeliverScheduledEmailsForPhase(state, 12, QuartersPhase.Evening, config);
         int scripPreDecrypt = state.PactScrip;
         int logsPreDecrypt = state.UnscrubbedLogCount;
         var (decOk, _, _) = economy.TryDecryptNextMessage(state);
         if (!decOk || state.PactScrip != scripPreDecrypt || state.UnscrubbedLogCount <= logsPreDecrypt ||
             !state.PendingChuteDeliveries.Any(i => i.ItemType == ContrabandPocketItem.TypeMissionDataSlate && i.MissionId == "slate_bus_mission_01"))
         {
-            throw new InvalidOperationException("Day 10 DECRYPT MESSAGE (0 SC) failed to decrypt OP-01 free, log [UNAUTH_IO], or queue sealed Mission Slate.");
+            throw new InvalidOperationException("Day 12 DECRYPT MESSAGE (0 SC) failed to decrypt OP-01 free, log [UNAUTH_IO], or queue sealed Mission Slate.");
         }
 
         var (intAccOk, _) = economy.TryAcceptCovertContract(state, "intercept_op_01", missionDb);
@@ -1034,7 +1230,7 @@ public static class Program
 
         // 5. Two-Tier Sleep-Triggered Kordani Berth Raids (RaidController):
         //    5a. SCRUB LOGS costs flat 15 SC -> Clean Logs + Contraband in Vent Stash -> Standard Sweep ONLY (Vent Stash SAFE!)
-        state.AdvanceToDay(3);
+        state.AdvanceToDay(4);
         state.SecurityStrikes = config.MaxStrikesBeforeAudit;
         state.PactScrip = 100;
         var (scrubOk, _, _) = economy.TryScrubSecurityLogs(state, config);
@@ -1137,7 +1333,7 @@ public static class Program
             TerminalOverlay.TabSpecs[0].Label != "MESSAGES" || TerminalOverlay.TabSpecs[0].IsUnofficial ||
             TerminalOverlay.TabSpecs[1].Label != "FORUM" || TerminalOverlay.TabSpecs[1].IsUnofficial ||
             TerminalOverlay.TabSpecs[2].Label != "PACT REQ" || TerminalOverlay.TabSpecs[2].IsUnofficial ||
-            TerminalOverlay.TabSpecs[3].Label != "CRYPTO / LOGS" || !TerminalOverlay.TabSpecs[3].IsUnofficial ||
+            TerminalOverlay.TabSpecs[3].Label != "CRYPTOGRAPHY" || !TerminalOverlay.TabSpecs[3].IsUnofficial ||
             TerminalOverlay.TabSpecs[4].Label != "DECK 4" || !TerminalOverlay.TabSpecs[4].IsUnofficial)
         {
             throw new InvalidOperationException("TerminalOverlay 5-tab order or Official/Unofficial split mismatch.");
@@ -1943,24 +2139,24 @@ public static class Program
                 throw new InvalidOperationException("Acknowledging Commander Vorst hail failed to unload portrait or unlock NEXT HAIL.");
             }
 
-            // 5. Verify Day 3 Kordani Officer hail also streams with TalkingHead pacing & unloads cleanly
+            // 5. Verify Day 4 Kordani Officer hail also streams with TalkingHead pacing & unloads cleanly
             config.TalkingHeadAdvanceMode = TalkingHeadAdvanceMode.AutoAdvance;
-            gameState.Day2SuspectDetained = true;
-            gameState.Day3PreShiftHailCompleted = false;
-            gameState.AdvanceToDay(3);
+            gameState.GhostRouteSuspectDetained = true;
+            gameState.Day4PreShiftHailCompleted = false;
+            gameState.AdvanceToDay(4);
             screenManager.SwitchTo(ScreenId.Desk);
             tutorialOverlay.ForceCloseSilent();
             if (!deskScreen.IsDay3KordaniHailActive || !deskScreen.HasPreShiftPortraitTextureLoaded)
-                throw new InvalidOperationException("Day 3 Kordani Live Hail did not trigger.");
+                throw new InvalidOperationException("Day 4 Kordani Live Hail did not trigger.");
             deskScreen.Update(0.25f, idle);
             deskScreen.Update(0.50f, idle);
             if (!deskScreen.CommsQueue.IsTypingActiveLine || deskScreen.CommsQueue.ActiveVisibleCharCount > 32)
-                throw new InvalidOperationException("Day 3 Kordani Live Hail did not stream at slower talking-head CPS.");
+                throw new InvalidOperationException("Day 4 Kordani Live Hail did not stream at slower talking-head CPS.");
             deskScreen.Update(0.016f, stripBtnClick);
             deskScreen.Update(0.016f, stripBtnClick);
             tutorialOverlay.ForceCloseSilent();
             if (deskScreen.HasPreShiftPortraitTextureLoaded || !deskScreen.CanTriggerNextHailNow)
-                throw new InvalidOperationException("Day 3 Kordani Live Hail failed to unload portrait cleanly on acknowledge.");
+                throw new InvalidOperationException("Day 4 Kordani Live Hail failed to unload portrait cleanly on acknowledge.");
 
             // 6. Verify 1,000 SC IndependentPassageFundTarget config default & live F1 Dev Economy Stepper
             if (Constants.IndependentPassageFundTarget != 1000 || savedBuyoutTarget != 1000)
@@ -2124,18 +2320,18 @@ public static class Program
                 throw new InvalidOperationException("Repeat LOAD DAY 06 AM failed to reset TerminalHackedUnlocked and re-seed unread CHECK YOUR CHUTE + Chute item.");
             }
 
-            // Taking the Day 6 chute Blank Data Slate without reading CHECK YOUR CHUTE blocks door exit with MESSAGES nudge
+            // Taking the Day 6 chute Blank Data Slate without reading "Check your chute" blocks door exit with unread email nudge
             ContrabandPocketItem d6Blank = gameState.ServiceChuteItems[0];
             gameState.ServiceChuteItems.Clear();
             gameState.PocketItems.Add(d6Blank);
             if (!quartersScreen.IsDoorGatedByDay6UnreadChuteDrop)
-                throw new InvalidOperationException("IsDoorGatedByDay6UnreadChuteDrop did not trigger when Day 6 chute slate was collected before reading hack email.");
+                throw new InvalidOperationException("IsDoorGatedByDay6UnreadChuteDrop did not trigger when Day 6 hack email was unread.");
 
             quartersScreen.Update(0.016f, new VirtualMouseState { X = 80, Y = 500, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
             if (screenManager.CurrentScreenId != ScreenId.Quarters ||
-                !quartersScreen.ActiveNudgeText.Contains("MESSAGES", StringComparison.OrdinalIgnoreCase))
+                quartersScreen.ActiveNudgeText != "Should probably read my emails first.")
             {
-                throw new InvalidOperationException("Quarters door did not block Day 6 unread-chute trap with a [MESSAGES] nudge.");
+                throw new InvalidOperationException($"Quarters door did not block Day 6 unread email with expected prompt, got '{quartersScreen.ActiveNudgeText}'.");
             }
 
             // Fail-safe auto-unlock if a suspicious security log is recorded on Day 6+ before TerminalHackedUnlocked
@@ -2143,18 +2339,20 @@ public static class Program
             if (!gameState.TerminalHackedUnlocked)
                 throw new InvalidOperationException("Day 6+ AddSecurityLog(isSuspicious: true) fail-safe did not unlock TerminalHackedUnlocked.");
 
-            // 5. Centralized ConfigFlags unlock days & custom ShipGenerator(customConfig) gating
-            if (config.DayUnlockManualPart1 != 5 ||
-                config.DayUnlockManualHulls != 7 ||
-                config.DayUnlockWaferCargo != 10 ||
-                config.DayUnlockStoker != 13 ||
-                config.DayUnlockFaceBribes != 16 ||
-                config.DayUnlockCargoBioScan != 19 ||
-                config.DayUnlockHostilityDestroy != 20 ||
-                config.DayUnlockTransitPass != 22 ||
-                config.DayPactClimax != 23)
+            // 5. Centralized ConfigFlags unlock days (28-day schedule) & custom ShipGenerator(customConfig) gating
+            if (config.DayUnlockWarpScanner != 4 ||
+                config.DayUnlockManualPart1 != 8 ||
+                config.DayUnlockManualHulls != 10 ||
+                config.DayUnlockWaferCargo != 12 ||
+                config.DayUnlockStoker != 15 ||
+                config.DayUnlockFaceBribes != 18 ||
+                config.DayUnlockCargoBioScan != 21 ||
+                config.DayUnlockHostilityDestroy != 22 ||
+                config.DayUnlockTransitPass != 24 ||
+                config.DayPactClimax != 26 ||
+                config.CampaignFinalDay != 28)
             {
-                throw new InvalidOperationException("ConfigFlags default DayUnlock thresholds do not match Build 4.3.6 25-day spec.");
+                throw new InvalidOperationException("ConfigFlags default DayUnlock thresholds do not match Build 4.5 28-day spec.");
             }
 
             Core.ConfigFlags customCfg = new()
@@ -2257,49 +2455,54 @@ public static class Program
 
         try
         {
-            // 1. Verify CovertMissionDatabase & ConfigFlags loaded from data/config.json match Build 4.3.6 defaults
+            // 1. Verify CovertMissionDatabase & ConfigFlags loaded from data/config.json match Build 4.5 defaults
             CovertMissionDatabase missionDb = CovertMissionDatabase.Reload();
             Core.ConfigFlags diskConfig = Core.ConfigFlags.Load();
             if (diskConfig.ShiftDurationDay1 != 210 ||
-                diskConfig.ShiftDurationDays2To4 != 240 ||
-                diskConfig.ShiftDurationDays5To9 != 255 ||
-                diskConfig.ShiftDurationDays10To15 != 270 ||
-                diskConfig.ShiftDurationDays16Plus != 285 ||
-                diskConfig.DayUnlockManualPart1 != 5 ||
-                diskConfig.DayUnlockManualHulls != 7 ||
-                diskConfig.DayUnlockWaferCargo != 10 ||
-                diskConfig.DayUnlockStoker != 13 ||
-                diskConfig.DayUnlockFaceBribes != 16 ||
-                diskConfig.DayUnlockCargoBioScan != 19 ||
-                diskConfig.DayUnlockHostilityDestroy != 20 ||
-                diskConfig.DayUnlockTransitPass != 22 ||
-                diskConfig.DayPactClimax != 23 ||
+                diskConfig.ShiftDurationDays2To5 != 240 ||
+                diskConfig.ShiftDurationDays6To11 != 255 ||
+                diskConfig.ShiftDurationDays12To17 != 270 ||
+                diskConfig.ShiftDurationDays18Plus != 285 ||
+                MathF.Abs(diskConfig.ShieldsUpBaseChance - 0.38f) > 0.001f ||
+                MathF.Abs(diskConfig.InvalidShipRateEarly - 0.38f) > 0.001f ||
+                MathF.Abs(diskConfig.InvalidShipRateMid - 0.45f) > 0.001f ||
+                diskConfig.DayUnlockWarpScanner != 4 ||
+                diskConfig.DayUnlockManualPart1 != 8 ||
+                diskConfig.DayUnlockManualHulls != 10 ||
+                diskConfig.DayUnlockWaferCargo != 12 ||
+                diskConfig.DayUnlockStoker != 15 ||
+                diskConfig.DayUnlockFaceBribes != 18 ||
+                diskConfig.DayUnlockCargoBioScan != 21 ||
+                diskConfig.DayUnlockHostilityDestroy != 22 ||
+                diskConfig.DayUnlockTransitPass != 24 ||
+                diskConfig.DayPactClimax != 26 ||
+                diskConfig.CampaignFinalDay != 28 ||
                 diskConfig.PocketUpgrade2MinDay != 6 ||
                 diskConfig.PocketUpgrade2Cost != 60 ||
-                diskConfig.PocketUpgrade3MinDay != 13 ||
+                diskConfig.PocketUpgrade3MinDay != 15 ||
                 diskConfig.PocketUpgrade3Cost != 120)
             {
-                throw new InvalidOperationException("data/config.json did not load Build 4.3.6 variable shift clock & 25-day spaced defaults.");
+                throw new InvalidOperationException("data/config.json did not load Build 4.5 variable shift clock, rates & 28-day spaced defaults.");
             }
 
             // 2. Assert ConfigFlags.GetShiftDurationSeconds across all 5 campaign stages
             if (config.GetShiftDurationSeconds(1) != 210 ||
                 config.GetShiftDurationSeconds(2) != 240 ||
                 config.GetShiftDurationSeconds(3) != 240 ||
-                config.GetShiftDurationSeconds(4) != 240 ||
-                config.GetShiftDurationSeconds(5) != 255 ||
+                config.GetShiftDurationSeconds(5) != 240 ||
                 config.GetShiftDurationSeconds(6) != 255 ||
                 config.GetShiftDurationSeconds(9) != 255 ||
-                config.GetShiftDurationSeconds(10) != 270 ||
-                config.GetShiftDurationSeconds(15) != 270 ||
-                config.GetShiftDurationSeconds(16) != 285 ||
-                config.GetShiftDurationSeconds(23) != 285 ||
-                config.GetShiftDurationSeconds(25) != 285)
+                config.GetShiftDurationSeconds(11) != 255 ||
+                config.GetShiftDurationSeconds(12) != 270 ||
+                config.GetShiftDurationSeconds(17) != 270 ||
+                config.GetShiftDurationSeconds(18) != 285 ||
+                config.GetShiftDurationSeconds(26) != 285 ||
+                config.GetShiftDurationSeconds(28) != 285)
             {
-                throw new InvalidOperationException("ConfigFlags.GetShiftDurationSeconds returned incorrect stage duration(s).");
+                throw new InvalidOperationException("ConfigFlags.GetShiftDurationSeconds returned incorrect Build 4.5 stage duration(s).");
             }
 
-            // 3. Assert ShiftController & DeskScreen active duration + BrownDwarfArcProgress scaling (Day 1 = 210s, Day 23 = 285s)
+            // 3. Assert ShiftController & DeskScreen active duration + BrownDwarfArcProgress scaling (Day 1 = 210s, Day 26 = 285s)
             gameState.ResetForNewSave(1);
             gameState.Day1BrengopEmailRead = true;
             gameState.Day1VorstHailCompleted = true;
@@ -2315,79 +2518,82 @@ public static class Program
             if (MathF.Abs(deskScreen.BrownDwarfArcProgress - 1.0f) > 0.001f || !deskScreen.IsShiftTimerExpired)
                 throw new InvalidOperationException("Day 1 BrownDwarfArcProgress expected 1.00 (expired) at 210s / 210s.");
 
-            gameState.AdvanceToDay(23);
+            gameState.AdvanceToDay(26);
             screenManager.SwitchTo(ScreenId.Desk);
             tutorialOverlay.ForceCloseSilent();
             if (MathF.Abs(deskScreen.ActiveShiftDurationSeconds - 285f) > 0.01f)
-                throw new InvalidOperationException($"Expected Day 23 DeskScreen ActiveShiftDurationSeconds == 285, got {deskScreen.ActiveShiftDurationSeconds}.");
+                throw new InvalidOperationException($"Expected Day 26 DeskScreen ActiveShiftDurationSeconds == 285, got {deskScreen.ActiveShiftDurationSeconds}.");
 
             deskScreen.SmokeSetShiftElapsedSeconds(142.5f);
             if (MathF.Abs(deskScreen.BrownDwarfArcProgress - 0.5f) > 0.001f || deskScreen.IsShiftTimerExpired)
-                throw new InvalidOperationException("Day 23 BrownDwarfArcProgress expected 0.50 (unexpired) at 142.5s / 285s.");
+                throw new InvalidOperationException("Day 26 BrownDwarfArcProgress expected 0.50 (unexpired) at 142.5s / 285s.");
             deskScreen.SmokeSetShiftElapsedSeconds(285f);
             if (MathF.Abs(deskScreen.BrownDwarfArcProgress - 1.0f) > 0.001f || !deskScreen.IsShiftTimerExpired)
-                throw new InvalidOperationException("Day 23 BrownDwarfArcProgress expected 1.00 (expired) at 285s / 285s.");
+                throw new InvalidOperationException("Day 26 BrownDwarfArcProgress expected 1.00 (expired) at 285s / 285s.");
 
-            // 4. Assert Day 4 Breather (zero Manual infractions, Manual locked, zero REFERENCE MANUAL text in directive)
+            // 4. Assert Days 5 & 7 Breathers (zero Manual infractions, Manual locked, zero REFERENCE MANUAL text in directive)
             ShipGenerator gen = new(config);
             gameState.ResetForNewSave(1);
-            gameState.AdvanceToDay(4);
-            screenManager.SwitchTo(ScreenId.Desk);
-            tutorialOverlay.ForceCloseSilent();
-            if (deskScreen.IsManualUnlocked)
-                throw new InvalidOperationException("Day 4 breather shift must NOT unlock Kordani Reference Manual Tablet.");
-            string[] day4Dir = Day2And3ScriptedDialogue.BuildDailyShiftDirectiveLines(
-                4, gameState.Day2SuspectDetained, gameState.Day2SuspectRegistration, gameState.Day2SuspectDeclaredOrigin, config);
-            if (day4Dir.Any(l => l.Contains("REFERENCE MANUAL", StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("Day 4 Shift Directive must not announce Kordani Reference Manual.");
-
-            for (int i = 0; i < 120; i++)
+            foreach (int breatherDay in new[] { 5, 7 })
             {
-                ShipSpec s = gen.GenerateShipForSlot(gameState, i, reseedNonce: 436u, DebugSpawnValidityMode.ForceInvalid, config: config);
-                if (s.GroundTruth.ActiveInfractions.Any(inf => inf.Type is
-                    ShipInfractionType.ExpiredRegistration or
-                    ShipInfractionType.PrefixOrganizationMismatch or
-                    ShipInfractionType.PrefixSpeciesMismatch or
-                    ShipInfractionType.PrefixHullSilhouetteMismatch or
-                    ShipInfractionType.UnexplainedCargoPowerDraw))
+                gameState.AdvanceToDay(breatherDay);
+                screenManager.SwitchTo(ScreenId.Desk);
+                tutorialOverlay.ForceCloseSilent();
+                if (deskScreen.IsManualUnlocked)
+                    throw new InvalidOperationException($"Day {breatherDay} breather shift must NOT unlock Kordani Reference Manual Tablet.");
+                string[] breatherDir = Day2And3ScriptedDialogue.BuildDailyShiftDirectiveLines(
+                    breatherDay, gameState.GhostRouteSuspectDetained, gameState.Day2SuspectRegistration, gameState.Day2SuspectDeclaredOrigin, config);
+                if (breatherDir.Any(l => l.Contains("REFERENCE MANUAL", StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException($"Day {breatherDay} Shift Directive must not announce Kordani Reference Manual.");
+
+                for (int i = 0; i < 80; i++)
                 {
-                    throw new InvalidOperationException($"Day 4 breather generated disallowed Manual/Cargo infraction: {s.GroundTruth.ActiveInfractions[0].Type}");
+                    ShipSpec s = gen.GenerateShipForSlot(gameState, i, reseedNonce: (uint)(430 + breatherDay), DebugSpawnValidityMode.ForceInvalid, config: config);
+                    if (s.GroundTruth.ActiveInfractions.Any(inf => inf.Type is
+                        ShipInfractionType.ExpiredRegistration or
+                        ShipInfractionType.PrefixOrganizationMismatch or
+                        ShipInfractionType.PrefixSpeciesMismatch or
+                        ShipInfractionType.PrefixHullSilhouetteMismatch or
+                        ShipInfractionType.UnexplainedCargoPowerDraw))
+                    {
+                        throw new InvalidOperationException($"Day {breatherDay} breather generated disallowed Manual/Cargo infraction: {s.GroundTruth.ActiveInfractions[0].Type}");
+                    }
                 }
             }
 
-            // 5. Assert Day 5 Manual Part 1 (Expired, Org, Species; NO Hull Silhouettes)
-            gameState.AdvanceToDay(5);
+            // 5. Assert Day 8 Manual Part 1 (Expired, Org, Species; NO Hull Silhouettes)
+            gameState.AdvanceToDay(8);
             screenManager.SwitchTo(ScreenId.Desk);
             tutorialOverlay.ForceCloseSilent();
             if (!deskScreen.IsManualUnlocked || deskScreen.IsManualHullsEnforced)
-                throw new InvalidOperationException("Day 5 must unlock Manual Part 1 without enforcing Manual Part 2 hulls.");
-            HashSet<ShipInfractionType> seenD5 = [];
+                throw new InvalidOperationException("Day 8 must unlock Manual Part 1 without enforcing Manual Part 2 hulls.");
+            HashSet<ShipInfractionType> seenD8 = [];
             for (int i = 0; i < 180; i++)
             {
-                ShipSpec s = gen.GenerateShipForSlot(gameState, i, reseedNonce: 505u, DebugSpawnValidityMode.ForceInvalid, config: config);
+                ShipSpec s = gen.GenerateShipForSlot(gameState, i, reseedNonce: 808u, DebugSpawnValidityMode.ForceInvalid, config: config);
                 ShipInfractionType t = s.GroundTruth.ActiveInfractions[0].Type;
-                seenD5.Add(t);
+                seenD8.Add(t);
                 if (t is ShipInfractionType.PrefixHullSilhouetteMismatch or ShipInfractionType.UnexplainedCargoPowerDraw)
-                    throw new InvalidOperationException($"Day 5 generated disallowed post-Day-5 infraction: {t}");
+                    throw new InvalidOperationException($"Day 8 generated disallowed post-Day-8 infraction: {t}");
             }
-            if (!seenD5.Contains(ShipInfractionType.ExpiredRegistration) ||
-                !seenD5.Contains(ShipInfractionType.PrefixOrganizationMismatch) ||
-                !seenD5.Contains(ShipInfractionType.PrefixSpeciesMismatch))
+            if (!seenD8.Contains(ShipInfractionType.ExpiredRegistration) ||
+                !seenD8.Contains(ShipInfractionType.PrefixOrganizationMismatch) ||
+                !seenD8.Contains(ShipInfractionType.PrefixSpeciesMismatch))
             {
-                throw new InvalidOperationException("Day 5 failed to generate Manual Part 1 infractions.");
+                throw new InvalidOperationException("Day 8 failed to generate Manual Part 1 infractions.");
             }
 
-            // 6. Assert Day 6 Pinned Hack + Blank Data Slate + MNG- Intro + Pocket Upgrade 2 (60 SC) + No Hulls Yet
+            // 6. Assert Day 6 Pinned Hack + Blank Data Slate + MNG- Intro + Pocket Upgrade 2 (60 SC) + No Hulls/Manual Yet
             gameState.ResetForNewSave(1);
             gameState.AdvanceToDay(6);
             gameState.QuartersPhase = QuartersPhase.Morning;
             EconomyEngine econ = new();
             econ.EnsureMorningRosterGenerated(gameState, gen, config);
             econ.EnsureDay6MorningUnsolicitedDrop(gameState);
-            if (!gameState.Emails.Any(e => e.IsTerminalHackEmail && e.Subject == "CHECK YOUR CHUTE" && !e.IsRead) ||
+            if (!gameState.Emails.Any(e => e.IsTerminalHackEmail && e.Sender == "unknown" && e.Subject == "Check your chute" && !e.IsRead) ||
                 !gameState.ServiceChuteItems.Any(i => i.ItemType == ContrabandPocketItem.TypeBlankDataSlate))
             {
-                throw new InvalidOperationException("Day 6 pinned CHECK YOUR CHUTE email or free 0500 Blank Data Slate drop failed.");
+                throw new InvalidOperationException("Day 6 pinned Check your chute email or free 0500 Blank Data Slate drop failed.");
             }
 
             screenManager.SwitchTo(ScreenId.Quarters);
@@ -2406,7 +2612,7 @@ public static class Program
             quartersScreen.SmokeCloseSubOverlays();
 
             gameState.PactScrip = 100;
-            if (!econ.TryPurchasePocketCapacityUpgrade(gameState, config).Success || gameState.PocketCapacity != 2)
+            if (!econ.TryPurchasePocketCapacityUpgrade(state: gameState, config: config).Success || gameState.PocketCapacity != 2)
                 throw new InvalidOperationException("Day 6 Pocket Upgrade 2 (60 SC) failed.");
 
             List<ShipSpec> d6Queue = gen.GenerateDailyQueue(gameState, Constants.PreGeneratedQueueSize, config: config);
@@ -2418,62 +2624,62 @@ public static class Program
 
             screenManager.SwitchTo(ScreenId.Desk);
             tutorialOverlay.ForceCloseSilent();
-            if (deskScreen.IsManualHullsEnforced)
-                throw new InvalidOperationException("Day 6 must NOT enforce Manual Part 2 Hull Silhouettes.");
+            if (deskScreen.IsManualUnlocked || deskScreen.IsManualHullsEnforced)
+                throw new InvalidOperationException("Day 6 must NOT unlock Manual Part 1 or Manual Part 2 Hull Silhouettes.");
 
-            // 7. Assert Day 7 Manual Part 2 (Hull Silhouette + Ship Class; no Cargo Power Draw yet)
-            gameState.AdvanceToDay(7);
+            // 7. Assert Day 10 Manual Part 2 (Hull Silhouette + Ship Class; no Cargo Power Draw yet)
+            gameState.AdvanceToDay(10);
             screenManager.SwitchTo(ScreenId.Desk);
             tutorialOverlay.ForceCloseSilent();
             if (!deskScreen.IsManualHullsEnforced || deskScreen.IsCargoPowerUnlocked)
-                throw new InvalidOperationException("Day 7 must enforce Manual Part 2 Hull Silhouettes without unlocking Day 10 Cargo.");
-            HashSet<ShipInfractionType> seenD7 = [];
+                throw new InvalidOperationException("Day 10 must enforce Manual Part 2 Hull Silhouettes without unlocking Day 12 Cargo.");
+            HashSet<ShipInfractionType> seenD10 = [];
             for (int i = 0; i < 180; i++)
             {
-                ShipSpec s = gen.GenerateShipForSlot(gameState, i, reseedNonce: 707u, DebugSpawnValidityMode.ForceInvalid, config: config);
+                ShipSpec s = gen.GenerateShipForSlot(gameState, i, reseedNonce: 1010u, DebugSpawnValidityMode.ForceInvalid, config: config);
                 ShipInfractionType t = s.GroundTruth.ActiveInfractions[0].Type;
-                seenD7.Add(t);
+                seenD10.Add(t);
                 if (t == ShipInfractionType.UnexplainedCargoPowerDraw)
-                    throw new InvalidOperationException("Day 7 leaked Day 10+ UnexplainedCargoPowerDraw.");
+                    throw new InvalidOperationException("Day 10 leaked Day 12+ UnexplainedCargoPowerDraw.");
             }
-            if (!seenD7.Contains(ShipInfractionType.PrefixHullSilhouetteMismatch))
-                throw new InvalidOperationException("Day 7 failed to generate Manual Part 2 PrefixHullSilhouetteMismatch.");
+            if (!seenD10.Contains(ShipInfractionType.PrefixHullSilhouetteMismatch))
+                throw new InvalidOperationException("Day 10 failed to generate Manual Part 2 PrefixHullSilhouetteMismatch.");
 
-            // 8. Verify placeholder Covert Delivery missions shifted to Day 10+
+            // 8. Verify Covert Delivery missions shifted to Day 12+
             CovertMissionSpec? op01 = missionDb.Missions.FirstOrDefault(m => m.MissionId == "slate_bus_mission_01");
             CovertMissionSpec? op02 = missionDb.Missions.FirstOrDefault(m => m.MissionId == "slate_bus_mission_02");
-            if (op01 == null || op01.MinAvailableDay < 10 || op01.TriggerEmailDay < 10 ||
-                op02 == null || op02.MinAvailableDay < 10 || op02.TriggerEmailDay < 10)
+            if (op01 == null || op01.MinAvailableDay < 12 || op01.TriggerEmailDay < 12 ||
+                op02 == null || op02.MinAvailableDay < 12 || op02.TriggerEmailDay < 12)
             {
-                throw new InvalidOperationException("OP-01 / OP-02 Covert Delivery missions must trigger starting Day 10+.");
+                throw new InvalidOperationException("OP-01 / OP-02 Covert Delivery missions must trigger starting Day 12+.");
             }
 
-            // 9. Assert F1 DebugOverlay Day Jump Range 1..25 & Telemetry Bar Duration Readout
+            // 9. Assert F1 DebugOverlay Day Jump Range 1..28 & Telemetry Bar Duration Readout
             gameState.AdvanceToDay(1);
             screenManager.SwitchTo(ScreenId.Desk);
             tutorialOverlay.ForceCloseSilent();
 
             debugOverlay.IsVisible = false;
             debugOverlay.IsVisible = true;
-            // Click '< DAY' to ensure clamping at 1, then click 'DAY >' 30 times to verify 25 ceiling
+            // Click '< DAY' to ensure clamping at 1, then click 'DAY >' 35 times to verify 28 ceiling
             debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 20, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
-            for (int step = 0; step < 30; step++)
+            for (int step = 0; step < 35; step++)
             {
                 debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 80, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
             }
-            if (debugOverlay.SelectedJumpDay != 25)
-                throw new InvalidOperationException($"F1 DebugOverlay DAY > jumper expected ceiling 25, got {debugOverlay.SelectedJumpDay}.");
+            if (debugOverlay.SelectedJumpDay != 28)
+                throw new InvalidOperationException($"F1 DebugOverlay DAY > jumper expected ceiling 28, got {debugOverlay.SelectedJumpDay}.");
 
-            // Click 'LOAD DAY 25' -> jumps cleanly to Day 25 with 285s shift duration
+            // Click 'LOAD DAY 28' -> jumps cleanly to Day 28 with 285s shift duration
             debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 150, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
             tutorialOverlay.ForceCloseSilent();
-            if (gameState.Day != 25 || MathF.Abs(deskScreen.ActiveShiftDurationSeconds - 285f) > 0.01f)
-                throw new InvalidOperationException($"LOAD DAY 25 failed (day={gameState.Day}, shift={deskScreen.ActiveShiftDurationSeconds}s).");
+            if (gameState.Day != 28 || MathF.Abs(deskScreen.ActiveShiftDurationSeconds - 285f) > 0.01f)
+                throw new InvalidOperationException($"LOAD DAY 28 failed (day={gameState.Day}, shift={deskScreen.ActiveShiftDurationSeconds}s).");
 
             string telemetryLine = debugOverlay.BuildPrimaryTelemetryLine(idle);
-            if (!telemetryLine.Contains("D25", StringComparison.Ordinal) ||
+            if (!telemetryLine.Contains("D28", StringComparison.Ordinal) ||
                 !telemetryLine.Contains("285s/4m45s", StringComparison.Ordinal) ||
-                Raylib.MeasureText(telemetryLine, 10) > 452)
+                UiText.MeasureWidth(telemetryLine, 10) > 452)
             {
                 throw new InvalidOperationException($"F1 DebugOverlay telemetry bar failed duration or width check: '{telemetryLine}'.");
             }
@@ -2501,6 +2707,7 @@ public static class Program
         ScreenManager screenManager,
         DeskScreen deskScreen,
         QuartersScreen quartersScreen,
+        ArtTestScreen artTestScreen,
         TutorialOverlay tutorialOverlay,
         PauseMenuOverlay pauseMenu,
         DebugOverlay debugOverlay,
@@ -2596,10 +2803,10 @@ public static class Program
         RenderAndSave("05_f1_debug_tuners.png");
         debugOverlay.IsVisible = false;
 
-        // 7. Day 3 Live Kordani Officer Viewscreen Hail
-        gameState.Day2SuspectDetained = true;
-        gameState.Day3PreShiftHailCompleted = false;
-        gameState.AdvanceToDay(3);
+        // 7. Day 4 Live Kordani Officer Viewscreen Hail
+        gameState.GhostRouteSuspectDetained = true;
+        gameState.Day4PreShiftHailCompleted = false;
+        gameState.AdvanceToDay(4);
         screenManager.SwitchTo(ScreenId.Desk);
         for (int i = 0; i < 6; i++)
         {
@@ -2623,10 +2830,10 @@ public static class Program
         deskScreen.Update(0.05f, idleMouse);
         RenderAndSave("08_day3_manual_prefixes_and_warp_match.png");
 
-        // 10. Day 3 Tutorial Popup
-        gameState.AdvanceToDay(3);
+        // 10. Day 4 Tutorial Popup
+        gameState.AdvanceToDay(4);
         tutorialOverlay.OnDay3Start(force: true);
-        RenderAndSave("09_day3_tutorial_popup.png");
+        RenderAndSave("09_day4_tutorial_popup.png");
         tutorialOverlay.ForceCloseSilent();
 
         // =====================================================================
@@ -2655,8 +2862,8 @@ public static class Program
         canvas.ExportVirtualFramePng(Path.Combine(outDir, "10b_morning_quarters_hover_terminal.png"));
 
         // 12. Clock-Out End-of-Shift Ledger centered (360, 128, 560, 464) over dimmed Desk
-        gameState.AdvanceToDay(3);
-        gameState.Day3PreShiftHailCompleted = true;
+        gameState.AdvanceToDay(4);
+        gameState.Day4PreShiftHailCompleted = true;
         screenManager.SwitchTo(ScreenId.Desk);
         tutorialOverlay.ForceCloseSilent();
         gameState.ShipsProcessedToday = 6;
@@ -2685,13 +2892,14 @@ public static class Program
             ItemType = ContrabandPocketItem.TypeBlankDataSlate,
             DisplayName = "UNMARKED BLACK DATA SLATE"
         });
+        (string d6VisTargetReg, _) = ShipGenerator.EnsureDay6IntroTargetAssigned(gameState);
         gameState.PocketItems.Add(new ContrabandPocketItem
         {
             ItemId = "vis_mng_stolen",
             ItemType = ContrabandPocketItem.TypeCopiedDataSlate,
-            DisplayName = "STOLEN SLATE: MNG-304-V",
+            DisplayName = $"STOLEN SLATE: {d6VisTargetReg}",
             TargetShipPrefix = "MNG-",
-            TargetShipRegistration = "MNG-304-V",
+            TargetShipRegistration = d6VisTargetReg,
             OriginStarSystem = "Oruun-4"
         });
         gameState.VentStashItems.Add(new ContrabandPocketItem
@@ -2704,8 +2912,8 @@ public static class Program
             OriginStarSystem = "Ashen Rift",
             IsConcordOrDoppleFlagged = true
         });
-        gameState.AddSecurityLog("[UNAUTH_IO]", "SLATE_BUS PORT SWAP: MNG-304-V (MNG-)", isSuspicious: true);
-        gameState.AddSecurityLog("[AUDIT_FLAG]", "MISSION TX -> RELAY_D4: MNG-304-V", isSuspicious: true);
+        gameState.AddSecurityLog("[UNAUTH_IO]", $"SLATE_BUS PORT SWAP: {d6VisTargetReg} (MNG-)", isSuspicious: true);
+        gameState.AddSecurityLog("[AUDIT_FLAG]", $"MISSION TX -> RELAY_D4: {d6VisTargetReg}", isSuspicious: true);
 
         EconomyEngine visEcon = new();
         ShipGenerator visGen = new();
@@ -2891,9 +3099,352 @@ public static class Program
         canvas.ExportVirtualFramePng(Path.Combine(outDir, "33b_star_chart_modal_route_selected.png"));
         quartersScreen.SmokeCloseSubOverlays();
 
+        // 34. ShipRendererV2 Visual Verification Captures (Desk V2 Live/SPS/Clamps + F1 Switcher + ArtTest V2 Single & 4-Seed Compare)
+        ShipArtVersion prevArt = config.ShipArtVersion;
+        config.ShipArtVersion = ShipArtVersion.V2_HiBit;
+        gameState.ResetForNewSave(1);
+        gameState.AdvanceToDay(10);
+        screenManager.SwitchTo(ScreenId.Desk);
+        tutorialOverlay.ForceCloseSilent();
+
+        (int v2WpnX, int v2WpnY) = deskScreen.SmokeStageHonestArmedShipWithSps(applyWeaponsPowerDown: false);
+        debugOverlay.IsVisible = true;
+        canvas.BeginVirtualDraw();
+        screenManager.DrawVirtual(new VirtualMouseState { X = v2WpnX, Y = v2WpnY, IsInsideViewport = true, Scale = 1.0f });
+        debugOverlay.DrawVirtual(idleMouse);
+        canvas.EndVirtualDrawAndBlit();
+        canvas.ExportVirtualFramePng(Path.Combine(outDir, "34a_desk_v2_sps_and_f1.png"));
+        debugOverlay.IsVisible = false;
+
+        deskScreen.SmokeStageShipLoadedAndInspecting(enableSps: false, triggerDetainClamps: true);
+        deskScreen.Update(0.02f, idleMouse);
+        RenderAndSave("34b_desk_v2_detain_clamps.png");
+
+        screenManager.SwitchTo(ScreenId.ArtTest);
+        artTestScreen.SmokeSetFourSeedCompare(false);
+        RenderAndSave("35a_art_test_v2_single.png");
+        artTestScreen.SmokeSetFourSeedCompare(true);
+        RenderAndSave("35b_art_test_v2_4seed_compare.png");
+        artTestScreen.SmokeSetFourSeedCompare(false);
+        config.ShipArtVersion = prevArt;
+
         config.DeskUpperLayoutMode = prevMode;
         devDebug.Use3xPortraitInLayoutB = prev3x;
         deskScreen.SyncLayoutFromConfig();
+    }
+
+    private static void RunShipRendererV2VerificationSuite(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        ArtTestScreen artTestScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        Core.ConfigFlags config)
+    {
+        ShipArtVersion savedArtVersion = config.ShipArtVersion;
+        bool prevSuppress = gameState.SuppressDiskPersistence;
+        gameState.SuppressDiskPersistence = true;
+        VirtualMouseState idle = new() { X = 310, Y = 165, IsInsideViewport = true, Scale = 1.0f };
+
+        try
+        {
+            // 1. Default config must stay V2_HiBit
+            Core.ConfigFlags diskConfig = Core.ConfigFlags.Load();
+            if (diskConfig.ShipArtVersion != ShipArtVersion.V2_HiBit)
+            {
+                throw new InvalidOperationException($"Expected default data/config.json shipArtVersion == V2_HiBit, got {diskConfig.ShipArtVersion}.");
+            }
+
+            // 2. Verify ShipRendererV2 across all 11 factions & every allowed class (Live, SPS, Shielded SPS, Manual, Manual Tablet)
+            foreach (ShipFaction faction in ShipRendererV2.AllFactions)
+            {
+                foreach (ShipClass allowedClass in ShipRendererV2.GetAllowedClasses(faction))
+                {
+                    ShipRenderOptions[] cases =
+                    [
+                        new ShipRenderOptions
+                        {
+                            SeedId = $"verify-v2-seedA-{faction}-{allowedClass}",
+                            Faction = faction,
+                            RequestedClass = allowedClass,
+                            Mode = ShipRenderMode.Live,
+                            SpsEnabled = false,
+                            WeaponsHot = true,
+                            IsDecommissioned = true,
+                            HasDownstreamHullScorch = true
+                        },
+                        new ShipRenderOptions
+                        {
+                            SeedId = $"verify-v2-seedA-{faction}-{allowedClass}",
+                            Faction = faction,
+                            RequestedClass = allowedClass,
+                            Mode = ShipRenderMode.Live,
+                            SpsEnabled = true,
+                            WeaponsHot = true,
+                            CargoHighDraw = true,
+                            UncannyWarpPylonPulse = true,
+                            ShieldsUp = false
+                        },
+                        new ShipRenderOptions
+                        {
+                            SeedId = $"verify-v2-seedA-{faction}-{allowedClass}",
+                            Faction = faction,
+                            RequestedClass = allowedClass,
+                            Mode = ShipRenderMode.Live,
+                            SpsEnabled = true,
+                            ShieldsUp = true
+                        },
+                        new ShipRenderOptions
+                        {
+                            SeedId = $"verify-v2-seedA-{faction}-{allowedClass}",
+                            Faction = faction,
+                            RequestedClass = allowedClass,
+                            Mode = ShipRenderMode.Manual
+                        }
+                    ];
+
+                    PixelBuffer? liveSeedABuf = null;
+                    ShipHardpointLayoutV2 liveSeedAHp = default;
+
+                    for (int c = 0; c < cases.Length; c++)
+                    {
+                        PixelBuffer buf = ShipRendererV2.RenderBuffer(cases[c], out ShipHardpointLayoutV2 hp);
+                        if (buf.Width != ShipRendererV2.OutputWidth || buf.Height != ShipRendererV2.OutputHeight)
+                            throw new InvalidOperationException($"ShipRendererV2 expected 560x240 buffer, got {buf.Width}x{buf.Height}.");
+
+                        int solidCount = CountNonNullPixels(buf);
+                        if (solidCount < 1800)
+                            throw new InvalidOperationException($"ShipRendererV2 produced near-empty buffer ({solidCount} px) for {faction} {allowedClass} case {c}.");
+
+                        if (cases[c].Mode != ShipRenderMode.Manual && (buf.HasPixel(0, 0) || buf.HasPixel(buf.Width - 1, 0)))
+                            throw new InvalidOperationException($"ShipRendererV2 leaked non-transparent corner pixel for {faction} {allowedClass}.");
+
+                        VerifyExact2x2Uniformity(buf, $"{faction} {allowedClass} case {c}");
+                        VerifyV2HardpointsInViewportBounds(hp, $"{faction} {allowedClass}");
+
+                        Texture2D tex = buf.ToTexture2D();
+                        PixelBuffer.UnloadTexture(ref tex);
+
+                        if (c == 0)
+                        {
+                            liveSeedABuf = buf;
+                            liveSeedAHp = hp;
+                        }
+                    }
+
+                    // Distinct seeds of same class must differ visibly while preserving macro silhouette dimensions
+                    PixelBuffer liveSeedBBuf = ShipRendererV2.RenderBuffer(new ShipRenderOptions
+                    {
+                        SeedId = $"verify-v2-seedB7-{faction}-{allowedClass}",
+                        Faction = faction,
+                        RequestedClass = allowedClass,
+                        Mode = ShipRenderMode.Live
+                    }, out ShipHardpointLayoutV2 liveSeedBHp);
+
+                    VerifyExact2x2Uniformity(liveSeedBBuf, $"{faction} {allowedClass} seedB7");
+                    int diffPx = CountDifferingPixels(liveSeedABuf!, liveSeedBBuf);
+                    if (diffPx < 80)
+                        throw new InvalidOperationException($"ShipRendererV2 seed variety too low for {faction} {allowedClass}: {diffPx} differing px.");
+
+                    if (Math.Abs(liveSeedAHp.HullBounds.W - liveSeedBHp.HullBounds.W) > 18 ||
+                        Math.Abs(liveSeedAHp.HullBounds.H - liveSeedBHp.HullBounds.H) > 18)
+                    {
+                        throw new InvalidOperationException($"ShipRendererV2 macro bounds drifted across seeds for {faction} {allowedClass}.");
+                    }
+
+                    // Manual tablet 120x56 sampling
+                    PixelBuffer tabletBuf = ShipRendererV2.RenderManualTablet120x56Buffer(faction, allowedClass, $"manual-chart-{faction}-{allowedClass}");
+                    if (tabletBuf.Width != Constants.ShipWidth || tabletBuf.Height != Constants.ShipHeight)
+                        throw new InvalidOperationException($"RenderManualTablet120x56Buffer expected 120x56, got {tabletBuf.Width}x{tabletBuf.Height}.");
+                    Texture2D tabTex = tabletBuf.ToTexture2D();
+                    PixelBuffer.UnloadTexture(ref tabTex);
+                }
+            }
+
+            // 3. Live mid-encounter V1 <-> V2 toggle in DeskScreen (Day 12 Cargo unlock) via F1 DebugOverlay + SPS & Detain verification
+            config.ShipArtVersion = ShipArtVersion.V1_Classic;
+            gameState.ResetForNewSave(1);
+            gameState.AdvanceToDay(config.DayUnlockWaferCargo);
+            screenManager.SwitchTo(ScreenId.Desk);
+            tutorialOverlay.ForceCloseSilent();
+
+            deskScreen.SmokeStageHonestArmedShipWithSps(applyWeaponsPowerDown: false);
+            var v1Sizes = deskScreen.SmokeGetActiveShipTextureSizes();
+            if (v1Sizes != (120, 56, 120, 56))
+                throw new InvalidOperationException($"Expected V1 DeskScreen ship textures 120x56, got {v1Sizes}.");
+
+            int activeTexBeforeToggle = PixelBuffer.ActiveProceduralTextureCount;
+
+            // Click F1 DebugOverlay [SHIPS: V1/V2] button at (16 + 400, 40 + 422)
+            debugOverlay.IsVisible = true;
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 400, Y = 40 + 422, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            if (config.ShipArtVersion != ShipArtVersion.V2_HiBit)
+                throw new InvalidOperationException("F1 DebugOverlay [SHIPS] button did not switch V1_Classic -> V2_HiBit.");
+            debugOverlay.IsVisible = false;
+
+            deskScreen.Update(0.016f, idle);
+            canvas.BeginVirtualDraw();
+            screenManager.DrawVirtual(idle);
+            canvas.EndVirtualDrawAndBlit();
+
+            var v2Sizes = deskScreen.SmokeGetActiveShipTextureSizes();
+            if (v2Sizes != (560, 240, 560, 240))
+                throw new InvalidOperationException($"Live toggle V1->V2 did not regenerate 560x240 ship textures: got {v2Sizes}.");
+            if (PixelBuffer.ActiveProceduralTextureCount != activeTexBeforeToggle)
+                throw new InvalidOperationException($"Texture leak or mismatch during live V1->V2 toggle: before={activeTexBeforeToggle}, after={PixelBuffer.ActiveProceduralTextureCount}.");
+
+            // Verify SPS hold-to-lock on V2 Spoofed Hot Weapons & Violet Cargo Draw
+            (int wpnX, int wpnY) = deskScreen.SmokeStageHonestArmedShipWithSps(applyWeaponsPowerDown: false, spoofed: true);
+            if (!deskScreen.SmokeHasWeaponsHotSpsLog() || wpnX is < 162 or > 510 || wpnY is < 77 or > 219)
+                throw new InvalidOperationException($"V2 SPS weapons lock failed or landed outside reachable lens bounds: ({wpnX},{wpnY}).");
+
+            if (!deskScreen.SmokeStageAndLockV2CargoPower(out int cargoX, out int cargoY) || cargoX is < 162 or > 510 || cargoY is < 77 or > 219)
+                throw new InvalidOperationException($"V2 SPS cargo lock failed or landed outside reachable lens bounds: ({cargoX},{cargoY}).");
+
+            // Render V2 Detain docking clamps & Manual Tab 2 (HULLS)
+            deskScreen.SmokeStageShipLoadedAndInspecting(enableSps: false, triggerDetainClamps: true);
+            deskScreen.SmokeSetManualTab(2);
+            if (deskScreen.SmokeGetManualTextureSize() != (120, 56))
+                throw new InvalidOperationException($"Expected V2 Manual Tab 2 texture 120x56, got {deskScreen.SmokeGetManualTextureSize()}.");
+            canvas.BeginVirtualDraw();
+            screenManager.DrawVirtual(idle);
+            canvas.EndVirtualDrawAndBlit();
+
+            // Toggle V2 -> V1 back mid-encounter cleanly
+            debugOverlay.IsVisible = true;
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 400, Y = 40 + 422, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            if (config.ShipArtVersion != ShipArtVersion.V1_Classic)
+                throw new InvalidOperationException("F1 DebugOverlay [SHIPS] button did not switch V2_HiBit -> V1_Classic.");
+            debugOverlay.IsVisible = false;
+            deskScreen.Update(0.016f, idle);
+            if (deskScreen.SmokeGetActiveShipTextureSizes() != (120, 56, 120, 56))
+                throw new InvalidOperationException("Live toggle V2->V1 did not restore 120x56 ship textures.");
+
+            // 4. Verify ArtTestScreen V1/V2 switcher & 4-seed ship compare grid cleanup
+            screenManager.SwitchTo(ScreenId.ArtTest);
+            artTestScreen.SmokeToggleShipArtVersion(); // V1 -> V2
+            var singleV2 = artTestScreen.SmokeGetShipTextureMetrics();
+            if (singleV2.SingleW != 560 || singleV2.SingleH != 240)
+                throw new InvalidOperationException($"ArtTestScreen V2 single ship expected 560x240, got {singleV2.SingleW}x{singleV2.SingleH}.");
+
+            artTestScreen.SmokeSetFourSeedCompare(true);
+            var cmpV2 = artTestScreen.SmokeGetShipTextureMetrics();
+            if (cmpV2.CompareShipCount != 4 || cmpV2.CompareShipW != 280 || cmpV2.CompareShipH != 120)
+                throw new InvalidOperationException($"ArtTestScreen V2 4-seed compare expected 4x 280x120, got {cmpV2}.");
+
+            canvas.BeginVirtualDraw();
+            screenManager.DrawVirtual(idle);
+            canvas.EndVirtualDrawAndBlit();
+
+            artTestScreen.SmokeToggleShipArtVersion(); // V2 -> V1
+            var cmpV1 = artTestScreen.SmokeGetShipTextureMetrics();
+            if (cmpV1.CompareShipCount != 4 || cmpV1.CompareShipW != 120 || cmpV1.CompareShipH != 56)
+                throw new InvalidOperationException($"ArtTestScreen V1 4-seed compare expected 4x 120x56, got {cmpV1}.");
+
+            artTestScreen.SmokeSetFourSeedCompare(false);
+        }
+        finally
+        {
+            debugOverlay.IsVisible = false;
+            pauseMenu.Close();
+            tutorialOverlay.ForceCloseSilent();
+            config.ShipArtVersion = savedArtVersion;
+            screenManager.UnloadAllScreens();
+            gameState.SuppressDiskPersistence = prevSuppress;
+        }
+    }
+
+    private static int CountNonNullPixels(PixelBuffer buf)
+    {
+        int count = 0;
+        for (int y = 0; y < buf.Height; y++)
+        {
+            for (int x = 0; x < buf.Width; x++)
+            {
+                if (buf.HasPixel(x, y))
+                    count++;
+            }
+        }
+        return count;
+    }
+
+    private static void VerifyExact2x2Uniformity(PixelBuffer buf, string label)
+    {
+        for (int y = 0; y < buf.Height; y += 2)
+        {
+            for (int x = 0; x < buf.Width; x += 2)
+            {
+                Color? c00 = buf.GetRgba(x, y);
+                Color? c10 = buf.GetRgba(x + 1, y);
+                Color? c01 = buf.GetRgba(x, y + 1);
+                Color? c11 = buf.GetRgba(x + 1, y + 1);
+                if (!AreRgbaEqual(c00, c10) || !AreRgbaEqual(c00, c01) || !AreRgbaEqual(c00, c11))
+                {
+                    throw new InvalidOperationException($"Mixel detected at ({x},{y}) in {label}.");
+                }
+            }
+        }
+    }
+
+    private static bool AreRgbaEqual(Color? a, Color? b)
+    {
+        if (!a.HasValue && !b.HasValue)
+            return true;
+        if (!a.HasValue || !b.HasValue)
+            return false;
+        Color ca = a.Value;
+        Color cb = b.Value;
+        return ca.R == cb.R && ca.G == cb.G && ca.B == cb.B && ca.A == cb.A;
+    }
+
+    private static void VerifyV2HardpointsInViewportBounds(ShipHardpointLayoutV2 hp, string label)
+    {
+        HardpointRect[] rects =
+        [
+            hp.WeaponsBayViewport560,
+            hp.CargoBayViewport560,
+            hp.BridgeCommsViewport560,
+            hp.UpperWarpPylonViewport560,
+            hp.HullBoundsViewport560
+        ];
+
+        foreach (HardpointRect r in rects)
+        {
+            if (r.IsEmpty || r.X < 0 || r.Y < 0 || r.Right > ShipRendererV2.OutputWidth || r.Bottom > ShipRendererV2.OutputHeight)
+            {
+                throw new InvalidOperationException($"Out-of-bounds 560x240 V2 rect {r} for {label}.");
+            }
+        }
+
+        // Verify SPS lock centers sit inside DeskScreen's reachable swaying reticle center window (162..510, 77..219) when anchored at (56, 22)
+        (int X, int Y)[] lockCenters =
+        [
+            (56 + hp.WeaponsLockCenter560.X, 22 + hp.WeaponsLockCenter560.Y),
+            (56 + hp.CargoLockCenter560.X, 22 + hp.CargoLockCenter560.Y),
+            (56 + hp.BridgeCommsViewport560.CenterX, 22 + hp.BridgeCommsViewport560.CenterY),
+            (56 + hp.UpperWarpPylonViewport560.CenterX, 22 + hp.UpperWarpPylonViewport560.CenterY)
+        ];
+
+        foreach (var (sx, sy) in lockCenters)
+        {
+            if (sx is < 162 or > 510 || sy is < 77 or > 219)
+            {
+                throw new InvalidOperationException($"V2 SPS lock center ({sx},{sy}) falls outside DeskScreen reachable reticle window for {label}.");
+            }
+        }
+
+        ClampGrabZone fore560 = hp.ForeClampViewport560;
+        ClampGrabZone aft560 = hp.AftClampViewport560;
+        if (fore560.X < 0 || fore560.X >= ShipRendererV2.OutputWidth ||
+            aft560.X < 0 || aft560.X >= ShipRendererV2.OutputWidth ||
+            fore560.TopY < 0 || fore560.BottomY >= ShipRendererV2.OutputHeight ||
+            aft560.TopY < 0 || aft560.BottomY >= ShipRendererV2.OutputHeight)
+        {
+            throw new InvalidOperationException($"Out-of-bounds V2 clamp grab zone for {label}.");
+        }
     }
 
     private static int CountDifferingPixels(PixelBuffer a, PixelBuffer b)
@@ -2910,5 +3461,1728 @@ public static class Program
             }
         }
         return diffs;
+    }
+
+    private static void RunBuild45VerificationSuite(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        ArtTestScreen artTestScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        Core.ConfigFlags config)
+    {
+        VirtualMouseState idle = new() { X = 310, Y = 165, IsInsideViewport = true, Scale = 1.0f };
+        bool prevSuppress = gameState.SuppressDiskPersistence;
+        gameState.SuppressDiskPersistence = true;
+        string tempDir = Path.Combine(Path.GetTempPath(), $"SubspaceProtocols_Smoke45_{Guid.NewGuid():N}");
+
+        try
+        {
+            // 1. DeskLayout across OptionA, OptionB1, OptionB2: no LowerShields/PwrDownWpn, NextHail spans CommsStrip (364px)
+            foreach (DeskUpperLayoutMode mode in Enum.GetValues<DeskUpperLayoutMode>())
+            {
+                DeskLayoutRects lr = DeskLayoutRects.Compute(mode, use3xPortraitInLayoutB: true);
+                lr.ValidateGeometry();
+                if (lr.NextHailBtn != lr.CommsStrip || lr.NextHailBtn.W != 364)
+                {
+                    throw new InvalidOperationException($"Layout {mode} NextHailBtn did not widen to full CommsStrip (364px).");
+                }
+            }
+
+            // 2. DeskScreen Auto-Shields-Down (Day 1+) & Auto-SPS Weapons Sweep Compliance (Day 2+)
+            deskScreen.SmokeVerifyBuild45AutoShieldsAndWeapons();
+
+            // 3. GameState SecurityStrikesActive, GhostRouteSuspectDetained save compat, and Day 4 authored directives
+            GameState s4 = new() { SuppressDiskPersistence = true };
+            s4.ResetForNewSave(1);
+            if (s4.SecurityStrikesActive)
+                throw new InvalidOperationException("Day 1 New Save must initialize SecurityStrikesActive == false.");
+            s4.GhostRouteSuspectDetained = true;
+            if (!s4.Day2SuspectDetained)
+                throw new InvalidOperationException("GhostRouteSuspectDetained / Day2SuspectDetained compatibility sync failed.");
+            s4.AdvanceToDay(4);
+            if (!s4.SecurityStrikesActive || !s4.QuestFlags["Day4_SpectrometerRepaired"])
+                throw new InvalidOperationException("AdvanceToDay(4) failed to set SecurityStrikesActive and Day4_SpectrometerRepaired.");
+
+            string[] varA = Day2And3ScriptedDialogue.BuildDay4ShiftDirectiveLines(false, "ORN-442-K", "Oruun-4");
+            string[] varB = Day2And3ScriptedDialogue.BuildDay4ShiftDirectiveLines(true, "ORN-442-K", "Oruun-4");
+            if (!varA.Any(l => l.Contains("departing Void Gate 3 on an unlogged vector", StringComparison.Ordinal)) ||
+                !varB.Any(l => l.Contains("Kordani boarding teams on detained vessel", StringComparison.Ordinal)) ||
+                !varA.Any(l => l.Contains("Maintenance request #4412", StringComparison.Ordinal)) ||
+                !varB.Any(l => l.Contains("Maintenance request #4412", StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException("Day 4 Shift Directive Variants A/B diverged from authored copy.");
+            }
+
+            // 4. Tunable Invalid-Ship Roll Rates (~38% Days 1-5, ~45% Days 6+) & Day 1+ ShieldsUpBaseChance + RunSeed Parity
+            ShipGenerator gen = new(config);
+            int earlyInvalidCount = 0;
+            int earlyTotal = 0;
+            int day1ShieldsUpCount = 0;
+            int day1Total = 0;
+            int midInvalidCount = 0;
+            int midTotal = 0;
+
+            for (int seed = 100; seed < 125; seed++)
+            {
+                GameState d1Sample = new() { Day = 1, RunSeed = seed, SuppressDiskPersistence = true };
+                foreach (ShipSpec s in gen.GenerateDailyQueue(d1Sample, config: config))
+                {
+                    day1Total++;
+                    if (s.GroundTruth.ActualShieldsUp)
+                        day1ShieldsUpCount++;
+                }
+
+                GameState d2Sample = new() { Day = 2, RunSeed = seed, SuppressDiskPersistence = true };
+                foreach (ShipSpec s in gen.GenerateDailyQueue(d2Sample, config: config))
+                {
+                    earlyTotal++;
+                    if (!s.IsValid)
+                        earlyInvalidCount++;
+                }
+
+                GameState d8Sample = new() { Day = 8, RunSeed = seed, SuppressDiskPersistence = true };
+                foreach (ShipSpec s in gen.GenerateDailyQueue(d8Sample, config: config))
+                {
+                    midTotal++;
+                    if (!s.IsValid)
+                        midInvalidCount++;
+                }
+            }
+
+            float earlyRate = earlyInvalidCount / (float)earlyTotal;
+            float midRate = midInvalidCount / (float)midTotal;
+            float d1ShieldRate = day1ShieldsUpCount / (float)day1Total;
+            if (earlyRate < 0.28f || earlyRate > 0.48f)
+                throw new InvalidOperationException($"Early (Days 1-5) invalid rate {earlyRate:0.00} outside expected ~0.38 window.");
+            if (midRate < 0.35f || midRate > 0.55f)
+                throw new InvalidOperationException($"Mid (Days 6+) invalid rate {midRate:0.00} outside expected ~0.45 window.");
+            if (d1ShieldRate < 0.24f || d1ShieldRate > 0.52f)
+                throw new InvalidOperationException($"Day 1 shields-up rate {d1ShieldRate:0.00} outside expected ~0.38 window.");
+
+            // Deterministic RunSeed parity check
+            GameState parityA = new() { Day = 5, RunSeed = 77742, SuppressDiskPersistence = true };
+            GameState parityB = new() { Day = 5, RunSeed = 77742, SuppressDiskPersistence = true };
+            List<ShipSpec> qA = gen.GenerateDailyQueue(parityA, config: config);
+            List<ShipSpec> qB = gen.GenerateDailyQueue(parityB, config: config);
+            for (int i = 0; i < qA.Count; i++)
+            {
+                if (qA[i].Slate.RegistrationCode != qB[i].Slate.RegistrationCode || qA[i].IsValid != qB[i].IsValid)
+                    throw new InvalidOperationException($"Deterministic RunSeed queue parity failed at slot {i}.");
+            }
+
+            // 5. CorridorSpriteRenderer & data/corridor_sprites.json verification
+            CorridorSpritesConfig diskCorridorCfg = CorridorSpritesConfig.Load();
+            if (diskCorridorCfg.LockedPlayerCharacter.Seed <= 0 ||
+                !diskCorridorCfg.NpcProceduralConfig.ProceduralEnabled ||
+                diskCorridorCfg.NpcProceduralConfig.RoleWeights.Count == 0 ||
+                diskCorridorCfg.NpcProceduralConfig.AllowedSpecies.Count < 10)
+            {
+                throw new InvalidOperationException("data/corridor_sprites.json failed default structure check.");
+            }
+
+            Directory.CreateDirectory(tempDir);
+            string tempJsonPath = Path.Combine(tempDir, "corridor_sprites_test.json");
+            CorridorSpritesConfig testCfg = CorridorSpritesConfig.Load();
+            testCfg.LockedPlayerCharacter.Seed = 9182;
+            if (!testCfg.SaveAtomic(tempJsonPath))
+                throw new InvalidOperationException("CorridorSpritesConfig.SaveAtomic failed.");
+            if (Directory.GetFiles(tempDir, "*.tmp.*").Length != 0)
+                throw new InvalidOperationException("CorridorSpritesConfig.SaveAtomic left lingering .tmp files.");
+            CorridorSpritesConfig reloaded = CorridorSpritesConfig.Load(tempJsonPath);
+            if (reloaded.LockedPlayerCharacter.Seed != 9182)
+                throw new InvalidOperationException($"CorridorSpritesConfig atomic round-trip mismatch: expected 9182, got {reloaded.LockedPlayerCharacter.Seed}.");
+
+            // Check CorridorSpriteRenderer across all 5 roles & 12 species + Idle vs Walk frames + Left/Right facing
+            foreach (CorridorSpriteRole role in Enum.GetValues<CorridorSpriteRole>())
+            {
+                PortraitSpecies roleSpecies = role switch
+                {
+                    CorridorSpriteRole.KordaniSentry => PortraitSpecies.Kordani,
+                    CorridorSpriteRole.BrengopClerk => PortraitSpecies.Brengop,
+                    _ => PortraitSpecies.Human
+                };
+
+                PixelBuffer idleR = CorridorSpriteRenderer.RenderBuffer(new CorridorSpriteRenderOptions
+                {
+                    Seed = 4041,
+                    Species = roleSpecies,
+                    Role = role,
+                    Facing = CorridorFacing.Right,
+                    AnimMode = CorridorAnimMode.Idle
+                });
+                PixelBuffer walk0R = CorridorSpriteRenderer.RenderBuffer(new CorridorSpriteRenderOptions
+                {
+                    Seed = 4041,
+                    Species = roleSpecies,
+                    Role = role,
+                    Facing = CorridorFacing.Right,
+                    AnimMode = CorridorAnimMode.Walk,
+                    WalkFrame = 0
+                });
+                PixelBuffer walk2R = CorridorSpriteRenderer.RenderBuffer(new CorridorSpriteRenderOptions
+                {
+                    Seed = 4041,
+                    Species = roleSpecies,
+                    Role = role,
+                    Facing = CorridorFacing.Right,
+                    AnimMode = CorridorAnimMode.Walk,
+                    WalkFrame = 2
+                });
+                PixelBuffer idleL = CorridorSpriteRenderer.RenderBuffer(new CorridorSpriteRenderOptions
+                {
+                    Seed = 4041,
+                    Species = roleSpecies,
+                    Role = role,
+                    Facing = CorridorFacing.Left,
+                    AnimMode = CorridorAnimMode.Idle
+                });
+
+                if (idleR.Width != Constants.CorridorSpriteWidth || idleR.Height != Constants.CorridorSpriteHeight ||
+                    CountNonNullPixels(idleR) < 60 ||
+                    CountDifferingPixels(idleR, walk0R) < 6 ||
+                    CountDifferingPixels(walk0R, walk2R) < 6 ||
+                    CountDifferingPixels(idleR, idleL) < 10)
+                {
+                    throw new InvalidOperationException($"CorridorSpriteRenderer frame/facing check failed for role {role}.");
+                }
+            }
+
+            foreach (PortraitSpecies sp in PortraitRenderer.AllActiveSpecies)
+            {
+                PixelBuffer spBuf = CorridorSpriteRenderer.RenderBuffer(new CorridorSpriteRenderOptions
+                {
+                    Seed = 5150,
+                    Species = sp,
+                    Role = CorridorSpriteRole.OffDutyCaptain,
+                    Facing = CorridorFacing.Right,
+                    AnimMode = CorridorAnimMode.Idle
+                });
+                if (CountNonNullPixels(spBuf) < 55)
+                    throw new InvalidOperationException($"CorridorSpriteRenderer produced sparse buffer for species {sp}.");
+                Texture2D spTex = spBuf.ToTexture2D();
+                PixelBuffer.UnloadTexture(ref spTex);
+            }
+
+            // 6. ArtTestScreen [CORRIDOR] Tab render & strict VRAM unload check
+            screenManager.SwitchTo(ScreenId.ArtTest);
+            artTestScreen.SmokeSwitchToCorridorTab();
+            artTestScreen.SmokeStepPlayerCandidate(1);
+            if (!artTestScreen.SmokeSaveLockedPlayerToPath(tempJsonPath))
+                throw new InvalidOperationException("ArtTestScreen [CORRIDOR] tab SaveAtomic failed.");
+
+            var cMetrics = artTestScreen.SmokeGetCorridorTabMetrics();
+            if (!cMetrics.HasPlayerTex || cMetrics.NpcCount != 6 || cMetrics.LoadedNpcSprites != 6)
+                throw new InvalidOperationException($"ArtTestScreen [CORRIDOR] tab texture metrics mismatch: {cMetrics}.");
+
+            canvas.BeginVirtualDraw();
+            screenManager.DrawVirtual(idle);
+            canvas.EndVirtualDrawAndBlit();
+
+            screenManager.UnloadAllScreens();
+            if (PixelBuffer.ActiveProceduralTextureCount != 0)
+                throw new InvalidOperationException($"Expected 0 active procedural textures after unloading ArtTestScreen [CORRIDOR], found {PixelBuffer.ActiveProceduralTextureCount}.");
+        }
+        finally
+        {
+            debugOverlay.IsVisible = false;
+            pauseMenu.Close();
+            tutorialOverlay.ForceCloseSilent();
+            screenManager.UnloadAllScreens();
+            gameState.SuppressDiskPersistence = prevSuppress;
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+    }
+
+    private static void RunBuild46VerificationSuite(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        Core.ConfigFlags config)
+    {
+        bool prevSuppress = gameState.SuppressDiskPersistence;
+        string savedUiFontPreset = config.UiFontPreset;
+        string? prevSaveDirOverride = GameState.SaveDirectoryOverride;
+        string tempDir = Path.Combine(Path.GetTempPath(), $"SubspaceProtocols_Smoke46_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            gameState.SuppressDiskPersistence = true;
+
+            // =================================================================
+            // 1. FontManager discovery, preset switching, ConfigFlags.UiFontPreset atomic persistence,
+            //    missing-preset fallback, DebugOverlay Row 17 cycler click, headless zero-GPU-font behavior
+            // =================================================================
+            if (FontManager.IsHeadlessMode != !Raylib.IsWindowReady())
+                throw new InvalidOperationException($"FontManager.IsHeadlessMode mismatch with Raylib.IsWindowReady() ({FontManager.IsHeadlessMode}).");
+
+            if (!FontManager.PresetNames.Contains("RaylibDefault") || FontManager.PresetCount < 1)
+                throw new InvalidOperationException("FontManager missing RaylibDefault fallback preset.");
+
+            if (FontManager.SnapToBucket(9) != 10 ||
+                FontManager.SnapToBucket(11) != 10 ||
+                FontManager.SnapToBucket(13) != 12 ||
+                FontManager.SnapToBucket(22) != 20 ||
+                FontManager.SnapToBucket(40) != 32)
+            {
+                throw new InvalidOperationException("FontManager.SnapToBucket downward tie-break check failed.");
+            }
+
+            // Custom fonts discovery + missing preset fallback in isolated temp dir
+            string tempFontsDir = Path.Combine(tempDir, "fonts");
+            Directory.CreateDirectory(tempFontsDir);
+            string winFontsDir = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
+            string consolaSrc = Path.Combine(winFontsDir, "consola.ttf");
+            if (File.Exists(consolaSrc))
+            {
+                File.Copy(consolaSrc, Path.Combine(tempFontsDir, "AlphaCustomMono.ttf"), overwrite: true);
+            }
+
+            FontManager.Initialize("NonExistentPreset_XYZ", headlessMode: true, customFontsDirOverride: tempFontsDir);
+            if (FontManager.ActiveGpuFontCount != 0)
+                throw new InvalidOperationException("Headless FontManager.Initialize loaded GPU fonts.");
+            if (File.Exists(consolaSrc) &&
+                (!FontManager.PresetNames.Contains("AlphaCustomMono") ||
+                 !string.Equals(FontManager.ActivePresetName, "AlphaCustomMono", StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException($"Missing-preset fallback should select first custom preset AlphaCustomMono, got {FontManager.ActivePresetName}.");
+            }
+
+            if (!FontManager.SetActivePreset("RaylibDefault") || FontManager.ActivePresetName != "RaylibDefault")
+                throw new InvalidOperationException("FontManager.SetActivePreset(RaylibDefault) failed.");
+            if (FontManager.SetActivePreset("NoSuchFontPreset_404"))
+                throw new InvalidOperationException("FontManager.SetActivePreset should return false for unknown presets.");
+
+            // Atomic UiFontPreset persistence on temp config copy
+            string tempConfigPath = Path.Combine(tempDir, "config_test.json");
+            File.WriteAllText(tempConfigPath, "{\n  \"enableDebugMenu\": true,\n  \"uiFontPreset\": \"Consolas\"\n}\n");
+            config.UiFontPreset = "RaylibDefault";
+            if (!config.TryPersistUiFontPresetToPath(tempConfigPath))
+                throw new InvalidOperationException("ConfigFlags.TryPersistUiFontPresetToPath failed.");
+            if (File.Exists(tempConfigPath + ".tmp"))
+                throw new InvalidOperationException("TryPersistUiFontPresetToPath left lingering .tmp file.");
+            string persistedCfg = File.ReadAllText(tempConfigPath);
+            if (!persistedCfg.Contains("\"uiFontPreset\": \"RaylibDefault\"", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Atomic config persistence did not update uiFontPreset: {persistedCfg}");
+
+            // Re-initialize normal assets/fonts preset & test DebugOverlay Row 17 click
+            FontManager.Initialize(savedUiFontPreset, headlessMode: !Raylib.IsWindowReady());
+            config.UiFontPreset = FontManager.ActivePresetName;
+
+            if (FontManager.PresetCount > 1)
+            {
+                string beforePreset = FontManager.ActivePresetName;
+                debugOverlay.IsVisible = true;
+                // Click '>' button at (16 + 440, 40 + 494)
+                bool handledNext = debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 440, Y = 40 + 494, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                string afterNext = FontManager.ActivePresetName;
+                if (!handledNext || afterNext == beforePreset || config.UiFontPreset != afterNext)
+                    throw new InvalidOperationException($"DebugOverlay Row 17 '>' cycler failed: before={beforePreset}, after={afterNext}, cfg={config.UiFontPreset}.");
+
+                // Click center readout at (16 + 200, 40 + 494)
+                bool handledCenter = debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 200, Y = 40 + 494, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                if (!handledCenter || config.UiFontPreset != FontManager.ActivePresetName)
+                    throw new InvalidOperationException("DebugOverlay Row 17 center readout click failed.");
+
+                // Click '<' button twice at (16 + 20, 40 + 494) -> returns to beforePreset
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 20, Y = 40 + 494, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 20, Y = 40 + 494, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                if (FontManager.ActivePresetName != beforePreset)
+                    throw new InvalidOperationException($"DebugOverlay Row 17 '<' cycler did not restore {beforePreset}, got {FontManager.ActivePresetName}.");
+
+                // Draw DebugOverlay with Row 17 + VOICE + HISTORY readouts cleanly
+                VirtualMouseState idle = new() { X = 310, Y = 165, IsInsideViewport = true, Scale = 1.0f };
+                canvas.BeginVirtualDraw();
+                screenManager.DrawVirtual(idle);
+                debugOverlay.DrawVirtual(idle);
+                canvas.EndVirtualDrawAndBlit();
+                debugOverlay.IsVisible = false;
+            }
+
+            // =================================================================
+            // 2. voice_profiles.json all 12 species, AudioHooks, & CommsTypewriterQueue
+            // =================================================================
+            AudioHooks.Initialize(headlessMode: true);
+            if (AudioHooks.IsAudioDeviceInitialized || AudioHooks.ActiveSoundCount != 0 || AudioHooks.ActiveSoundAliasCount != 0)
+                throw new InvalidOperationException("Headless AudioHooks.Initialize must leave audio device uninitialized with 0 active sounds/aliases.");
+            if (AudioHooks.LoadedSpeciesProfileCount != 12)
+                throw new InvalidOperationException($"Expected 12 species profiles loaded from data/voice_profiles.json, found {AudioHooks.LoadedSpeciesProfileCount}.");
+
+            string[] all12Species =
+            [
+                "Human", "Helani", "Klaasari", "Thane", "Veldor", "Kordani",
+                "Brengop", "Krushvak", "HunBorian", "Oruun", "Prunjun", "Tolvak"
+            ];
+            foreach (string sp in all12Species)
+            {
+                SpeciesVoiceProfile prof = AudioHooks.GetSpeciesProfile(sp);
+                if (string.IsNullOrWhiteSpace(prof.Bank) || prof.PitchMin <= 0f || prof.PitchMax < prof.PitchMin)
+                    throw new InvalidOperationException($"Invalid voice profile for species {sp}.");
+            }
+
+            SpeciesVoiceProfile helani = AudioHooks.GetSpeciesProfile("Helani");
+            if (helani.Bank != "Human_GU" || helani.CooldownMs is < 115 or > 125 || MathF.Abs(helani.Jitter - 0.015f) > 0.002f)
+                throw new InvalidOperationException($"Helani voice profile mismatch: bank={helani.Bank}, cooldown={helani.CooldownMs}, jitter={helani.Jitter}.");
+
+            SpeciesVoiceProfile klaasari = AudioHooks.GetSpeciesProfile("Klaasari");
+            SpeciesVoiceProfile thane = AudioHooks.GetSpeciesProfile("Thane");
+            SpeciesVoiceProfile veldor = AudioHooks.GetSpeciesProfile("Veldor");
+            if (klaasari.Bank != "GU_Alien" || thane.Bank != "GU_Alien" || veldor.Bank != "GU_Alien" ||
+                !(thane.PitchMax < veldor.PitchMin && veldor.PitchMax < klaasari.PitchMin))
+            {
+                throw new InvalidOperationException("Klaasari/Thane/Veldor GU_Alien distinct pitch ranges check failed.");
+            }
+
+            // Zero-Tell Dopple rule & deterministic encounter base pitch
+            AudioHooks.BeginEncounterVoice("Dopple", 4242, useRadioSquelch: true);
+            if (AudioHooks.ActivePresentedSpecies != "Human" || AudioHooks.ActiveVoiceBank != "Human_GU")
+                throw new InvalidOperationException($"Zero-Tell Dopple rule leaked species: {AudioHooks.ActivePresentedSpecies}/{AudioHooks.ActiveVoiceBank}.");
+
+            AudioHooks.BeginEncounterVoice("Prunjun", 778899, useRadioSquelch: true);
+            SpeciesVoiceProfile prunjun = AudioHooks.GetSpeciesProfile("Prunjun");
+            float pitch1 = AudioHooks.ActiveEncounterBasePitch;
+            AudioHooks.BeginEncounterVoice("Prunjun", 778899, useRadioSquelch: true);
+            float pitch2 = AudioHooks.ActiveEncounterBasePitch;
+            if (MathF.Abs(pitch1 - pitch2) > 1e-6f || pitch1 < prunjun.PitchMin || pitch1 > prunjun.PitchMax)
+                throw new InvalidOperationException($"Encounter base pitch determinism/bounds failed: {pitch1} vs {pitch2}.");
+
+            // Silence on spaces & punctuation (!char.IsLetterOrDigit)
+            if (AudioHooks.OnCommsCharRevealed(' ', isOfficer: false, isCaptain: true) ||
+                AudioHooks.OnCommsCharRevealed('.', isOfficer: false, isCaptain: true) ||
+                AudioHooks.OnCommsCharRevealed('-', isOfficer: true, isCaptain: false))
+            {
+                throw new InvalidOperationException("AudioHooks.OnCommsCharRevealed must remain silent on spaces and punctuation.");
+            }
+
+            // rawDeltaSeconds decoupling from high AnimSpeedMultiplier (10x speed still ticks cooldown at real-time rawDeltaSeconds)
+            AudioHooks.BeginEncounterVoice("Human", 555, useRadioSquelch: true);
+            AudioHooks.ClearEventHistory();
+            CommsTypewriterQueue speedQueue = new();
+            speedQueue.EnqueueSpokenLine(new string('A', 200), CommsSpeakerKind.Captain, CommsTextTone.AmberPrimary, suppressAutoReceivingLag: true);
+            for (int f = 0; f < 10; f++)
+            {
+                speedQueue.Update(scaledDeltaSeconds: 0.016f * 10f, charsPerSec: 65f, rawDeltaSeconds: 0.016f);
+            }
+            int captainBlips = AudioHooks.CommsEvents.Count(e => e.StartsWith("voice_blip:", StringComparison.Ordinal));
+            if (captainBlips is < 2 or > 4)
+                throw new InvalidOperationException($"Expected real-time ~68ms cooldown (~3 blips in 160ms raw time at 10x anim speed), got {captainBlips}.");
+
+            // Anchor suppression on "Send subspace protocols." and clearing afterward
+            AudioHooks.ClearEventHistory();
+            CommsTypewriterQueue anchorQueue = new();
+            anchorQueue.EnqueueSpokenLine("> BOOTH 04: \"Send subspace protocols.\"", CommsSpeakerKind.Officer, CommsTextTone.ClearanceTeal, instantPrefixLength: 12, suppressAutoReceivingLag: true);
+            anchorQueue.EnqueueSpokenLine("> BOOTH 04: \"Hold position.\"", CommsSpeakerKind.Officer, CommsTextTone.ClearanceTeal, instantPrefixLength: 12, suppressAutoReceivingLag: true);
+            anchorQueue.Update(1.0f, 65f, rawDeltaSeconds: 1.0f);
+            if (!AudioHooks.CommsEvents.Contains("officer_protocols") ||
+                AudioHooks.CommsEvents.Count(e => e == "officer_console_blip") == 0 ||
+                AudioHooks.IsAnchorBlipSuppressed)
+            {
+                throw new InvalidOperationException("Officer anchor suppression failed to emit officer_protocols or resume blips on subsequent officer line.");
+            }
+            // Also verify direct suppression during the anchor line itself
+            AudioHooks.OnCommsLineStart(isOfficer: true, isCaptain: false, "> BOOTH 04: \"Send subspace protocols.\"");
+            if (!AudioHooks.IsAnchorBlipSuppressed || AudioHooks.OnCommsCharRevealed('S', isOfficer: true, isCaptain: false))
+                throw new InvalidOperationException("Officer anchor line failed to suppress officer_console_blip while active.");
+            AudioHooks.OnCommsLineEnd(isCaptain: false);
+            if (AudioHooks.IsAnchorBlipSuppressed)
+                throw new InvalidOperationException("AudioHooks.OnCommsLineEnd failed to clear IsAnchorBlipSuppressed.");
+
+            // squelch_open / squelch_close on Captain lines (including click-to-snap) vs silent squelch on Kordani live hail
+            AudioHooks.BeginEncounterVoice("Brengop", 101, useRadioSquelch: true);
+            AudioHooks.ClearEventHistory();
+            CommsTypewriterQueue squelchQueue = new();
+            squelchQueue.EnqueueSpokenLine("CAPT: \"Testing radio squelch open and close.\"", CommsSpeakerKind.Captain, CommsTextTone.AmberPrimary, instantPrefixLength: 6, suppressAutoReceivingLag: true);
+            squelchQueue.Update(0.05f, 65f, rawDeltaSeconds: 0.05f);
+            squelchQueue.FinishActiveLineImmediately();
+            if (!AudioHooks.CommsEvents.Contains("squelch_open") || !AudioHooks.CommsEvents.Contains("squelch_close"))
+                throw new InvalidOperationException("Captain radio line click-to-snap failed to emit both squelch_open and squelch_close.");
+
+            AudioHooks.BeginEncounterVoice("Kordani", 202, useRadioSquelch: false);
+            AudioHooks.ClearEventHistory();
+            AudioHooks.OnCommsLineStart(isOfficer: false, isCaptain: true, "Vorst: \"Hail.\"");
+            AudioHooks.OnCommsLineEnd(isCaptain: true);
+            if (AudioHooks.CommsEvents.Contains("squelch_open") || AudioHooks.CommsEvents.Contains("squelch_close"))
+                throw new InvalidOperationException("useRadioSquelch: false illegally emitted squelch_open/squelch_close.");
+
+            // PickNonRepeatingClipIndex & missing-.wav/headless safety
+            Random clipRng = new(42);
+            int lastIdx = 1;
+            for (int i = 0; i < 40; i++)
+            {
+                int nextIdx = AudioHooks.PickNonRepeatingClipIndex(4, lastIdx, clipRng);
+                if (nextIdx < 0 || nextIdx >= 4 || nextIdx == lastIdx)
+                    throw new InvalidOperationException($"PickNonRepeatingClipIndex repeated {lastIdx} or went out of range ({nextIdx}).");
+                lastIdx = nextIdx;
+            }
+            if (AudioHooks.PickNonRepeatingClipIndex(1, 0, clipRng) != 0 ||
+                AudioHooks.PickNonRepeatingClipIndex(0, -1, clipRng) != -1)
+            {
+                throw new InvalidOperationException("PickNonRepeatingClipIndex edge case (0 or 1 clip) failed.");
+            }
+
+            // =================================================================
+            // 3. EncounterHistory append-once, Day 3 "ghost_route", Day 6 "day6_mng_intro",
+            //    atomic save_slot_1.json round-trip, legacy save missing encounterHistory
+            // =================================================================
+            GameState.SaveDirectoryOverride = tempDir;
+            GameState histState = new() { SuppressDiskPersistence = false };
+            histState.ResetForNewSave(1);
+            ShipGenerator histGen = new(config);
+            ValidationEngine histVal = new();
+            WorldSim histWorld = new();
+
+            // Day 3 Ghost Route -> Detained -> StoryTag "ghost_route", append-once!
+            histState.AdvanceToDay(3);
+            int ghostSlot = ShipGenerator.GetGhostRouteQueueSlot(histState);
+            ShipSpec ghostShip = histGen.GenerateShipForSlot(histState, ghostSlot, config: config);
+            histVal.EvaluateDecision(histState, ghostShip, PlayerDecision.Detain, histWorld, config);
+            int countAfterFirstEval = histState.EncounterHistory.Count;
+            histVal.EvaluateDecision(histState, ghostShip, PlayerDecision.Detain, histWorld, config);
+            if (countAfterFirstEval != 1 || histState.EncounterHistory.Count != 1 ||
+                histState.EncounterHistory[0].StoryTag != "ghost_route" ||
+                histState.EncounterHistory[0].Verdict != "Detained")
+            {
+                throw new InvalidOperationException("Day 3 Ghost Route EncounterHistory append-once or StoryTag 'ghost_route' failed.");
+            }
+
+            // Day 6 MNG- intro ship -> Cleared -> StoryTag "day6_mng_intro"
+            histState.AdvanceToDay(6);
+            List<ShipSpec> d6Ships = histGen.GenerateDailyQueue(histState, config: config);
+            ShipSpec? mngIntro = d6Ships.FirstOrDefault(s => s.StoryTag == "day6_mng_intro");
+            if (mngIntro == null)
+                throw new InvalidOperationException("Day 6 daily queue missing StoryTag 'day6_mng_intro' on MNG- vessel.");
+            mngIntro.GroundTruth.ActualShieldsUp = false;
+            mngIntro.GroundTruth.ActualWeaponsHot = false;
+            mngIntro.GroundTruth.ActiveInfractions.Clear();
+            histVal.EvaluateDecision(histState, mngIntro, PlayerDecision.GrantAccess, histWorld, config);
+            if (histState.EncounterHistory.Count != 2 ||
+                histState.EncounterHistory[1].StoryTag != "day6_mng_intro" ||
+                histState.EncounterHistory[1].Verdict != "Cleared")
+            {
+                throw new InvalidOperationException("Day 6 MNG- intro EncounterHistory recording failed.");
+            }
+
+            // Atomic save_slot_1.json round-trip
+            string slot1Path = GameState.GetSlotFilePath(1);
+            if (!File.Exists(slot1Path) || File.Exists(slot1Path + ".tmp"))
+                throw new InvalidOperationException("Atomic save_slot_1.json missing or left .tmp file.");
+            GameState reloadedHist = new() { SuppressDiskPersistence = true };
+            if (!reloadedHist.LoadSlotIntoCurrent(1) || reloadedHist.EncounterHistory.Count != 2 ||
+                reloadedHist.EncounterHistory[0].StoryTag != "ghost_route" ||
+                reloadedHist.EncounterHistory[1].StoryTag != "day6_mng_intro")
+            {
+                throw new InvalidOperationException("save_slot_1.json EncounterHistory round-trip failed.");
+            }
+
+            // Legacy save missing encounterHistory field loads safely
+            string slot2Path = GameState.GetSlotFilePath(2);
+            File.WriteAllText(slot2Path, "{\"activeSaveSlot\":2,\"runSeed\":12345,\"day\":2,\"pactScrip\":60}");
+            GameState legacyLoaded = new() { SuppressDiskPersistence = true };
+            if (!legacyLoaded.LoadSlotIntoCurrent(2) || legacyLoaded.EncounterHistory == null || legacyLoaded.EncounterHistory.Count != 0)
+                throw new InvalidOperationException("Legacy save without 'encounterHistory' failed safe load.");
+
+            // =================================================================
+            // 4. EncounterHistoryQuery strict [currentDay - 3 .. currentDay - 1] window vs full-campaign StoryTag
+            // =================================================================
+            List<EncounterRecord> queryRecords =
+            [
+                new EncounterRecord { Day = 3, Faction = "ORN-", Verdict = "Detained", HadViolation = false, StoryTag = "ghost_route" },
+                new EncounterRecord { Day = 6, Faction = "FTV-", Verdict = "Detained", HadViolation = true }, // Day 10 - 4 -> outside window!
+                new EncounterRecord { Day = 7, Faction = "FTV-", Verdict = "Detained", HadViolation = true }, // Day 10 - 3 -> inside!
+                new EncounterRecord { Day = 8, Faction = "FTV-", Verdict = "Detained", HadViolation = true }, // Day 10 - 2 -> inside!
+                new EncounterRecord { Day = 9, Faction = "MNG-", Verdict = "Cleared", HadViolation = true, TookBribe = true }, // Day 10 - 1 -> inside!
+                new EncounterRecord { Day = 10, Faction = "FTV-", Verdict = "Detained", HadViolation = true } // currentDay -> excluded!
+            ];
+
+            if (EncounterHistoryQuery.CountRecentDetentions(queryRecords, currentDay: 10, "FTV-") != 2 ||
+                EncounterHistoryQuery.CountRecentClearedViolations(queryRecords, currentDay: 10, "MNG-") != 1 ||
+                !EncounterHistoryQuery.HasRecentBribe(queryRecords, currentDay: 10, "MNG-") ||
+                EncounterHistoryQuery.HasRecentBribe(queryRecords, currentDay: 10, "FTV-") ||
+                EncounterHistoryQuery.GetMostDetainedRecentFaction(queryRecords, currentDay: 10) != "FTV-" ||
+                EncounterHistoryQuery.GetRecentFactionPattern(queryRecords, currentDay: 10, "FTV-") != RecentFactionCallbackKind.RepeatedDetentions ||
+                EncounterHistoryQuery.GetRecentFactionPattern(queryRecords, currentDay: 10, "MNG-") != RecentFactionCallbackKind.TookBribe)
+            {
+                throw new InvalidOperationException("EncounterHistoryQuery strict [currentDay - 3 .. currentDay - 1] rolling window check failed.");
+            }
+
+            if (EncounterHistoryQuery.FindByStoryTag(queryRecords, "ghost_route")?.Day != 3 ||
+                !EncounterHistoryQuery.HasStoryTagVerdict(queryRecords, "ghost_route", "Detained") ||
+                EncounterHistoryQuery.HasStoryTagVerdict(queryRecords, "ghost_route", "Cleared"))
+            {
+                throw new InvalidOperationException("EncounterHistoryQuery full-campaign StoryTag lookup failed.");
+            }
+
+            // =================================================================
+            // 5. FactionDialoguePool DiskLoadCount == 1, [TODO] skipping, non-repeat picks, recentCallbacks weaving
+            // =================================================================
+            FactionDialoguePool.EnsureLoaded();
+            FactionDialoguePool.EnsureLoaded();
+            if (FactionDialoguePool.DiskLoadCount != 1)
+                throw new InvalidOperationException($"Expected FactionDialoguePool.DiskLoadCount == 1, got {FactionDialoguePool.DiskLoadCount}.");
+
+            if (FactionDialoguePool.IsPlayableLine("[TODO: test]") || !FactionDialoguePool.IsPlayableLine("Valid greeting."))
+                throw new InvalidOperationException("FactionDialoguePool.IsPlayableLine failed [TODO] skip logic.");
+
+            FactionDialoguePool.ResetSelectionMemory();
+            ShipSpec dummyFtvA = new() { EncounterSeedId = "seed-ftv-a", Slate = new DataSlateModel { ShipName = "DRIFTER", RegistrationCode = "FTV-101-A", OriginSystem = "Veridia", DestinationSystem = "Oruun-4" } };
+            ShipSpec dummyFtvB = new() { EncounterSeedId = "seed-ftv-a", Slate = new DataSlateModel { ShipName = "DRIFTER", RegistrationCode = "FTV-101-A", OriginSystem = "Veridia", DestinationSystem = "Oruun-4" } };
+            string? ftvGreet1 = FactionDialoguePool.TryPickGreeting("FTV-", dummyFtvA);
+            string? ftvGreet2 = FactionDialoguePool.TryPickGreeting("FTV-", dummyFtvB);
+            if (string.IsNullOrWhiteSpace(ftvGreet1) || string.IsNullOrWhiteSpace(ftvGreet2) || ftvGreet1 == ftvGreet2)
+                throw new InvalidOperationException($"FTV- greeting non-repeat failed: '{ftvGreet1}' vs '{ftvGreet2}'.");
+
+            string? mngDetain1 = FactionDialoguePool.TryPickDetentionReaction("MNG-", dummyFtvA);
+            string? mngDetain2 = FactionDialoguePool.TryPickDetentionReaction("MNG-", dummyFtvB);
+            if (string.IsNullOrWhiteSpace(mngDetain1) || string.IsNullOrWhiteSpace(mngDetain2) || mngDetain1 == mngDetain2)
+                throw new InvalidOperationException($"MNG- detention reaction non-repeat failed: '{mngDetain1}' vs '{mngDetain2}'.");
+
+            // Zero [TODO] lines leaked into generated ShipSpec across all prefixes
+            GameState todoCheckState = new() { Day = 10, RunSeed = 9001, SuppressDiskPersistence = true };
+            for (int slot = 0; slot < 16; slot++)
+            {
+                ShipSpec generated = histGen.GenerateShipForSlot(todoCheckState, slot, config: config);
+                string[] linesToCheck =
+                [
+                    generated.GreetingHailLine,
+                    generated.DetentionReactionLine,
+                    generated.ConfrontationGuiltyExcuseHull,
+                    generated.ConfrontationGuiltyExcuseOrigin,
+                    generated.ConfrontationGuiltyExcuseTransponderId,
+                    generated.ConfrontationGuiltyExcuseWeapons
+                ];
+                foreach (string line in linesToCheck)
+                {
+                    if (!string.IsNullOrEmpty(line) && line.Contains("[TODO", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException($"[TODO] placeholder leaked into generated ShipSpec dialogue: '{line}'.");
+                }
+            }
+
+            // recentCallbacks greeting weaving
+            GameState callbackState = new() { Day = 6, RunSeed = 4242, SuppressDiskPersistence = true };
+            callbackState.EncounterHistory.Add(new EncounterRecord
+            {
+                Day = 5,
+                Faction = "MNG-",
+                HadViolation = true,
+                Verdict = "Cleared"
+            });
+            (_, int d6CbSlot) = ShipGenerator.EnsureDay6IntroTargetAssigned(callbackState);
+            ShipSpec callbackShip = histGen.GenerateShipForSlot(
+                callbackState,
+                d6CbSlot,
+                config: config);
+            if (!string.Equals(callbackShip.Slate.DeclaredPrefix, "MNG-", StringComparison.OrdinalIgnoreCase) ||
+                (!callbackShip.GreetingHailLine.Contains("Syndicate dispatch", StringComparison.OrdinalIgnoreCase) &&
+                 !callbackShip.GreetingHailLine.Contains("Oruun-4 haulers", StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException($"Expected MNG- ClearedViolation recentCallback greeting weaving, got '{callbackShip.GreetingHailLine}'.");
+            }
+        }
+        finally
+        {
+            GameState.SaveDirectoryOverride = prevSaveDirOverride;
+            debugOverlay.IsVisible = false;
+            pauseMenu.Close();
+            tutorialOverlay.ForceCloseSilent();
+            screenManager.UnloadAllScreens();
+            FontManager.Initialize(savedUiFontPreset, headlessMode: !Raylib.IsWindowReady());
+            config.UiFontPreset = savedUiFontPreset;
+            AudioHooks.Initialize(headlessMode: true);
+            AudioHooks.ClearEventHistory();
+            gameState.SuppressDiskPersistence = prevSuppress;
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+    }
+
+    private static void RunBuild47VerificationSuite(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        QuartersScreen quartersScreen,
+        IntroScreen introScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        Core.ConfigFlags config,
+        DevDebugState devDebug)
+    {
+        bool prevSuppress = gameState.SuppressDiskPersistence;
+        string savedUiFontPreset = config.UiFontPreset;
+        int savedUiFontSizeOffset = config.UiFontSizeOffset;
+        bool savedSkipIntro = devDebug.SkipIntroSequence;
+        string tempDir = Path.Combine(Path.GetTempPath(), $"SubspaceProtocols_Smoke47_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            gameState.SuppressDiskPersistence = true;
+
+            // 1. FontManager cap-height scaling, alpha contrast curve, Windows bold presets & offset persistence
+            FontManager.Initialize("ConsolasBold", headlessMode: true);
+            if (!FontManager.PresetNames.Contains("ConsolasBold") ||
+                !FontManager.PresetNames.Contains("RaylibDefault") ||
+                FontManager.PresetCount < 6)
+            {
+                throw new InvalidOperationException($"Expected expanded FontManager presets with ConsolasBold, got count={FontManager.PresetCount}.");
+            }
+
+            if (MathF.Abs(FontManager.ActiveScaleMultiplier - 1.25f) > 0.05f)
+                throw new InvalidOperationException($"Expected ConsolasBold ScaleMultiplier ~1.25f, got {FontManager.ActiveScaleMultiplier}.");
+
+            byte boostedMid = FontManager.BoostGlyphAlpha(128);
+            if (boostedMid <= 180)
+                throw new InvalidOperationException($"BoostGlyphAlpha failed to brighten semi-transparent edge pixels (128 -> {boostedMid}).");
+
+            FontManager.SetFontSizeOffset(99);
+            if (FontManager.FontSizeOffset != FontManager.MaxFontSizeOffset)
+                throw new InvalidOperationException($"FontSizeOffset clamp upper failed: {FontManager.FontSizeOffset}.");
+            FontManager.SetFontSizeOffset(-99);
+            if (FontManager.FontSizeOffset != FontManager.MinFontSizeOffset)
+                throw new InvalidOperationException($"FontSizeOffset clamp lower failed: {FontManager.FontSizeOffset}.");
+            FontManager.SetFontSizeOffset(savedUiFontSizeOffset);
+
+            string tempCfgPath = Path.Combine(tempDir, "config47.json");
+            File.WriteAllText(tempCfgPath, "{\n  \"uiFontSizeOffset\": 0\n}\n");
+            config.UiFontSizeOffset = 2;
+            if (!config.TryPersistUiFontSizeOffsetToPath(tempCfgPath) ||
+                !File.ReadAllText(tempCfgPath).Contains("\"uiFontSizeOffset\": 2", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("TryPersistUiFontSizeOffsetToPath failed atomic write.");
+            }
+            config.UiFontSizeOffset = savedUiFontSizeOffset;
+
+            // 2. Live GPU font atlas load/measure/unload test with non-headless FontManager & clean shutdown
+            FontManager.Initialize("ConsolasBold", headlessMode: false);
+            int wBold = UiText.MeasureWidth("VOID GATE 3", 10);
+            FontManager.SetActivePreset("RaylibDefault");
+            int wDefault = UiText.MeasureWidth("VOID GATE 3", 10);
+            if (wBold <= 0 || wDefault <= 0)
+                throw new InvalidOperationException("UiText.MeasureWidth failed across live FontManager presets.");
+            FontManager.Shutdown();
+            if (FontManager.ActiveGpuFontCount != 0)
+                throw new InvalidOperationException($"FontManager.Shutdown leaked GPU fonts: {FontManager.ActiveGpuFontCount}.");
+            FontManager.Initialize(savedUiFontPreset, headlessMode: !Raylib.IsWindowReady());
+            FontManager.SetFontSizeOffset(savedUiFontSizeOffset);
+
+            // 3. 5-card IntroScreen sequence & F1 Skip toggle
+            if (IntroScreen.VerbatimCards.Count != 5 ||
+                !IntroScreen.VerbatimCards[0].Contains("Three years after the Concord War", StringComparison.Ordinal) ||
+                IntroScreen.VerbatimCards[4] != "Congratulations")
+            {
+                throw new InvalidOperationException("IntroScreen 5-card verbatim text check failed.");
+            }
+
+            devDebug.SkipIntroSequence = false;
+            screenManager.SwitchTo(ScreenId.Intro);
+            if (screenManager.CurrentScreenId != ScreenId.Intro || introScreen.CurrentCardIndex != 0)
+                throw new InvalidOperationException("IntroScreen failed to start on Card 0.");
+            for (int c = 0; c < 4; c++) introScreen.SmokeAdvanceCard();
+            if (introScreen.CurrentCardIndex != 4)
+                throw new InvalidOperationException($"IntroScreen failed to advance to Card 4, got {introScreen.CurrentCardIndex}.");
+            introScreen.SmokeAdvanceCard();
+            introScreen.Update(0.50f, default);
+            if (screenManager.CurrentScreenId != ScreenId.Quarters)
+                throw new InvalidOperationException($"IntroScreen failed to fade into Quarters after Card 5, stayed on {screenManager.CurrentScreenId}.");
+
+            devDebug.SkipIntroSequence = true;
+            screenManager.SwitchTo(ScreenId.Intro);
+            if (screenManager.CurrentScreenId != ScreenId.Quarters)
+                throw new InvalidOperationException("SkipIntroSequence F1 toggle failed to skip IntroScreen straight to Quarters.");
+            devDebug.SkipIntroSequence = savedSkipIntro;
+
+            // 4. Determinism of Regeer Nixa 64x64 portrait, Day 2/8 hails, Vorst Day 4 hails
+            PixelBuffer nixaA = PortraitRenderer.RenderRegeerNixaBuffer();
+            PixelBuffer nixaB = PortraitRenderer.RenderRegeerNixaBuffer();
+            if (nixaA.Width != 64 || nixaA.Height != 64 || !ArePixelBuffersIdentical(nixaA, nixaB))
+                throw new InvalidOperationException("PortraitRenderer.RenderRegeerNixaBuffer() was not deterministic 64x64.");
+            if (Day2And3ScriptedDialogue.Day2RegeerNixaHailLines.Length != 5 ||
+                Day2And3ScriptedDialogue.Day8RegeerNixaHailLines.Length != 7 ||
+                !Day2And3ScriptedDialogue.Day8RegeerNixaHailLines[5].Contains("Dopples", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Regeer Nixa Day 2/Day 8 verbatim hail arrays mismatch.");
+            }
+            string[] vorstD4A = Day2And3ScriptedDialogue.BuildDay4KordaniHailLines(true, "ORN-442-K", "Oruun-4");
+            string[] vorstD4B = Day2And3ScriptedDialogue.BuildDay4KordaniHailLines(false, "ORN-442-K", "Oruun-4");
+            if (!vorstD4A[0].StartsWith("Vorst:", StringComparison.Ordinal) ||
+                !vorstD4B[0].StartsWith("Vorst:", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Day 4 Kordani hails must be spoken by Commander Vorst.");
+            }
+
+            // 5. No blocking Day 1 tutorial popup, Field Booklet Quarters + Day 6 page unlock, Day 1 Evening ration cue
+            gameState.ResetForNewSave(1);
+            screenManager.SwitchTo(ScreenId.Quarters);
+            if (tutorialOverlay.IsOpen)
+                throw new InvalidOperationException("Blocking Day 1 Morning tutorial modal opened on Quarters entry.");
+
+            // Day 1 Evening ration cue active until ration ordered
+            gameState.QuartersPhase = QuartersPhase.Evening;
+            gameState.TonightRationOrder = NightlyRationOrder.None;
+            screenManager.SwitchTo(ScreenId.Quarters);
+            if (tutorialOverlay.IsOpen || !quartersScreen.IsDay1EveningRationCueActive)
+                throw new InvalidOperationException("Day 1 Evening ration cue failed or blocking end-of-day popup opened.");
+
+            // Quarters Field Booklet accessible & Day 6 page unlocks only after reading "Check your chute"
+            List<FieldBookletPage> d1Pages = FieldBookletWidget.GetUnlockedPages(gameState, config);
+            if (!d1Pages.Any(p => p.Tag == "day1_evening") || d1Pages.Any(p => p.Tag == "day6_crypto"))
+                throw new InvalidOperationException("Field Booklet initial Quarters/Day 6 unlock gating failed.");
+
+            gameState.AdvanceToDay(6);
+            gameState.TerminalHackedUnlocked = true;
+            List<FieldBookletPage> d6Pages = FieldBookletWidget.GetUnlockedPages(gameState, config);
+            if (!d6Pages.Any(p => p.Tag == "day6_crypto"))
+                throw new InvalidOperationException("Field Booklet day6_crypto Cryptography page did not unlock after TerminalHackedUnlocked.");
+
+            // Day 6 Morning chute door prompt ("I see there is something in my chute, let me check it out")
+            gameState.ResetForNewSave(1);
+            gameState.AdvanceToDay(6);
+            gameState.QuartersPhase = QuartersPhase.Morning;
+            EconomyEngine econ = new();
+            ShipGenerator gen = new(config);
+            econ.EnsureMorningRosterGenerated(gameState, gen, config);
+            econ.EnsureDay6MorningUnsolicitedDrop(gameState);
+            TerminalEmail chuteEmail = gameState.Emails.First(e => e.IsTerminalHackEmail);
+            chuteEmail.IsRead = true;
+            screenManager.SwitchTo(ScreenId.Quarters);
+            quartersScreen.Update(0.016f, new VirtualMouseState { X = 80, Y = 500, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            if (quartersScreen.ActiveNudgeText != "I see there is something in my chute, let me check it out")
+                throw new InvalidOperationException($"Expected Day 6 chute collection nudge, got '{quartersScreen.ActiveNudgeText}'.");
+
+            // 6. DeskScreen Build 4.7 verification suite (Protocol Review auto-clear/duplicate, Reference Manual tabs/hitboxes, hails, booklet, silent capture)
+            deskScreen.SmokeVerifyBuild47DeskFeatures(canvas, screenManager, config);
+
+            Console.WriteLine("[SMOKE 4.7] PASS: Font scaling/alpha/presets, V2 default, Protocol Review auto-clear, Brengop Manual, Field Booklet, 5-card Intro, Regeer Nixa hails & silent capture verified.");
+        }
+        finally
+        {
+            debugOverlay.IsVisible = false;
+            pauseMenu.Close();
+            tutorialOverlay.ForceCloseSilent();
+            screenManager.UnloadAllScreens();
+            devDebug.SkipIntroSequence = savedSkipIntro;
+            FontManager.Initialize(savedUiFontPreset, headlessMode: !Raylib.IsWindowReady());
+            FontManager.SetFontSizeOffset(savedUiFontSizeOffset);
+            config.UiFontPreset = savedUiFontPreset;
+            config.UiFontSizeOffset = savedUiFontSizeOffset;
+            AudioHooks.Initialize(headlessMode: true);
+            AudioHooks.ClearEventHistory();
+            gameState.SuppressDiskPersistence = prevSuppress;
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+    }
+
+    private static void RunBuild475VerificationSuite(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        QuartersScreen quartersScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        Core.ConfigFlags config,
+        DevDebugState devDebug)
+    {
+        bool prevSuppress = gameState.SuppressDiskPersistence;
+        string savedUiFontPreset = config.UiFontPreset;
+        int savedUiFontSizeOffset = config.UiFontSizeOffset;
+        string tempDir = Path.Combine(Path.GetTempPath(), $"SubspaceProtocols_Smoke475_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            gameState.SuppressDiskPersistence = true;
+
+            // [A4] & Pixel-Grid Font Sharpness / Fallback
+            if (Raylib.IsWindowReady() && FontManager.IsHeadlessMode)
+                throw new InvalidOperationException("[A4] Windowed --smoke-test initialized FontManager in headlessMode.");
+
+            FontManager.Initialize("PixelOperatorMono-Bold", headlessMode: !Raylib.IsWindowReady());
+            if (!FontManager.PresetNames.Contains("PixelOperatorMono-Bold") ||
+                !FontManager.IsActivePresetPixelFont ||
+                !string.Equals(FontManager.ActivePresetName, "PixelOperatorMono-Bold", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Expected active pixel font PixelOperatorMono-Bold, got {FontManager.ActivePresetName} (isPixel={FontManager.IsActivePresetPixelFont}).");
+            }
+            if (Raylib.IsWindowReady())
+            {
+                int pxW = UiText.MeasureWidth("SHIP REGISTRAR", 10, denseRow: true);
+                if (pxW != 112 || FontManager.ActiveGpuFontCount <= 0)
+                    throw new InvalidOperationException($"Expected native 16px PixelOperatorMono-Bold atlas measure 112px, got {pxW} (gpuFonts={FontManager.ActiveGpuFontCount}).");
+            }
+            if (FontManager.SnapPixelGlyphAlpha(100) != 0 || FontManager.SnapPixelGlyphAlpha(200) != 255)
+                throw new InvalidOperationException("FontManager.SnapPixelGlyphAlpha crisp threshold check failed.");
+
+            // Fallback chain when assets/fonts dir is empty -> ConsolasBold -> RaylibDefault
+            string emptyFontsDir = Path.Combine(tempDir, "empty_fonts");
+            Directory.CreateDirectory(emptyFontsDir);
+            FontManager.Initialize("PixelOperatorMono-Bold", headlessMode: true, customFontsDirOverride: emptyFontsDir);
+            if (FontManager.ActivePresetName != "ConsolasBold" && FontManager.ActivePresetName != "RaylibDefault")
+                throw new InvalidOperationException($"Empty-dir fallback failed: {FontManager.ActivePresetName}.");
+            FontManager.Initialize(savedUiFontPreset, headlessMode: !Raylib.IsWindowReady());
+            FontManager.SetFontSizeOffset(savedUiFontSizeOffset);
+
+            // Regeer Nixa Brengop Species Head check: drooping wide Brengop ears (x <= 12 at y=30..38) + cap + right-eye tassel
+            PixelBuffer nixaBuf = PortraitRenderer.RenderRegeerNixaBuffer();
+            bool hasLeftEar = false;
+            bool hasRightEar = false;
+            for (int y = 30; y <= 38; y++)
+            {
+                string? leftPx = nixaBuf.Get(12, y);
+                string? rightPx = nixaBuf.Get(51, y);
+                if (!string.IsNullOrEmpty(leftPx) && !leftPx.StartsWith("#121", StringComparison.OrdinalIgnoreCase))
+                    hasLeftEar = true;
+                if (!string.IsNullOrEmpty(rightPx) && !rightPx.StartsWith("#121", StringComparison.OrdinalIgnoreCase))
+                    hasRightEar = true;
+            }
+            string? tasselPx = nixaBuf.Get(38, 22);
+            if (!hasLeftEar || !hasRightEar || string.IsNullOrEmpty(tasselPx))
+                throw new InvalidOperationException($"Regeer Nixa Brengop geometry check failed (leftEar={hasLeftEar}, rightEar={hasRightEar}).");
+
+            // [A3] Day 3 vs Day 4 Security Strikes & Forum day2_* gating
+            EconomyEngine econ = new();
+            ForumDatabase forumDb = ForumDatabase.Load();
+            gameState.ResetForNewSave(1);
+            gameState.AdvanceToDay(3);
+            gameState.Day2SuspectEncountered = true;
+            gameState.Day2SuspectDetained = false;
+            List<ForumThreadModel> d3Threads = econ.GetVisibleForumThreads(gameState, forumDb, config);
+            if (d3Threads.Any(t => t.Id.StartsWith("d3_coil_repaired", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("[A3] d3_coil_repaired_* leaked onto Day 3 FORUM.");
+            var (deferD3Ok, deferD3Msg) = econ.TryPurchaseAuditDeferralFee(gameState, config);
+            if (deferD3Ok || !deferD3Msg.Contains("DAY 04", StringComparison.Ordinal))
+                throw new InvalidOperationException($"[A3] Day 3 Audit Deferral error mismatch: '{deferD3Msg}'.");
+
+            gameState.AdvanceToDay(config.DayUnlockWarpScanner);
+            List<ForumThreadModel> d4Threads = econ.GetVisibleForumThreads(gameState, forumDb, config);
+            if (!d4Threads.Any(t => t.Id == "d3_coil_repaired_cleared"))
+                throw new InvalidOperationException("[A3] d3_coil_repaired_cleared failed to unlock on Day 4.");
+
+            // [B3] Quarters booklet hover masking + Day 1 PM / Day 6 AM newest page sync
+            gameState.ResetForNewSave(1);
+            gameState.QuartersPhase = QuartersPhase.Evening;
+            screenManager.SwitchTo(ScreenId.Quarters);
+            quartersScreen.Booklet.IsOpen = true;
+            VirtualMouseState overBookletAndDoor = new() { X = 60, Y = 500, IsInsideViewport = true, Scale = 1.0f };
+            canvas.BeginVirtualDraw();
+            screenManager.DrawVirtual(overBookletAndDoor);
+            canvas.EndVirtualDrawAndBlit();
+            if (!string.IsNullOrEmpty(quartersScreen.ActiveHoverTooltipText))
+                throw new InvalidOperationException($"[B3] Room tooltip leaked behind open FieldBooklet: '{quartersScreen.ActiveHoverTooltipText}'.");
+            if (quartersScreen.Booklet.CurrentPage(gameState, config).Tag != "day1_evening")
+                throw new InvalidOperationException($"[B3] Day 1 Evening booklet did not sync to day1_evening, got {quartersScreen.Booklet.CurrentPage(gameState, config).Tag}.");
+
+            VirtualMouseState overDoorOnly = new() { X = 60, Y = 370, IsInsideViewport = true, Scale = 1.0f };
+            canvas.BeginVirtualDraw();
+            screenManager.DrawVirtual(overDoorOnly);
+            canvas.EndVirtualDrawAndBlit();
+            if (string.IsNullOrEmpty(quartersScreen.ActiveHoverTooltipText))
+                throw new InvalidOperationException("[B3] Door tooltip did not render when hovering Door outside booklet.");
+
+            // [B4] Todo tag sanitizer & CONTRACT SETTLED cleanup
+            string cleaned = TerminalOverlay.StripAuthoringTodoTags("Line one [TODO: USER DIALOGUE PASS]");
+            if (cleaned != "Line one" || cleaned.Contains("[TODO", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"[B4] StripAuthoringTodoTags failed: '{cleaned}'.");
+
+            IntelEconomy intelEcon = new();
+            WorldSim worldSim = new();
+            gameState.AdvanceToDay(6);
+            gameState.ActiveInterceptMissionIds.Add(EconomyEngine.Day6IntroMissionId);
+            (string d6B4Reg, _) = ShipGenerator.EnsureDay6IntroTargetAssigned(gameState);
+            ContrabandPocketItem mngSlate = new()
+            {
+                ItemId = "smoke_b4_mng",
+                ItemType = ContrabandPocketItem.TypeCopiedDataSlate,
+                DisplayName = $"STOLEN SLATE: {d6B4Reg}",
+                TargetShipPrefix = "MNG-",
+                TargetShipRegistration = d6B4Reg,
+                OriginStarSystem = "Kestrel Drift"
+            };
+            gameState.PocketItems.Add(mngSlate);
+            MissionTransmitResult txRes = intelEcon.ExecuteMissionInterceptTransmit(gameState, worldSim, EconomyEngine.Day6IntroMissionId, mngSlate, slateIsInVentStash: false, CovertMissionDatabase.Load(), config);
+            if (!txRes.Success)
+                throw new InvalidOperationException($"[B4] ExecuteMissionInterceptTransmit failed: {txRes.Message}");
+            TerminalEmail settledEmail = gameState.Emails.Last(e => e.Subject.StartsWith("CONTRACT SETTLED", StringComparison.Ordinal));
+            if (settledEmail.Body.Contains("[TODO", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"[B4] Leaked [TODO] tag into CONTRACT SETTLED email: '{settledEmail.Body}'.");
+
+            // [B6] Day 1 email reset, Day 6 F1 JumpToDay backfill, & Morning Roster contract sync
+            gameState.Day1BrengopEmailRead = true;
+            gameState.AdvanceToDay(1);
+            TerminalEmail d1Mail = gameState.Emails.First(e => e.IsDay1BrengopEmail);
+            if (gameState.Day1BrengopEmailRead || d1Mail.IsRead)
+                throw new InvalidOperationException("[B6] AdvanceToDay(1) did not reset Day 1 Brengop Contract email unread state.");
+
+            gameState.ResetForNewSave(1);
+            debugOverlay.IsVisible = true;
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 300, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f }); // DAY 1 (resets SelectedJumpDay=1)
+            for (int step = 0; step < 5; step++)
+            {
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 80, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f }); // -> DAY 6
+            }
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 150, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f }); // LOAD DAY 06
+            debugOverlay.IsVisible = false;
+            tutorialOverlay.ForceCloseSilent();
+            if (gameState.Day != 6 ||
+                !gameState.TerminalHackedUnlocked ||
+                !gameState.ActiveInterceptMissionIds.Contains(EconomyEngine.Day6IntroMissionId) ||
+                !gameState.PocketItems.Any(i => i.ItemType == ContrabandPocketItem.TypeBlankDataSlate))
+            {
+                throw new InvalidOperationException("[B6] DebugOverlay JumpToDay(6) failed Day 6 Desk state backfill.");
+            }
+
+            // Morning Roster contract sync when accepting an intercept contract in Morning Quarters
+            gameState.AdvanceToDay(7);
+            gameState.QuartersPhase = QuartersPhase.Morning;
+            ShipGenerator gen = new(config);
+            econ.EnsureMorningRosterGenerated(gameState, gen, config);
+            CovertMissionSpec? mngOrFtcSpec = CovertMissionDatabase.Load().Missions.FirstOrDefault(m => !m.IsDeliveryMission && m.MinAvailableDay <= 7 && !m.AutoActivateOnHack);
+            if (mngOrFtcSpec != null)
+            {
+                var (accOk, _) = econ.TryAcceptCovertContract(gameState, mngOrFtcSpec.MissionId, CovertMissionDatabase.Load(), config);
+                if (!accOk || !gameState.TodayMorningRoster.Any(r => r.RegistrationCode.StartsWith(mngOrFtcSpec.TargetPrefix, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException($"[B6] Accepting Morning Quarters contract {mngOrFtcSpec.MissionId} did not sync TodayMorningRoster.");
+            }
+
+            // Desk-specific Build 4.7.5 checks (A1, A2, B1, B2, B5)
+            deskScreen.SmokeVerifyBuild475DeskFeatures(canvas, screenManager, config);
+
+            Console.WriteLine("[SMOKE 4.7.5] PASS: A1-A4, B1-B6, Regeer Nixa Brengop portrait & crisp PixelOperatorMono-Bold verified.");
+        }
+        finally
+        {
+            quartersScreen.SmokeCloseSubOverlays();
+            debugOverlay.IsVisible = false;
+            pauseMenu.Close();
+            tutorialOverlay.ForceCloseSilent();
+            screenManager.UnloadAllScreens();
+            FontManager.Initialize(savedUiFontPreset, headlessMode: !Raylib.IsWindowReady());
+            FontManager.SetFontSizeOffset(savedUiFontSizeOffset);
+            config.UiFontPreset = savedUiFontPreset;
+            config.UiFontSizeOffset = savedUiFontSizeOffset;
+            AudioHooks.Initialize(headlessMode: true);
+            AudioHooks.ClearEventHistory();
+            gameState.SuppressDiskPersistence = prevSuppress;
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+    }
+
+    private static void RunBuild51VerificationSuite(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        QuartersScreen quartersScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        Core.ConfigFlags config,
+        DevDebugState devDebug)
+    {
+        bool prevSuppress = gameState.SuppressDiskPersistence;
+        WaferScoopMode savedScoopMode = config.WaferScoopMode;
+        gameState.SuppressDiskPersistence = true;
+
+        try
+        {
+            // 1. Verify data/cargo_catalog.json 3-Stage Cargo/Bio Progression pools & 5-item Banned List
+            CargoCatalog catalog = CargoCatalog.Load(forceReload: true);
+            if (!File.Exists(CargoCatalog.ResolveCatalogPath()) ||
+                catalog.LegalInertPool.Count != 8 ||
+                catalog.ControlledLegalBioPool.Count != 6 ||
+                catalog.BannedCargoList.Count != 5 ||
+                !catalog.IsBannedCargo("Disruptor Cells", out BannedCargoEntry? disEntry) || disEntry == null || !disEntry.SpsViolet ||
+                !catalog.IsBannedCargo("Unshielded Coils", out BannedCargoEntry? coilEntry) || coilEntry == null || !coilEntry.SpsViolet ||
+                !catalog.IsBannedCargo("Raw Slag Isotope", out BannedCargoEntry? slagEntry) || slagEntry == null || !slagEntry.DenseMass ||
+                !catalog.IsBannedCargo("Ashen Spores", out BannedCargoEntry? sporeEntry) || sporeEntry == null || !sporeEntry.BannedBio ||
+                !catalog.IsBannedCargo("Silt Worms", out BannedCargoEntry? wormEntry) || wormEntry == null || !wormEntry.BannedBio)
+            {
+                throw new InvalidOperationException("CargoCatalog failed to load or validate data/cargo_catalog.json.");
+            }
+
+            // 2. Verify ShipRendererV2 ~90% centered hull footprint & non-overlapping >= 3px hull-interior SPS hardpoints across all 11 factions x classes
+            foreach (ShipFaction faction in ShipRendererV2.AllFactions)
+            {
+                foreach (ShipClass allowedClass in ShipRendererV2.GetAllowedClasses(faction))
+                {
+                    PixelBuffer nativeLive = ShipRendererV2.RenderNative280x120Buffer(new ShipRenderOptions
+                    {
+                        SeedId = $"verify-51-footprint-{faction}-{allowedClass}",
+                        Faction = faction,
+                        RequestedClass = allowedClass,
+                        Mode = ShipRenderMode.Live
+                    }, out ShipHardpointLayoutV2 hp);
+
+                    if (hp.HullBounds.W > 170 || hp.HullBounds.H > 72 ||
+                        hp.HullBounds.X < 50 || hp.HullBounds.Right > 230 ||
+                        hp.HullBounds.Y < 20 || hp.HullBounds.Bottom > 100)
+                    {
+                        throw new InvalidOperationException(
+                            $"ShipRendererV2 hull footprint exceeded ~90% centered bounds for {faction} {allowedClass}: {hp.HullBounds}.");
+                    }
+
+                    bool[] hullMask = nativeLive.CaptureNonNullMask(excludeOutline: true);
+                    HardpointRect[] activeModules = new[]
+                    {
+                        hp.ReactorBounds,
+                        hp.WeaponsBay,
+                        hp.SecondaryWeaponsBay,
+                        hp.BridgeComms,
+                        hp.CargoBay,
+                        hp.UpperWarpPylon,
+                        hp.LowerWarpPylon
+                    }.Where(r => !r.IsEmpty).ToArray();
+
+                    for (int i = 0; i < activeModules.Length; i++)
+                    {
+                        if (!ShipRendererV2.IsRectFullyInsideMask(hullMask, activeModules[i]))
+                        {
+                            throw new InvalidOperationException(
+                                $"SPS subsystem {i} ({activeModules[i]}) bled outside hull mask for {faction} {allowedClass}.");
+                        }
+
+                        for (int j = i + 1; j < activeModules.Length; j++)
+                        {
+                            if (!ShipRendererV2.AreRectsSeparatedByAtLeast(activeModules[i], activeModules[j], ShipRendererV2.MinSpsSubsystemClearancePx))
+                            {
+                                throw new InvalidOperationException(
+                                    $"SPS subsystems {i} ({activeModules[i]}) and {j} ({activeModules[j]}) violated >= 3px clearance for {faction} {allowedClass}.");
+                            }
+                        }
+                    }
+
+                    // Also exercise SPS render with Violet CargoHighDraw, Bio-Green hook, and MilitaryCommsEncryption hook
+                    PixelBuffer sps560 = ShipRendererV2.RenderBuffer(new ShipRenderOptions
+                    {
+                        SeedId = $"verify-51-sps-{faction}-{allowedClass}",
+                        Faction = faction,
+                        RequestedClass = allowedClass,
+                        Mode = ShipRenderMode.Live,
+                        SpsEnabled = true,
+                        WeaponsHot = true,
+                        CargoHighDraw = true,
+                        MilitaryCommsEncryption = true
+                    });
+                    VerifyExact2x2Uniformity(sps560, $"{faction} {allowedClass} 5.1 SPS");
+                }
+            }
+
+            // 3. Verify Day 12+ Type 1 Covert Delivery contracts unlock on DECK 4 & queue 0500 Chute Mission Slate
+            EconomyEngine econ = new();
+            gameState.ResetForNewSave(1);
+            gameState.AdvanceToDay(config.DayUnlockWaferCargo);
+            gameState.TerminalHackedUnlocked = true;
+            var listings = econ.GetDeck4ContractListings(gameState);
+            var firstDelivery = listings.FirstOrDefault(l => l.Mission.IsDeliveryMission);
+            if (firstDelivery == null)
+                throw new InvalidOperationException("Day 12 DECK 4 listings did not expose Type 1 Covert Delivery contracts.");
+            var (accOk, _) = econ.TryAcceptCovertContract(gameState, firstDelivery.Mission.MissionId, config: config);
+            if (!accOk || !gameState.PendingChuteDeliveries.Any(i => i.IsMissionSlate))
+                throw new InvalidOperationException("Accepting Day 12 Covert Delivery contract did not queue 0500 Chute Mission Slate.");
+
+            // 4. Verify F1 DebugOverlay Row 19 controls (WaferScoopMode cycler, Force Empty Hopper, Spawn Test Mission Slate / Chute Drop)
+            screenManager.SwitchTo(ScreenId.Desk);
+            tutorialOverlay.ForceCloseSilent();
+            config.WaferScoopMode = WaferScoopMode.PostVerdictAutoScoop;
+            debugOverlay.IsVisible = true;
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 40, Y = 40 + 544, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            if (config.WaferScoopMode != WaferScoopMode.CenterSwipeScoop)
+                throw new InvalidOperationException($"F1 SCOOP cycler failed: got {config.WaferScoopMode}.");
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 210, Y = 40 + 544, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            if (!devDebug.PendingForceEmptyWaferHopper)
+                throw new InvalidOperationException("F1 EMPTY HOPPER button did not arm PendingForceEmptyWaferHopper.");
+            debugOverlay.IsVisible = false;
+            deskScreen.Update(0.016f, new VirtualMouseState { X = 310, Y = 165, IsInsideViewport = true, Scale = 1.0f });
+            if (deskScreen.WaferHopperCount != 0)
+                throw new InvalidOperationException($"ForceEmptyWaferHopper failed to empty DeskScreen hopper (got {deskScreen.WaferHopperCount}).");
+
+            debugOverlay.IsVisible = true;
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 360, Y = 40 + 544, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            debugOverlay.IsVisible = false;
+            if (!gameState.ServiceChuteItems.Any(i => i.IsMissionSlate) || !gameState.PocketItems.Any(i => i.IsMissionSlate))
+                throw new InvalidOperationException("F1 TEST CHUTE SLATE button failed to spawn test mission slate.");
+
+            // 5. Full DeskScreen Build 5.1 verification (CommsTranscriptStatement, 4th CARGO tab, 3-wafer hopper, one-way conduit, left-fan, missing wafer, scoop modes, SPS Violet)
+            deskScreen.SmokeVerifyBuild51DeskFeatures(canvas, screenManager, config);
+
+            Console.WriteLine("[SMOKE 5.1] PASS: ~90% V2 footprint, non-overlapping SPS X-Ray schematics, clickable CommsTranscriptStatement, 280px 4-tab Manual CARGO, 3-wafer hopper, scoop modes & SPS Violet [!] POWERED CARGO verified.");
+        }
+        finally
+        {
+            quartersScreen.SmokeCloseSubOverlays();
+            debugOverlay.IsVisible = false;
+            pauseMenu.Close();
+            tutorialOverlay.ForceCloseSilent();
+            config.WaferScoopMode = savedScoopMode;
+            screenManager.UnloadAllScreens();
+            AudioHooks.Initialize(headlessMode: true);
+            AudioHooks.ClearEventHistory();
+            gameState.SuppressDiskPersistence = prevSuppress;
+        }
+    }
+
+    private static void RunBuild52VerificationSuite(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        QuartersScreen quartersScreen,
+        CorridorScreen corridorScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        Core.ConfigFlags config,
+        DevDebugState devDebug)
+    {
+        bool prevSuppress = gameState.SuppressDiskPersistence;
+        bool savedEnableStoker = config.EnableStokerDial;
+        float savedSafeCap = config.StokerSafeLoadCap;
+        float savedShock = config.StokerUncalibratedShock;
+        DebugBrownoutForceMode savedBrownoutForce = devDebug.BrownoutForceMode;
+        string? savedSaveDirOverride = GameState.SaveDirectoryOverride;
+        string tempSaveDir = Path.Combine(Path.GetTempPath(), $"SubspaceProtocols_Smoke52_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempSaveDir);
+        gameState.SuppressDiskPersistence = true;
+
+        try
+        {
+            EconomyEngine econ = new();
+            RaidController raid = new();
+            WorldSim worldSim = new();
+            ShipGenerator gen = new(config);
+
+            // 1. Shared ValidationEngine.EvaluateStokerMassCalibration Math:
+            //    15% idle baseline, 16+ valid ships + overflow cap strictly <= 65% (never overloading),
+            //    1 uncalibrated clearance <= 98%, 2 uncalibrated clearances > 100% even on a slow 3-ship shift (~113.85%)
+            {
+                GameState mState = new() { Day = config.DayUnlockStoker, PactScrip = 100, SuppressDiskPersistence = true };
+                float safe = config.StokerIdleBaseline;
+                float shock = 0f;
+                for (int i = 0; i < 24; i++) // 16-ship queue + 8 random overflow valid hulls
+                {
+                    ShipSpec validShip = gen.GenerateShipForSlot(mState, i, forceValidity: DebugSpawnValidityMode.ForceValid);
+                    StokerCalibrationResult r = ValidationEngine.EvaluateStokerMassCalibration(validShip, mState.Day, config, safe, shock);
+                    if (!r.IsCalibrated || r.OverloadsOnClearance || r.PreviewShockDelta > 0.001f)
+                        throw new InvalidOperationException($"Valid ship {i} reported uncalibrated or overloaded Stoker.");
+                    safe = r.NextSafeLoadOnClearance;
+                    shock = r.NextShockOnClearance;
+                }
+                if (safe > config.StokerSafeLoadCap + 0.001f || safe < 64.9f || shock > 0.001f)
+                    throw new InvalidOperationException($"24 valid ships did not converge cleanly to 65% SafeLoad cap (got {safe}%).");
+
+                ShipSpec uncal = gen.GenerateShipForSlot(mState, 0, forceValidity: DebugSpawnValidityMode.ForceValid);
+                uncal.Slate.DeclaredTonnage = 1000;
+                uncal.GroundTruth.ActualMass = 1950;
+                uncal.GroundTruth.CargoManifestAccountedExtraMass = 0;
+
+                StokerCalibrationResult oneSlipAtCap = ValidationEngine.EvaluateStokerMassCalibration(uncal, mState.Day, config, safe, shock);
+                if (oneSlipAtCap.IsCalibrated || oneSlipAtCap.OverloadsOnClearance || oneSlipAtCap.PostClearanceTotalStrain > 98.01f)
+                    throw new InvalidOperationException($"1 uncalibrated slip at 65% cap must stay <= 98% without overloading (got {oneSlipAtCap.PostClearanceTotalStrain}%).");
+
+                // Slow 3-ship shift + 2 uncalibrated slips -> crosses > 100% (~113.85%)
+                float slowSafe = config.StokerIdleBaseline;
+                float slowShock = 0f;
+                ShipSpec calShip = gen.GenerateShipForSlot(mState, 1, forceValidity: DebugSpawnValidityMode.ForceValid);
+                var cStep = ValidationEngine.EvaluateStokerMassCalibration(calShip, mState.Day, config, slowSafe, slowShock);
+                slowSafe = cStep.NextSafeLoadOnClearance;
+                var uStep1 = ValidationEngine.EvaluateStokerMassCalibration(uncal, mState.Day, config, slowSafe, slowShock);
+                slowSafe = uStep1.NextSafeLoadOnClearance;
+                slowShock = uStep1.NextShockOnClearance;
+                var uStep2 = ValidationEngine.EvaluateStokerMassCalibration(uncal, mState.Day, config, slowSafe, slowShock);
+                if (!uStep2.OverloadsOnClearance || uStep2.PostClearanceTotalStrain <= 100.0f)
+                    throw new InvalidOperationException($"2 uncalibrated slips on slow 3-ship shift failed to cross > 100% (got {uStep2.PostClearanceTotalStrain}%).");
+            }
+
+            // 2. Day 15 Overload Settlement (-35 SC fine, PendingStokerBerthSearch, +0 Security Strikes Sabotage Audit, NextDayPowerBrownout persistence & FORUM flag)
+            {
+                gameState.ResetForNewSave(1);
+                gameState.AdvanceToDay(config.DayUnlockStoker);
+                gameState.PactScrip = 200;
+                gameState.SecurityStrikes = 1;
+                gameState.StokerOverloadedToday = true;
+
+                ShiftLedgerSummary summary = econ.SettleShiftClockOut(gameState, config);
+                if (!summary.StokerOverloaded ||
+                    summary.StokerOverloadFine != config.StokerOverloadFine ||
+                    !gameState.PendingStokerBerthSearch ||
+                    !gameState.NextDayPowerBrownout ||
+                    !gameState.LastShiftStokerOverload ||
+                    gameState.SecurityStrikes != 1)
+                {
+                    throw new InvalidOperationException("Stoker overload Clock-Out settlement failed (-35 SC fine, Sabotage Audit flag, +0 Security Strikes, or NextDayPowerBrownout).");
+                }
+
+                // Atomic save/load round-trip preserves NextDayPowerBrownout & LastShiftStokerOverload
+                GameState.SaveDirectoryOverride = tempSaveDir;
+                gameState.ActiveSaveSlot = 1;
+                gameState.SuppressDiskPersistence = false;
+                gameState.SaveToDisk();
+                gameState.SuppressDiskPersistence = true;
+                GameState reloaded = new() { SuppressDiskPersistence = true };
+                if (!reloaded.LoadSlotIntoCurrent(1) || !reloaded.NextDayPowerBrownout || !reloaded.LastShiftStokerOverload)
+                    throw new InvalidOperationException("LoadSlotIntoCurrent did not preserve NextDayPowerBrownout / LastShiftStokerOverload.");
+                GameState.SaveDirectoryOverride = savedSaveDirOverride;
+
+                // Reactive low-power FORUM chatter unlocked
+                ForumDatabase forumDb = ForumDatabase.Load();
+                if (!econ.GetVisibleForumThreads(gameState, forumDb, config)
+                        .Any(t => t.RequiredFlags.Contains("stoker_overload", StringComparer.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException("Stoker overload did not unlock reactive low-power FORUM thread.");
+                }
+
+                // Sleep Kordani Sabotage Audit adds +0 Security Strikes when berth is clean
+                BerthAuditKind pendingKind = raid.CheckPendingSleepAudit(gameState, config);
+                if (pendingKind != BerthAuditKind.StokerSabotageAudit)
+                    throw new InvalidOperationException($"Expected StokerSabotageAudit on Sleep, got {pendingKind}.");
+                BerthAuditResolution auditRes = raid.ResolveBerthAudit(gameState, config, worldSim, pendingKind);
+                if (auditRes.WasCaught || gameState.SecurityStrikes != 1)
+                    throw new InvalidOperationException("Sleep Kordani Stoker Sabotage Audit illegally altered Security Strikes.");
+            }
+
+            // 3. Pocket Upgrade 3 (120 SC on Day 15) & 3-Slate Clock-Out Preservation
+            {
+                gameState.ResetForNewSave(1);
+                gameState.PocketCapacity = 2;
+                gameState.PactScrip = 300;
+                gameState.AdvanceToDay(config.PocketUpgrade3MinDay - 1);
+                if (econ.GetNextPocketUpgradeInfo(gameState, config).CanUpgrade)
+                    throw new InvalidOperationException("Pocket Upgrade 3 unlocked prematurely before Day 15.");
+
+                gameState.AdvanceToDay(config.PocketUpgrade3MinDay);
+                var up3Info = econ.GetNextPocketUpgradeInfo(gameState, config);
+                if (!up3Info.CanUpgrade || up3Info.NextCap != 3 || up3Info.Cost != 120)
+                    throw new InvalidOperationException($"Day 15 Pocket Upgrade 3 info mismatch: {up3Info}.");
+                var (up3Ok, _) = econ.TryPurchasePocketCapacityUpgrade(gameState, config);
+                if (!up3Ok || gameState.PocketCapacity != 3 || gameState.PactScrip != 180)
+                    throw new InvalidOperationException("Purchasing Day 15 Pocket Upgrade 3 (120 SC) failed.");
+
+                gameState.PocketItems.Clear();
+                for (int s = 0; s < 3; s++)
+                {
+                    gameState.PocketItems.Add(new ContrabandPocketItem
+                    {
+                        ItemId = $"p3_slate_{s}",
+                        ItemType = ContrabandPocketItem.TypeBlankDataSlate,
+                        DisplayName = $"BLANK SLATE {s + 1}"
+                    });
+                }
+                gameState.Day15ForemanHailCompleted = true;
+                screenManager.SwitchTo(ScreenId.Desk);
+                // Pull 1 of the 3 slates onto the desk and run Clock-Out recovery -> all 3 must be preserved in PocketItems!
+                deskScreen.Update(0.016f, new VirtualMouseState { X = 40, Y = 680, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                deskScreen.Update(0.016f, new VirtualMouseState { X = 480, Y = 500, IsInsideViewport = true, LeftReleased = true, Scale = 1.0f });
+                deskScreen.TryAutoRecoverLooseContrabandAtClockOut();
+                if (gameState.PocketItems.Count != 3)
+                    throw new InvalidOperationException($"Expected all 3 Contraband Slates preserved at Clock-Out, got {gameState.PocketItems.Count}.");
+            }
+
+            // 4. App Logo (app_icon.jpg) & Day 15 Regeer Nixa Same-Face Portrait + Zero-% Dialogue Check
+            {
+                if (string.IsNullOrWhiteSpace(AssetManager.ResolveAppIconPath()) ||
+                    !AssetManager.TryGetAppLogoTexture(out Texture2D appLogoTex) ||
+                    appLogoTex.Width != 64 || appLogoTex.Height != 64)
+                {
+                    throw new InvalidOperationException("AssetManager failed to load crisp 64x64 app_icon.jpg logo texture.");
+                }
+
+                PixelBuffer foremanA = PortraitRenderer.RenderBrengopLogisticsForemanBuffer();
+                PixelBuffer nixa = PortraitRenderer.RenderRegeerNixaBuffer();
+                if (!ArePixelBuffersIdentical(foremanA, nixa))
+                    throw new InvalidOperationException("Day 15 Brengop hail portrait must match Regeer Nixa's exact face.");
+                Texture2D fTex = foremanA.ToTexture2D();
+                PixelBuffer.UnloadTexture(ref fTex);
+
+                foreach (string line in Day2And3ScriptedDialogue.Day15BrengopForemanHailLines)
+                {
+                    if (line.Contains('%'))
+                        throw new InvalidOperationException($"Day 15 Regeer Nixa hail dialogue leaked raw '%' tooltip number: '{line}'.");
+                }
+            }
+
+            // 5. Corridor Organic Irregular Power-Sag Dips (0.8s-1.8s gaps + 0.15s-0.45s bursts)
+            {
+                gameState.NextDayPowerBrownout = true;
+                screenManager.SwitchTo(ScreenId.Corridor);
+                VirtualMouseState corrMouse = new() { X = 640, Y = 360, IsInsideViewport = true, Scale = 1.0f };
+                bool sawSagBurst = false;
+                for (int step = 0; step < 30 && screenManager.CurrentScreenId == ScreenId.Corridor; step++)
+                {
+                    corridorScreen.Update(0.08f, corrMouse);
+                    if (corridorScreen.LastSampledSagGapSeconds is < 0.799f or > 1.801f)
+                        throw new InvalidOperationException($"Corridor sag gap out of [0.8, 1.8]s range: {corridorScreen.LastSampledSagGapSeconds}.");
+                    if (corridorScreen.IsPowerSagBurstActive)
+                    {
+                        sawSagBurst = true;
+                        if (corridorScreen.LastSampledSagBurstDurationSeconds is < 0.149f or > 0.451f)
+                            throw new InvalidOperationException($"Corridor sag burst out of [0.15, 0.45]s range: {corridorScreen.LastSampledSagBurstDurationSeconds}.");
+                    }
+                    canvas.BeginVirtualDraw();
+                    corridorScreen.DrawVirtual(corrMouse);
+                    canvas.EndVirtualDrawAndBlit();
+                }
+                if (!sawSagBurst)
+                    throw new InvalidOperationException("Corridor organic power-sag state machine never triggered a burst within 2.4s.");
+            }
+
+            // 6. Day 15+ Pause [?] Guide Exact Percentages & F1 Dev Controls (Rows 20-23)
+            {
+                gameState.AdvanceToDay(config.DayUnlockStoker);
+                gameState.Day15ForemanHailCompleted = true;
+                screenManager.SwitchTo(ScreenId.Desk);
+                tutorialOverlay.OpenSummaryForScreen(ScreenId.Desk);
+                string guideText = tutorialOverlay.GetActiveSummaryPlainText();
+                tutorialOverlay.ForceCloseSilent();
+                if (!guideText.Contains("15%", StringComparison.Ordinal) ||
+                    !guideText.Contains("65%", StringComparison.Ordinal) ||
+                    !guideText.Contains("+33%", StringComparison.Ordinal) ||
+                    !guideText.Contains("0 Security Strikes", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Day 15+ Pause [?] summary missing exact Stoker percentages or 0 Security Strikes: '{guideText}'.");
+                }
+
+                debugOverlay.IsVisible = true;
+                // Row 20: CAP+ at (16+210, 40+586) -> 70%, SHK+ at (16+440, 40+586) -> 34%
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 210, Y = 40 + 586, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 440, Y = 40 + 586, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                if (MathF.Abs(config.StokerSafeLoadCap - 70f) > 0.01f || MathF.Abs(config.StokerUncalibratedShock - 34f) > 0.01f)
+                    throw new InvalidOperationException("F1 Row 20 StokerSafeLoadCap / StokerUncalibratedShock steppers failed.");
+                config.StokerSafeLoadCap = 65f;
+                config.StokerUncalibratedShock = 33f;
+
+                // Row 21: FORCE STOKER OVL at (16+300, 40+608) & RESET STRAIN at (16+80, 40+608)
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 300, Y = 40 + 608, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                if (!devDebug.PendingForceStokerOverload || !gameState.StokerOverloadedToday)
+                    throw new InvalidOperationException("F1 Row 21 FORCE STOKER OVL button failed.");
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 80, Y = 40 + 608, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                if (!devDebug.PendingResetStokerStrain || gameState.StokerOverloadedToday)
+                    throw new InvalidOperationException("F1 Row 21 RESET STRAIN button failed.");
+                devDebug.PendingForceStokerOverload = false;
+                devDebug.PendingResetStokerStrain = false;
+
+                // Row 22: BRWN FORCE DIM at (16+280, 40+628)
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 280, Y = 40 + 628, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                if (devDebug.BrownoutForceMode != DebugBrownoutForceMode.ForceDim)
+                    throw new InvalidOperationException($"F1 Row 22 ForceDim button failed (got {devDebug.BrownoutForceMode}).");
+                devDebug.BrownoutForceMode = DebugBrownoutForceMode.Auto;
+
+                // Row 23: STOKER DIAL toggle at (16+80, 40+650) & POCKET + at (16+440, 40+650)
+                gameState.PocketCapacity = 1;
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 80, Y = 40 + 650, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 440, Y = 40 + 650, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+                if (config.EnableStokerDial || gameState.PocketCapacity != 2)
+                    throw new InvalidOperationException("F1 Row 23 EnableStokerDial toggle or POCKET CAP stepper failed.");
+                config.EnableStokerDial = true;
+
+                canvas.BeginVirtualDraw();
+                screenManager.DrawVirtual(new VirtualMouseState { X = 640, Y = 360, IsInsideViewport = true, Scale = 1.0f });
+                debugOverlay.DrawVirtual(new VirtualMouseState { X = 640, Y = 360, IsInsideViewport = true, Scale = 1.0f });
+                canvas.EndVirtualDrawAndBlit();
+                debugOverlay.IsVisible = false;
+            }
+
+            // 7. Full DeskScreen Build 5.2 interactive verification (Premature Wafer Wipe [RE-TRANSMIT], Day 15 Foreman Hail, Stoker LED/Dial/Review, 3-State Brownouts & GPU pixel proof)
+            deskScreen.SmokeVerifyBuild52DeskFeatures(canvas, screenManager, pauseMenu, config, devDebug);
+
+            Console.WriteLine("[SMOKE 5.2] PASS: Premature Wafer Wipe [RE-TRANSMIT], Day 15 Stellar Stoker Dual-Readout & Shared Calibration, Foreman Hail, Overload +0-Strike Audit, 3-State Brownouts, Organic Corridor Sag & Pocket Upgrade 3 verified.");
+        }
+        finally
+        {
+            quartersScreen.SmokeCloseSubOverlays();
+            debugOverlay.IsVisible = false;
+            pauseMenu.Close();
+            tutorialOverlay.ForceCloseSilent();
+            config.EnableStokerDial = savedEnableStoker;
+            config.StokerSafeLoadCap = savedSafeCap;
+            config.StokerUncalibratedShock = savedShock;
+            devDebug.BrownoutForceMode = savedBrownoutForce;
+            GameState.SaveDirectoryOverride = savedSaveDirOverride;
+            screenManager.UnloadAllScreens();
+            AudioHooks.Initialize(headlessMode: true);
+            AudioHooks.ClearEventHistory();
+            gameState.SuppressDiskPersistence = prevSuppress;
+            if (Directory.Exists(tempSaveDir))
+            {
+                try { Directory.Delete(tempSaveDir, recursive: true); } catch { }
+            }
+        }
+    }
+
+    private static void RunBuild521Day6TargetSyncVerificationSuite(
+        VirtualCanvas canvas,
+        ScreenManager screenManager,
+        DeskScreen deskScreen,
+        QuartersScreen quartersScreen,
+        TutorialOverlay tutorialOverlay,
+        PauseMenuOverlay pauseMenu,
+        DebugOverlay debugOverlay,
+        GameState gameState,
+        Core.ConfigFlags config)
+    {
+        bool prevSuppress = gameState.SuppressDiskPersistence;
+        string? savedSaveDirOverride = GameState.SaveDirectoryOverride;
+        string tempSaveDir = Path.Combine(Path.GetTempPath(), $"SubspaceProtocols_Smoke521_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempSaveDir);
+        GameState.SaveDirectoryOverride = tempSaveDir;
+
+        try
+        {
+            gameState.SuppressDiskPersistence = false;
+
+            // 1. Determinism across RunSeeds, slot index in 1..3 (Ship 2..4), save round-trip & legacy save backfill
+            HashSet<int> observedSlots = [];
+            int[] sampleSeeds = [101, 202, 303, 4242, 9999];
+            foreach (int seed in sampleSeeds)
+            {
+                GameState seedStateA = new() { SuppressDiskPersistence = true, RunSeed = seed };
+                GameState seedStateB = new() { SuppressDiskPersistence = true, RunSeed = seed };
+                (string regA, int slotA) = ShipGenerator.EnsureDay6IntroTargetAssigned(seedStateA);
+                (string regB, int slotB) = ShipGenerator.EnsureDay6IntroTargetAssigned(seedStateB);
+
+                if (!regA.StartsWith("MNG-", StringComparison.Ordinal) ||
+                    regA != regB ||
+                    slotA is < 1 or > 3 ||
+                    slotA != slotB)
+                {
+                    throw new InvalidOperationException($"[5.2.1] Determinism or slot range failed for seed {seed}: ({regA}, {slotA}) vs ({regB}, {slotB}).");
+                }
+                observedSlots.Add(slotA);
+            }
+            if (observedSlots.Count < 2)
+                throw new InvalidOperationException("[5.2.1] Expected Day 6 target slot to vary across RunSeeds within 1..3.");
+
+            // Legacy save without Day6IntroTargetReg / Day6IntroTargetSlot deserializes safely and backfills deterministically
+            string legacySlotPath = GameState.GetSlotFilePath(2);
+            File.WriteAllText(legacySlotPath, "{\"activeSaveSlot\":2,\"runSeed\":4242,\"day\":6,\"pactScrip\":80}");
+            GameState legacyState = new() { SuppressDiskPersistence = true };
+            if (!legacyState.LoadSlotIntoCurrent(2) ||
+                !string.IsNullOrEmpty(legacyState.Day6IntroTargetReg) ||
+                legacyState.Day6IntroTargetSlot != -1)
+            {
+                throw new InvalidOperationException("[5.2.1] Legacy save default initialization failed.");
+            }
+            (string legacyReg, int legacySlot) = ShipGenerator.EnsureDay6IntroTargetAssigned(legacyState);
+            if (!legacyReg.StartsWith("MNG-", StringComparison.Ordinal) || legacySlot is < 1 or > 3)
+                throw new InvalidOperationException($"[5.2.1] Legacy save Day 6 backfill failed: ({legacyReg}, {legacySlot}).");
+
+            // 2. Email verbatim wording + exact reg, Morning Roster sync, queue uniqueness & Transponder parity
+            gameState.ResetForNewSave(1);
+            gameState.AdvanceToDay(6);
+            gameState.QuartersPhase = QuartersPhase.Morning;
+            EconomyEngine econ = new();
+            ShipGenerator gen = new(config);
+            econ.EnsureMorningRosterGenerated(gameState, gen, config);
+            bool dropped = econ.EnsureDay6MorningUnsolicitedDrop(gameState);
+            string targetReg = gameState.Day6IntroTargetReg;
+            int targetSlot = gameState.Day6IntroTargetSlot;
+
+            if (!dropped || !targetReg.StartsWith("MNG-", StringComparison.Ordinal) || targetSlot is < 1 or > 3)
+                throw new InvalidOperationException($"[5.2.1] Day 6 assignment failed: dropped={dropped}, reg='{targetReg}', slot={targetSlot}.");
+
+            TerminalEmail chuteEmail = gameState.Emails.FirstOrDefault(e => e.EmailId == EconomyEngine.Day6HackEmailId)
+                ?? throw new InvalidOperationException("[5.2.1] Missing Day 6 Check your chute email.");
+            string expectedLine = $"There is a MNG- rig ({targetReg}) on today\u2019s roster carrying telemetry someone is willing to pay for. Slot in the blank slate into the Bus before protocols hit.";
+            if (!chuteEmail.Body.Contains(expectedLine, StringComparison.Ordinal) ||
+                !chuteEmail.Body.Contains("Check your Chute next to your door.", StringComparison.Ordinal) ||
+                !chuteEmail.Body.Contains("You can transmit the slate tonight via the Cryptography tab", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"[5.2.1] Check your chute email mismatch:\n{chuteEmail.Body}");
+            }
+
+            TerminalEmail rosterEmail = gameState.Emails.FirstOrDefault(e => e.EmailId == "morning_roster_day_06")
+                ?? throw new InvalidOperationException("[5.2.1] Missing Day 6 Morning Ship Roster email.");
+            if (!gameState.TodayMorningRoster.Any(r => r.IsRealArrival && r.RegistrationCode.Equals(targetReg, StringComparison.Ordinal)) ||
+                !rosterEmail.Body.Contains(targetReg, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"[5.2.1] Day 6 Morning Ship Roster missing target rig '{targetReg}'.");
+            }
+
+            List<ShipSpec> day6Queue = gen.GenerateDailyQueue(gameState, Constants.PreGeneratedQueueSize, config: config);
+            ShipSpec injectedShip = day6Queue[targetSlot];
+            if (!injectedShip.Slate.DeclaredPrefix.Equals("MNG-", StringComparison.Ordinal) ||
+                !injectedShip.Slate.RegistrationCode.Equals(targetReg, StringComparison.Ordinal) ||
+                !injectedShip.GroundTruth.RawTransponderId.Equals(targetReg, StringComparison.Ordinal) ||
+                injectedShip.StoryTag != EconomyEngine.Day6IntroMissionId)
+            {
+                throw new InvalidOperationException($"[5.2.1] Day 6 queue slot {targetSlot} mismatch: prefix={injectedShip.Slate.DeclaredPrefix}, reg={injectedShip.Slate.RegistrationCode}, raw={injectedShip.GroundTruth.RawTransponderId}, tag={injectedShip.StoryTag}.");
+            }
+
+            HashSet<string> uniqueQueueRegs = new(StringComparer.OrdinalIgnoreCase);
+            foreach (ShipSpec s in day6Queue)
+            {
+                if (!uniqueQueueRegs.Add(s.Slate.RegistrationCode))
+                    throw new InvalidOperationException($"[5.2.1] Duplicate registration '{s.Slate.RegistrationCode}' found in Day 6 queue.");
+            }
+            if (day6Queue.Count(s => s.Slate.RegistrationCode.Equals(targetReg, StringComparison.OrdinalIgnoreCase)) != 1)
+                throw new InvalidOperationException($"[5.2.1] Target reg '{targetReg}' appeared != 1 time in Day 6 queue.");
+
+            // Save & reload persistence round-trip
+            GameState reloaded = new() { SuppressDiskPersistence = true };
+            if (!reloaded.LoadSlotIntoCurrent(1) ||
+                reloaded.Day6IntroTargetReg != targetReg ||
+                reloaded.Day6IntroTargetSlot != targetSlot)
+            {
+                throw new InvalidOperationException("[5.2.1] Day6IntroTargetReg / Day6IntroTargetSlot save round-trip failed.");
+            }
+
+            // 3. Field Booklet auto-jot gated on TerminalHackedUnlocked + exact Mission Validation
+            if (FieldBookletWidget.GetUnlockedPages(gameState, config).Any(p => p.Tag == "day6_crypto"))
+                throw new InvalidOperationException("[5.2.1] day6_crypto booklet page unlocked prematurely before reading Check your chute.");
+
+            econ.ActivateDay6IntroHackMission(gameState);
+            FieldBookletPage d6NotePage = FieldBookletWidget.GetUnlockedPages(gameState, config)
+                .FirstOrDefault(p => p.Tag == "day6_crypto")
+                ?? throw new InvalidOperationException("[5.2.1] day6_crypto booklet page missing after TerminalHackedUnlocked.");
+            if (!d6NotePage.BodyText.Contains($"TARGET RIG: {targetReg}", StringComparison.Ordinal))
+                throw new InvalidOperationException($"[5.2.1] Field Booklet Day 6 note missing 'TARGET RIG: {targetReg}': '{d6NotePage.BodyText}'.");
+
+            IntelEconomy intel = new();
+            WorldSim worldSim = new();
+            CovertMissionDatabase missionDb = CovertMissionDatabase.Load();
+
+            string wrongMngReg = targetReg.Equals("MNG-999-Z", StringComparison.OrdinalIgnoreCase) ? "MNG-998-Y" : "MNG-999-Z";
+            ContrabandPocketItem wrongMngSlate = new()
+            {
+                ItemId = "smoke_521_wrong_mng",
+                ItemType = ContrabandPocketItem.TypeCopiedDataSlate,
+                DisplayName = $"STOLEN SLATE: {wrongMngReg}",
+                TargetShipPrefix = "MNG-",
+                TargetShipRegistration = wrongMngReg,
+                OriginStarSystem = "Oruun-4"
+            };
+            gameState.PocketItems.Add(wrongMngSlate);
+
+            List<MissionDispatchMatch> wrongMatches = intel.GetActiveInterceptDispatches(gameState, missionDb);
+            if (wrongMatches.Count != 1 || wrongMatches[0].CanTransmit || wrongMatches[0].EffectiveTargetRegistration != targetReg)
+                throw new InvalidOperationException($"[5.2.1] Wrong MNG- rig '{wrongMngReg}' falsely matched Day 6 intro contract.");
+
+            MissionTransmitResult wrongTx = intel.ExecuteMissionInterceptTransmit(gameState, worldSim, EconomyEngine.Day6IntroMissionId, wrongMngSlate, slateIsInVentStash: false, missionDb, config);
+            if (wrongTx.Success)
+                throw new InvalidOperationException($"[5.2.1] Wrong MNG- rig '{wrongMngReg}' falsely transmitted for Day 6 intro contract.");
+
+            ContrabandPocketItem exactMngSlate = new()
+            {
+                ItemId = "smoke_521_exact_mng",
+                ItemType = ContrabandPocketItem.TypeCopiedDataSlate,
+                DisplayName = $"STOLEN SLATE: {targetReg}",
+                TargetShipPrefix = "MNG-",
+                TargetShipRegistration = targetReg,
+                OriginStarSystem = "Oruun-4"
+            };
+            gameState.VentStashItems.Add(exactMngSlate);
+
+            List<MissionDispatchMatch> exactMatches = intel.GetActiveInterceptDispatches(gameState, missionDb);
+            if (exactMatches.Count != 1 || !exactMatches[0].CanTransmit || exactMatches[0].MatchingSlate?.ItemId != exactMngSlate.ItemId)
+                throw new InvalidOperationException($"[5.2.1] Exact MNG- rig '{targetReg}' failed to match Day 6 intro contract.");
+
+            MissionTransmitResult exactTx = intel.ExecuteMissionInterceptTransmit(gameState, worldSim, EconomyEngine.Day6IntroMissionId, exactMngSlate, slateIsInVentStash: true, missionDb, config);
+            if (!exactTx.Success || exactTx.ScripEarned != 45)
+                throw new InvalidOperationException($"[5.2.1] Exact MNG- rig '{targetReg}' transmit failed: {exactTx.Message}");
+
+            // 4. F1 DebugOverlay JumpToDay(6) & LOAD DAY 06 AM (HACK DROP) parity
+            gameState.SuppressDiskPersistence = true;
+            gameState.ResetForNewSave(1);
+            debugOverlay.IsVisible = true;
+            // Row 6: D1 then +5 steps -> D6 -> LOAD DAY 06
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 300, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            for (int s = 0; s < 5; s++)
+            {
+                debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 80, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            }
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 150, Y = 40 + 220, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            tutorialOverlay.ForceCloseSilent();
+            if (gameState.Day != 6 ||
+                !gameState.Day6IntroTargetReg.StartsWith("MNG-", StringComparison.Ordinal) ||
+                gameState.Day6IntroTargetSlot is < 1 or > 3)
+            {
+                throw new InvalidOperationException("[5.2.1] F1 JumpToDay(6) failed Day6IntroTargetReg / Day6IntroTargetSlot sync.");
+            }
+            string jumpReg = gameState.Day6IntroTargetReg;
+            int jumpSlot = gameState.Day6IntroTargetSlot;
+            List<ShipSpec> jumpQueue = gen.GenerateDailyQueue(gameState, Constants.PreGeneratedQueueSize, config: config);
+            if (jumpQueue[jumpSlot].Slate.RegistrationCode != jumpReg)
+                throw new InvalidOperationException("[5.2.1] F1 JumpToDay(6) queue slot mismatch.");
+
+            // Row 13: LOAD DAY 06 AM (HACK DROP)
+            gameState.ResetForNewSave(1);
+            debugOverlay.HandleInput(new VirtualMouseState { X = 16 + 300, Y = 40 + 400, IsInsideViewport = true, LeftPressed = true, Scale = 1.0f });
+            tutorialOverlay.ForceCloseSilent();
+            debugOverlay.IsVisible = false;
+            string hackDropReg = gameState.Day6IntroTargetReg;
+            int hackDropSlot = gameState.Day6IntroTargetSlot;
+            TerminalEmail? hackDropEmail = gameState.Emails.FirstOrDefault(e => e.EmailId == EconomyEngine.Day6HackEmailId);
+            TerminalEmail? hackDropRoster = gameState.Emails.FirstOrDefault(e => e.EmailId == "morning_roster_day_06");
+            List<ShipSpec> hackDropQueue = gen.GenerateDailyQueue(gameState, Constants.PreGeneratedQueueSize, config: config);
+            if (gameState.Day != 6 ||
+                hackDropEmail == null || !hackDropEmail.Body.Contains($"({hackDropReg})", StringComparison.Ordinal) ||
+                hackDropRoster == null || !hackDropRoster.Body.Contains(hackDropReg, StringComparison.Ordinal) ||
+                hackDropQueue[hackDropSlot].Slate.RegistrationCode != hackDropReg)
+            {
+                throw new InvalidOperationException("[5.2.1] F1 LOAD DAY 06 AM (HACK DROP) failed email/roster/queue sync.");
+            }
+
+            // Render Field Booklet with Day 6 note to verify crisp UI text rendering path
+            gameState.TerminalHackedUnlocked = true;
+            quartersScreen.Booklet.IsOpen = true;
+            quartersScreen.Booklet.SelectPageByTag("day6_crypto", gameState, config);
+            canvas.BeginVirtualDraw();
+            screenManager.DrawVirtual(new VirtualMouseState { X = 640, Y = 360, IsInsideViewport = true, Scale = 1.0f });
+            canvas.EndVirtualDrawAndBlit();
+            quartersScreen.Booklet.IsOpen = false;
+
+            Console.WriteLine("[SMOKE 5.2.1] PASS: Deterministic Day 6 MNG- target reg/slot, verbatim email, Morning Roster, queue uniqueness, exact intercept validation, Field Booklet auto-jot & F1 jump parity verified.");
+        }
+        finally
+        {
+            quartersScreen.SmokeCloseSubOverlays();
+            debugOverlay.IsVisible = false;
+            pauseMenu.Close();
+            tutorialOverlay.ForceCloseSilent();
+            GameState.SaveDirectoryOverride = savedSaveDirOverride;
+            screenManager.UnloadAllScreens();
+            AudioHooks.Initialize(headlessMode: true);
+            AudioHooks.ClearEventHistory();
+            gameState.SuppressDiskPersistence = prevSuppress;
+            if (Directory.Exists(tempSaveDir))
+            {
+                try { Directory.Delete(tempSaveDir, recursive: true); } catch { }
+            }
+        }
+    }
+
+    private static bool ArePixelBuffersIdentical(PixelBuffer a, PixelBuffer b)
+    {
+        if (a.Width != b.Width || a.Height != b.Height)
+            return false;
+        for (int y = 0; y < a.Height; y++)
+        {
+            for (int x = 0; x < a.Width; x++)
+            {
+                if (!string.Equals(a.Get(x, y), b.Get(x, y), StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+        }
+        return true;
     }
 }

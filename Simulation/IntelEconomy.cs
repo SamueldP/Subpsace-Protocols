@@ -9,6 +9,11 @@ public sealed class MissionDispatchMatch
     public ContrabandPocketItem? MatchingSlate { get; init; }
     public bool SlateIsInVentStash { get; init; }
     public bool CanTransmit => MatchingSlate != null;
+    public string EffectiveTargetRegistration { get; init; } = string.Empty;
+    public string EffectiveTargetLabel =>
+        !string.IsNullOrWhiteSpace(EffectiveTargetRegistration)
+            ? EffectiveTargetRegistration
+            : Mission.TargetPrefix;
 }
 
 public sealed class MissionTransmitResult
@@ -31,6 +36,30 @@ public sealed class MissionTransmitResult
 /// </summary>
 public sealed class IntelEconomy
 {
+    public static string ResolveEffectiveTargetRegistration(GameState state, CovertMissionSpec spec)
+    {
+        if (spec.MissionId.Equals(EconomyEngine.Day6IntroMissionId, StringComparison.OrdinalIgnoreCase))
+        {
+            (string targetReg, _) = ShipGenerator.EnsureDay6IntroTargetAssigned(state);
+            return targetReg;
+        }
+        return spec.TargetRegistration;
+    }
+
+    public static bool MatchesInterceptSlateForState(GameState state, CovertMissionSpec spec, ContrabandPocketItem? item)
+    {
+        if (item == null || item.IsBurnt || item.ItemType != ContrabandPocketItem.TypeCopiedDataSlate)
+            return false;
+
+        string effectiveTargetReg = ResolveEffectiveTargetRegistration(state, spec);
+        if (!string.IsNullOrWhiteSpace(effectiveTargetReg))
+        {
+            return item.TargetShipRegistration.Equals(effectiveTargetReg, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return spec.MatchesInterceptSlate(item);
+    }
+
     /// <summary>
     /// Lists all active Intercept &amp; Transmit contracts and matches each against any captured
     /// Intercept Data Slate currently held in the Officer's Coat Pocket or Under-Desk Vent Stash.
@@ -52,12 +81,13 @@ public sealed class IntelEconomy
             if (spec == null)
                 continue;
 
+            string effectiveTargetReg = ResolveEffectiveTargetRegistration(state, spec);
             ContrabandPocketItem? matched = null;
             bool inVent = false;
 
             foreach (ContrabandPocketItem p in state.PocketItems)
             {
-                if (spec.MatchesInterceptSlate(p))
+                if (MatchesInterceptSlateForState(state, spec, p))
                 {
                     matched = p;
                     inVent = false;
@@ -69,7 +99,7 @@ public sealed class IntelEconomy
             {
                 foreach (ContrabandPocketItem v in state.VentStashItems)
                 {
-                    if (spec.MatchesInterceptSlate(v))
+                    if (MatchesInterceptSlateForState(state, spec, v))
                     {
                         matched = v;
                         inVent = true;
@@ -82,7 +112,8 @@ public sealed class IntelEconomy
             {
                 Mission = spec,
                 MatchingSlate = matched,
-                SlateIsInVentStash = inVent
+                SlateIsInVentStash = inVent,
+                EffectiveTargetRegistration = effectiveTargetReg
             });
         }
 
@@ -123,7 +154,8 @@ public sealed class IntelEconomy
         string missionId,
         ContrabandPocketItem slate,
         bool slateIsInVentStash,
-        CovertMissionDatabase? db = null)
+        CovertMissionDatabase? db = null,
+        Core.ConfigFlags? config = null)
     {
         if (string.IsNullOrWhiteSpace(missionId))
         {
@@ -149,12 +181,14 @@ public sealed class IntelEconomy
             return new MissionTransmitResult { Success = false, Message = "MISSION CONTRACT RECORD NOT FOUND." };
         }
 
-        if (!spec.MatchesInterceptSlate(slate))
+        if (!MatchesInterceptSlateForState(state, spec, slate))
         {
+            string effectiveTarget = ResolveEffectiveTargetRegistration(state, spec);
+            string targetLabel = !string.IsNullOrWhiteSpace(effectiveTarget) ? effectiveTarget : spec.TargetPrefix;
             return new MissionTransmitResult
             {
                 Success = false,
-                Message = $"SLATE DOES NOT MATCH CONTRACT TARGET ({spec.TargetPrefix})."
+                Message = $"SLATE DOES NOT MATCH CONTRACT TARGET ({targetLabel})."
             };
         }
 
@@ -208,6 +242,7 @@ public sealed class IntelEconomy
             isSuspicious: true);
 
         // Send read receipt to MESSAGES so player has an archival record without spamming Unread LED
+        int scrubCost = Math.Max(0, config?.ScrubSecurityLogsCost ?? Constants.ScrubSecurityLogsCostScrip);
         (int cy, int cm) = Constants.GetStationCycle(state.Day);
         state.AddEmail(new TerminalEmail
         {
@@ -220,7 +255,7 @@ public sealed class IntelEconomy
             Body = $"INTERCEPT PACKET VERIFIED FOR {slate.TargetShipRegistration} ({slate.TargetShipPrefix}).\n\n" +
                    $"CONTRACT: {spec.Title}\n" +
                    $"SETTLEMENT: +{payout} SC CREDITED TO BERTH ACCOUNT.\n\n" +
-                   $"WARNING: TRANSMISSION WROTE [AUDIT_FLAG]. RUN [SCRUB LOGS ({Constants.ScrubSecurityLogsCostScrip} SC)] BEFORE KORDANI CHECKS. [TODO: USER DIALOGUE PASS]",
+                   $"WARNING: TRANSMISSION WROTE [AUDIT_FLAG]. RUN [SCRUB LOGS ({scrubCost} SC)] BEFORE KORDANI CHECKS.",
             IsRead = true
         });
 

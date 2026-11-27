@@ -53,7 +53,7 @@ public sealed class TutorialOverlay
 
     public void TriggerDayStartHook(int day, bool force = false)
     {
-        switch (TutorialFlags.GetHookForDay(day))
+        switch (TutorialFlags.GetHookForDay(day, _config.DayUnlockWarpScanner))
         {
             case TutorialEventHook.OnDay1Start:
                 OnDay1Start(force);
@@ -78,7 +78,7 @@ public sealed class TutorialOverlay
             ? (_gameState.QuartersPhase == QuartersPhase.Morning
                 ? TutorialEventHook.OnFirstMorningQuarters
                 : TutorialEventHook.OnFirstEveningQuarters)
-            : TutorialFlags.GetHookForDay(_gameState.Day);
+            : TutorialFlags.GetHookForDay(_gameState.Day, _config.DayUnlockWarpScanner);
         ActiveHook = hook;
         OpenedFromPauseSummary = true;
         IsOpen = true;
@@ -166,7 +166,7 @@ public sealed class TutorialOverlay
         if (!IsOpen || ActiveHook == TutorialEventHook.None)
             return;
 
-        TutorialCardContent card = BuildContent(ActiveHook, _gameState.TerminalHackedUnlocked, _config);
+        TutorialCardContent card = BuildContent(ActiveHook, _gameState.Day, _gameState.TerminalHackedUnlocked, _config);
 
         // Dim CRT backdrop with subtle scanlines
         Raylib.DrawRectangle(0, 0, Constants.VirtualWidth, Constants.VirtualHeight, new Color(8, 11, 16, 198));
@@ -185,7 +185,7 @@ public sealed class TutorialOverlay
 
         // Header Bar
         Raylib.DrawRectangle(bx + 4, by + 4, CardW - 8, 24, Palette.OxidizedBronzeShadow);
-        Raylib.DrawText(card.HeaderTitle, bx + 14, by + 11, 10, Palette.CrtAmberPrimary);
+        UiText.Draw(card.HeaderTitle, bx + 14, by + 11, 10, Palette.CrtAmberPrimary);
 
         // Top-right [X] close button
         int closeX = bx + CardW - 28;
@@ -193,10 +193,10 @@ public sealed class TutorialOverlay
         bool closeHover = mouse.IsHit(closeX, closeY, 20, 20);
         Raylib.DrawRectangle(closeX, closeY, 20, 20, closeHover ? Palette.AlertCrimson : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(closeX, closeY, 20, 20, closeHover ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText("X", closeX + 7, closeY + 5, 10, closeHover ? Palette.OutlineVoid : Palette.CrtAmberPrimary);
+        UiText.Draw("X", closeX + 7, closeY + 5, 10, closeHover ? Palette.OutlineVoid : Palette.CrtAmberPrimary);
 
         // Subheader Banner
-        Raylib.DrawText(card.SubHeader, bx + 16, by + 36, 10, Palette.ClearanceTeal);
+        UiText.Draw(card.SubHeader, bx + 16, by + 36, 10, Palette.ClearanceTeal);
         Raylib.DrawLine(bx + 12, by + 52, bx + CardW - 12, by + 52, Palette.WeatheredGunmetalEdge);
 
         // Numbered Briefing Sections
@@ -206,13 +206,13 @@ public sealed class TutorialOverlay
         {
             TutorialSection sec = card.Sections[i];
             Raylib.DrawRectangle(bx + 14, curY - 2, CardW - 28, 14, new Color(20, 26, 34, 255));
-            Raylib.DrawText(sec.Heading, bx + 20, curY, 10, sec.HeadingColor);
+            UiText.Draw(sec.Heading, bx + 20, curY, 10, sec.HeadingColor);
             curY += 16;
 
             List<string> wrapped = WrapTextByPixelWidth(sec.Body, 10, textMaxPx);
             foreach (string line in wrapped)
             {
-                Raylib.DrawText(line, bx + 22, curY, 10, new Color(216, 204, 178, 255));
+                UiText.Draw(line, bx + 22, curY, 10, new Color(216, 204, 178, 255));
                 curY += 13;
             }
             curY += 8;
@@ -221,7 +221,7 @@ public sealed class TutorialOverlay
         // Bottom Tip + Acknowledge Button
         int dividerY = by + CardH - 80;
         Raylib.DrawLine(bx + 12, dividerY, bx + CardW - 12, dividerY, Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText(card.FooterTip, bx + 16, dividerY + 6, 10, Palette.CrtAmberDimmed);
+        UiText.Draw(card.FooterTip, bx + 16, dividerY + 6, 10, Palette.CrtAmberDimmed);
 
         int btnW = 280;
         int btnH = 30;
@@ -234,19 +234,48 @@ public sealed class TutorialOverlay
         string btnLabel = OpenedFromPauseSummary
             ? "CLOSE BRIEFING [SPACE / ENTER]"
             : "UNDERSTOOD -- BEGIN WATCH [SPACE]";
-        int bw = Raylib.MeasureText(btnLabel, 10);
-        Raylib.DrawText(btnLabel, btnX + Math.Max(8, (btnW - bw) / 2), btnY + 10, 10,
+        int bw = UiText.MeasureWidth(btnLabel, 10);
+        UiText.Draw(btnLabel, btnX + Math.Max(8, (btnW - bw) / 2), btnY + 10, 10,
             btnHover ? Palette.CrtAmberPrimary : Palette.ClearanceTeal);
 
         const string escNote = "RE-OPEN ANYTIME FROM [ESC] PAUSE MENU -> [?] RULES / CONTROLS";
-        int nw = Raylib.MeasureText(escNote, 10);
-        Raylib.DrawText(escNote, bx + (CardW - nw) / 2, by + CardH - 18, 10, Palette.WeatheredGunmetalEdge);
+        int nw = UiText.MeasureWidth(escNote, 10);
+        UiText.Draw(escNote, bx + (CardW - nw) / 2, by + CardH - 18, 10, Palette.WeatheredGunmetalEdge);
     }
 
-    private static TutorialCardContent BuildContent(TutorialEventHook hook, bool terminalHackedUnlocked, Core.ConfigFlags config)
+    internal string GetActiveSummaryPlainText()
+    {
+        TutorialCardContent card = BuildContent(ActiveHook, _gameState.Day, _gameState.TerminalHackedUnlocked, _config);
+        return string.Join("\n", card.Sections.Select(s => $"{s.Heading}: {s.Body}")) + "\n" + card.FooterTip;
+    }
+
+    private static TutorialCardContent BuildContent(TutorialEventHook hook, int currentDay, bool terminalHackedUnlocked, Core.ConfigFlags config)
     {
         int manualPart1 = config.DayUnlockManualPart1;
         int manualHulls = config.DayUnlockManualHulls;
+        int stokerDay = config.DayUnlockStoker;
+
+        if (hook == TutorialEventHook.OnDay3Start && currentDay >= stokerDay)
+        {
+            return new TutorialCardContent(
+                $"DAY {currentDay:D2} RULES & CONTROLS // STELLAR STOKER & ACTIVE CHECKS [?]",
+                $"STOKER ONLINE: {config.StokerIdleBaseline:0}% IDLE  |  {config.StokerSafeLoadCap:0}% SAFE CAP  |  +{config.StokerUncalibratedShock:0}% UNCALIBRATED SHOCK",
+                [
+                    new TutorialSection(
+                        "1. STELLAR STOKER -- [ANCHOR] MASS & EXACT STRAIN MATH",
+                        $"Shift starts at {config.StokerIdleBaseline:0}% idle SafeLoad. Calibrated clearances approach a {config.StokerSafeLoadCap:0}% safe cap (never overloading). Uncalibrated overweight hulls add +{config.StokerUncalibratedShock:0}% Shock; pair Data Slate MASS vs MEASURED LED in [PROTOCOL REVIEW] and Detain.",
+                        Palette.FromHex("#bdb040")),
+                    new TutorialSection(
+                        "2. STOKER OVERLOAD (> 100%) -- 0 STRIKES + BROWNOUT CASCADE",
+                        $"Crossing 100% strain assesses a -{config.StokerOverloadFine} SC structural fine, triggers a Sleep Sabotage Audit (0 Security Strikes added), and causes next-day 3-state Booth 04 power brownouts.",
+                        Palette.AlertCrimson),
+                    new TutorialSection(
+                        "3. ALL PRIOR STATION PROTOCOLS REMAIN ENFORCED",
+                        "Verify Transponder ID vs REG CODE, SPS Hot Weapons / Violet Cargo, Warp Strip origin, Manual Expiry / Org / Species / Hulls, and Cargo Manifest Cert-Wafers (3-wafer hopper).",
+                        Palette.ClearanceTeal)
+                ],
+                "TIP: Pulling DETAIN drops any live +33% [ANCHOR] preview spike cleanly to 0%.");
+        }
 
         return hook switch
         {
@@ -259,8 +288,8 @@ public sealed class TutorialOverlay
                         "Compare the raw TRANSPONDER ID shown below the Hailing Viewscreen against the REG CODE printed on the Primary Data Slate.",
                         Palette.CrtAmberPrimary),
                     new TutorialSection(
-                        "2. CALLING SHIPS & GRANTING ACCESS (IF IDS MATCH)",
-                        "Click [NEXT HAIL] to bring a vessel into the bay and download its packet onto the Data Slate. If IDs match, drag the Data Slate into the right-side CLEARANCE DOCK, wait for encryption, then drag the cleared slate back up to the SLATE BUS to transmit clearance.",
+                        "2. AUTO-SHIELDS & GRANTING ACCESS (IF IDS MATCH)",
+                        "Click [NEXT HAIL] to dock a vessel. Shielded ships automatically drop shields during hail before telemetry downloads. If IDs match, drag the Data Slate into CLEARANCE DOCK, wait for encryption, then return it to SLATE BUS.",
                         Palette.ClearanceTeal),
                     new TutorialSection(
                         "3. PROTOCOL REVIEW BEFORE DETAINING (IF IDS CONFLICT)",
@@ -270,23 +299,23 @@ public sealed class TutorialOverlay
                 "TIP: 2 free clerical warnings per shift; mistakes beyond 2 deduct 10 SC."),
 
             TutorialEventHook.OnDay2Start => new TutorialCardContent(
-                "DAY 02 RULES & CONTROLS // COMBAT ORDERS & SPS PROBE [PLAYTEST]",
-                "SHIFT TIMER FROZEN  |  NEW HARDWARE: SHIELDS, WEAPONS & SPS SCANNER",
+                "DAY 02-03 RULES & CONTROLS // SPS PROBE & AUTO-WEAPONS [PLAYTEST]",
+                "SHIFT TIMER FROZEN  |  NEW HARDWARE: SPS SCANNER & AUTO-WEAPONS COMPLIANCE",
                 [
                     new TutorialSection(
-                        "1. LOWER SHIELDS & PWR DOWN WPN",
-                        "Ships may now arrive with active shields or armed weapon mounts. Order [LOWER SHIELDS] and [PWR DOWN WPN] in the Comms Strip before granting clearance. Shields must be down to scan inside a hull.",
-                        Palette.CrtAmberPrimary),
-                    new TutorialSection(
-                        "2. SPS PROBE ARM & SWAYING RETICLE",
-                        "Click [SPS PROBE] beside the viewport to extend the sensor arm. Move the swaying reticle across the hull to inspect internal power conduits and log [!] HOT WPN anomalies.",
+                        "1. SPS PROBE ARM & SWAYING RETICLE",
+                        "Click [SPS PROBE] beside the viewport to extend the sensor arm. Shields automatically drop on hail so you can sweep the swaying reticle across internal weapon mounts and power conduits.",
                         Palette.SpsCommsActive),
                     new TutorialSection(
-                        "3. WEAPONS COMPLIANCE BLUFF & CATCHING LIARS",
-                        "Honest armed ships power down cleanly on the 1st [PWR DOWN WPN] command. Deceptive ships claiming WPN: OFFLINE bluff compliance on the 1st command while staying hot in SPS, then refuse on the 2nd -- pair [!] HOT WPN vs WPN: OFFLINE in [PROTOCOL REVIEW] before pulling DETAIN.",
+                        "2. AUTOMATIC WEAPONS COMPLIANCE ON SWEEP",
+                        "Sweeping over hot weapon mounts automatically fires 'Power down weapons.' Honest armed ships reply and visibly cool inside the SPS lens, clearing any concern with zero manual command buttons.",
+                        Palette.ClearanceTeal),
+                    new TutorialSection(
+                        "3. CATCHING SPOOFED HOT WEAPONS LIARS",
+                        "Dishonest ships claiming WPN: OFFLINE stall while mounts stay orange-hot in SPS. Hold over the hot mount for 0.5s to lock [!] HOT WEAPONS onto the SPS LOG, then pair it vs WPN: OFFLINE in [PROTOCOL REVIEW] before detaining.",
                         Palette.AlertCrimson)
                 ],
-                "TIP: Day 01 Transponder ID & Protocol Review checks remain active alongside Day 02 SPS checks."),
+                "TIP: Day 03 is a breather watch before the Day 04 Warp Checker rollout."),
 
             TutorialEventHook.OnFirstMorningQuarters => new TutorialCardContent(
                 "MORNING QUARTERS // PRE-SHIFT PREPARATION [PLAYTEST]",
@@ -325,18 +354,18 @@ public sealed class TutorialOverlay
                         Palette.CrtAmberPrimary),
                     new TutorialSection(
                         "3. BED -> SLEEP & TWO-TIER KORDANI BERTH RAID",
-                        "Click the Bed to sleep into Morning Quarters. At 3/3 Security Strikes (Day 3+), Kordani raids your berth: Coat Frisk confiscates unshielded coat contraband (1 item safe with Lining); clean logs keep the Under-Desk Vent safe, while dirty logs trigger a Deep Sweep!",
+                        $"Click the Bed to sleep into Morning Quarters. At 3/3 Security Strikes (Day {config.DayUnlockWarpScanner}+), Kordani raids your berth: Coat Frisk confiscates unshielded coat contraband (1 item safe with Lining); clean logs keep the Under-Desk Vent safe, while dirty logs trigger a Deep Sweep!",
                         Palette.AlertCrimson)
                 ],
                 "TIP: Hide contraband slates in the Vent Stash and scrub hex logs before sleeping at 3/3 Strikes."),
 
             _ => new TutorialCardContent(
-                "DAY 03 RULES & CONTROLS // STRIKES & GLOWING WARP CHECKER [PLAYTEST]",
+                $"DAY {config.DayUnlockWarpScanner:D2} RULES & CONTROLS // STRIKES & GLOWING WARP CHECKER [PLAYTEST]",
                 "SHIFT TIMER FROZEN  |  WARP SPECTROMETER & SECURITY STRIKES (0/3) ONLINE",
                 [
                     new TutorialSection(
                         "1. KORDANI SECURITY STRIKES (0/3) & PROTOCOL REVIEW",
-                        "Security Strikes activate today (3/3 triggers a Kordani Berth Audit on sleep). Continue confirming every fault via [PROTOCOL REVIEW] before detaining: Transponder ID, SPS Hot Weapons, or Falsified Origin Waveform.",
+                        "Security Strikes activate today (3/3 triggers a Kordani Berth Audit on sleep). Continue confirming every fault via [PROTOCOL REVIEW] before detaining: Transponder ID, [!] HOT WEAPONS, or Falsified Origin Waveform.",
                         Palette.AlertCrimson),
                     new TutorialSection(
                         "2. WARP PRINTER & TRANSLUCENT GLOWING WARP CHECKER",
@@ -344,7 +373,7 @@ public sealed class TutorialOverlay
                         Palette.CrtAmberPrimary),
                     new TutorialSection(
                         $"3. STAGGERED MANUAL ROLLOUT (DAYS {manualPart1:D2} & {manualHulls:D2})",
-                        $"Day 04 is a routine watch; the Kordani Reference Manual Tablet unlocks on Day {manualPart1:D2} (Registration Expiry & Prefix vs. Org/Species), followed by Hull Silhouette & Ship Class enforcement on Day {manualHulls:D2}.",
+                        $"Days 05 & 07 are breather watches around the Day 06 Relay reveal. The Kordani Reference Manual unlocks on Day {manualPart1:D2} (Expiry & Prefix vs Org/Species), followed by Hull Silhouettes & Class on Day {manualHulls:D2}.",
                         Palette.ClearanceTeal)
                 ],
                 "TIP: Unverified detainments issue Brengop Clerical Warnings -- confirm faults first.")
@@ -363,7 +392,7 @@ public sealed class TutorialOverlay
         foreach (string word in words)
         {
             string candidate = current.Length == 0 ? word : $"{current} {word}";
-            if (Raylib.MeasureText(candidate, fontSize) <= maxPixelWidth)
+            if (UiText.MeasureWidth(candidate, fontSize) <= maxPixelWidth)
             {
                 current = candidate;
             }

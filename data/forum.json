@@ -66,7 +66,7 @@
       "id": "d3_coil_repaired_cleared",
       "title": "KDF security alert -- unlogged vector out of VG-3",
       "boardTag": "SECTOR",
-      "minDay": 3,
+      "minDay": 4,
       "maxDay": 5,
       "requiredFlags": ["day2_cleared"],
       "posts": [
@@ -88,7 +88,7 @@
       "id": "d3_coil_repaired_detained",
       "title": "Boarding team found falsified logs in Detain Bay 2",
       "boardTag": "SECTOR",
-      "minDay": 3,
+      "minDay": 4,
       "maxDay": 5,
       "requiredFlags": ["day2_detained"],
       "posts": [

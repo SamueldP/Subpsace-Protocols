@@ -24,12 +24,84 @@ public sealed partial class DeskScreen
         _kordaniHailLines = Day2And3ScriptedDialogue.Day1CommanderVorstHailLines;
 
         AudioHooks.Play("hail_incoming_chime");
+        AudioHooks.BeginEncounterVoice(
+            "Kordani",
+            (int)DeterministicRng.HashSeedFnv1a("day1-vorst-hail"),
+            useRadioSquelch: false);
 
         _commsQueue.Clear();
         _transcriptScrollTopLine = 0;
         _transcriptAutoFollowBottom = true;
 
         AddSystemLogLine($"[INTERNAL HAIL] {Day2And3ScriptedDialogue.Day1VorstOfficerName}", CommsTextTone.AlertCrimson);
+
+        for (int i = 0; i < _kordaniHailLines.Length; i++)
+        {
+            EnqueueTalkingHeadLine(
+                _kordaniHailLines[i],
+                CommsTextTone.AmberPrimary,
+                preDelaySeconds: i == 0 ? 0.25f : 0f,
+                onStart: () => AudioHooks.Play("comms_reply_blip"));
+        }
+    }
+
+    private void StartDay2PreShiftNixaLiveHail()
+    {
+        _preShiftStage = PreShiftStage.Day2NixaLiveHail;
+        _shiftController.IsPreShiftSequenceActive = true;
+        _activeShip = null;
+
+        PixelBuffer.UnloadTexture(ref _cachedPreShiftKordaniPortraitTex);
+        PixelBuffer nixaBuf = PortraitRenderer.RenderRegeerNixaBuffer();
+        _cachedPreShiftKordaniPortraitTex = nixaBuf.ToTexture2D();
+
+        _kordaniHailLines = Day2And3ScriptedDialogue.Day2RegeerNixaHailLines;
+
+        AudioHooks.Play("hail_incoming_chime");
+        AudioHooks.BeginEncounterVoice(
+            "Brengop",
+            (int)DeterministicRng.HashSeedFnv1a("regeer-nixa-hail"),
+            useRadioSquelch: false);
+
+        _commsQueue.Clear();
+        _transcriptScrollTopLine = 0;
+        _transcriptAutoFollowBottom = true;
+
+        AddSystemLogLine($"[INTERNAL HAIL] {Day2And3ScriptedDialogue.RegeerNixaOfficerName}", CommsTextTone.AmberPrimary);
+
+        for (int i = 0; i < _kordaniHailLines.Length; i++)
+        {
+            EnqueueTalkingHeadLine(
+                _kordaniHailLines[i],
+                CommsTextTone.AmberPrimary,
+                preDelaySeconds: i == 0 ? 0.25f : 0f,
+                onStart: () => AudioHooks.Play("comms_reply_blip"));
+        }
+    }
+
+    private void StartDay8PreShiftNixaLiveHail()
+    {
+        _preShiftStage = PreShiftStage.Day8NixaLiveHail;
+        _shiftController.IsPreShiftSequenceActive = true;
+        _activeShip = null;
+
+        PixelBuffer.UnloadTexture(ref _cachedPreShiftKordaniPortraitTex);
+        PixelBuffer nixaBuf = PortraitRenderer.RenderRegeerNixaBuffer();
+        _cachedPreShiftKordaniPortraitTex = nixaBuf.ToTexture2D();
+
+        _kordaniHailLines = Day2And3ScriptedDialogue.Day8RegeerNixaHailLines;
+
+        AudioHooks.Play("hail_incoming_chime");
+        AudioHooks.BeginEncounterVoice(
+            "Brengop",
+            (int)DeterministicRng.HashSeedFnv1a("regeer-nixa-hail"),
+            useRadioSquelch: false);
+
+        _commsQueue.Clear();
+        _transcriptScrollTopLine = 0;
+        _transcriptAutoFollowBottom = true;
+
+        AddSystemLogLine($"[INTERNAL HAIL] {Day2And3ScriptedDialogue.RegeerNixaOfficerName}", CommsTextTone.AmberPrimary);
 
         for (int i = 0; i < _kordaniHailLines.Length; i++)
         {
@@ -51,34 +123,71 @@ public sealed partial class DeskScreen
         PixelBuffer officerBuf = PortraitRenderer.RenderKordaniSecurityOfficerBuffer();
         _cachedPreShiftKordaniPortraitTex = officerBuf.ToTexture2D();
 
-        _kordaniHailLines = Day2And3ScriptedDialogue.BuildDay3KordaniHailLines(
-            _gameState.Day2SuspectDetained,
+        _kordaniHailLines = Day2And3ScriptedDialogue.BuildDay4KordaniHailLines(
+            _gameState.GhostRouteSuspectDetained,
             _gameState.Day2SuspectRegistration,
             _gameState.Day2SuspectDeclaredOrigin);
 
         AudioHooks.Play("hail_incoming_chime");
+        AudioHooks.BeginEncounterVoice(
+            "Kordani",
+            (int)DeterministicRng.HashSeedFnv1a("day1-vorst-hail"),
+            useRadioSquelch: false);
 
         _commsQueue.Clear();
         _transcriptScrollTopLine = 0;
         _transcriptAutoFollowBottom = true;
 
-        // Wire Day 3 Morning Shift Directive (Variants A & B based on Day2SuspectDetained, referencing Glowing Warp Checker)
-        // immediately prior to the mandatory Day 3 Live Kordani Viewscreen Hail while timer remains paused at t = 0
-        string[] day3DirectiveLines = Day2And3ScriptedDialogue.BuildDay3ShiftDirectiveLines(
-            _gameState.Day2SuspectDetained,
+        // Wire Day 4 Morning Shift Directive (Variants A & B based on GhostRouteSuspectDetained)
+        // immediately prior to the mandatory Day 4 Live Commander Vorst Hail while timer remains paused at t = 0
+        string[] day4DirectiveLines = Day2And3ScriptedDialogue.BuildDay4ShiftDirectiveLines(
+            _gameState.GhostRouteSuspectDetained,
             _gameState.Day2SuspectRegistration,
             _gameState.Day2SuspectDeclaredOrigin);
-        for (int i = 0; i < day3DirectiveLines.Length; i++)
+        for (int i = 0; i < day4DirectiveLines.Length; i++)
         {
-            AddSystemLogLine(day3DirectiveLines[i], i == 0 ? CommsTextTone.AmberPrimary : CommsTextTone.AmberDimmed);
+            AddSystemLogLine(day4DirectiveLines[i], i == 0 ? CommsTextTone.AmberPrimary : CommsTextTone.AmberDimmed);
         }
         AddSystemLogLine($"[INTERNAL HAIL] {Day2And3ScriptedDialogue.Day3KordaniOfficerName}", CommsTextTone.AlertCrimson);
 
         for (int i = 0; i < _kordaniHailLines.Length; i++)
         {
-            string lineText = $"CMDR: \"{_kordaniHailLines[i]}\"";
             EnqueueTalkingHeadLine(
-                lineText,
+                _kordaniHailLines[i],
+                CommsTextTone.AmberPrimary,
+                preDelaySeconds: i == 0 ? 0.25f : 0f,
+                onStart: () => AudioHooks.Play("comms_reply_blip"));
+        }
+    }
+
+    private void StartDay15PreShiftForemanLiveHail()
+    {
+        _preShiftStage = PreShiftStage.Day15ForemanLiveHail;
+        _shiftController.IsPreShiftSequenceActive = true;
+        _activeShip = null;
+
+        PixelBuffer.UnloadTexture(ref _cachedPreShiftKordaniPortraitTex);
+        PixelBuffer nixaBuf = PortraitRenderer.RenderRegeerNixaBuffer();
+        _cachedPreShiftKordaniPortraitTex = nixaBuf.ToTexture2D();
+
+        _kordaniHailLines = Day2And3ScriptedDialogue.Day15BrengopForemanHailLines;
+
+        AudioHooks.Play("hail_incoming_chime");
+        AudioHooks.BeginEncounterVoice(
+            "Brengop",
+            (int)DeterministicRng.HashSeedFnv1a("regeer-nixa-hail"),
+            useRadioSquelch: false);
+
+        _commsQueue.Clear();
+        _transcriptScrollTopLine = 0;
+        _transcriptAutoFollowBottom = true;
+
+        AddSystemLogLine($"[INTERNAL HAIL] {Day2And3ScriptedDialogue.RegeerNixaOfficerName}", CommsTextTone.AmberPrimary);
+
+        for (int i = 0; i < _kordaniHailLines.Length; i++)
+        {
+            EnqueueTalkingHeadLine(
+                _kordaniHailLines[i],
                 CommsTextTone.AmberPrimary,
                 preDelaySeconds: i == 0 ? 0.25f : 0f,
                 onStart: () => AudioHooks.Play("comms_reply_blip"));
@@ -151,6 +260,7 @@ public sealed partial class DeskScreen
 
     private void ClosePreShiftLiveHail()
     {
+        AudioHooks.StopActiveCommsVoices();
         PixelBuffer.UnloadTexture(ref _cachedPreShiftKordaniPortraitTex);
 
         PreShiftStage completedStage = _preShiftStage;
@@ -177,16 +287,71 @@ public sealed partial class DeskScreen
             }
             AddSystemLogLine("PRESS [NEXT HAIL] TO BEGIN DAY 01 WATCH.", CommsTextTone.AmberDimmed);
         }
+        else if (completedStage == PreShiftStage.Day2NixaLiveHail)
+        {
+            _gameState.Day2NixaHailCompleted = true;
+            _gameState.SaveToDisk();
+
+            AddSystemLogLine("[SYS] CONSORTIUM HAIL CLOSED -- SPS PROBE ONLINE.", CommsTextTone.ClearanceTeal);
+            string[] day2Directive = Day2And3ScriptedDialogue.BuildDailyShiftDirectiveLines(
+                _gameState.Day,
+                _gameState.Day2SuspectDetained,
+                _gameState.Day2SuspectRegistration,
+                _gameState.Day2SuspectDeclaredOrigin,
+                _config);
+            for (int d = 0; d < day2Directive.Length; d++)
+            {
+                AddSystemLogLine(day2Directive[d], d == 0 ? CommsTextTone.AmberPrimary : CommsTextTone.AmberDimmed);
+            }
+            AddSystemLogLine("PRESS [NEXT HAIL] TO BEGIN DAY 02 WATCH.", CommsTextTone.AmberDimmed);
+        }
+        else if (completedStage == PreShiftStage.Day8NixaLiveHail)
+        {
+            _gameState.Day8NixaHailCompleted = true;
+            _gameState.SaveToDisk();
+
+            AddSystemLogLine("[SYS] CONSORTIUM HAIL CLOSED -- BRENGOP REFERENCE MANUAL ISSUED.", CommsTextTone.ClearanceTeal);
+            string[] day8Directive = Day2And3ScriptedDialogue.BuildDailyShiftDirectiveLines(
+                _gameState.Day,
+                _gameState.Day2SuspectDetained,
+                _gameState.Day2SuspectRegistration,
+                _gameState.Day2SuspectDeclaredOrigin,
+                _config);
+            for (int d = 0; d < day8Directive.Length; d++)
+            {
+                AddSystemLogLine(day8Directive[d], d == 0 ? CommsTextTone.AmberPrimary : CommsTextTone.AmberDimmed);
+            }
+            AddSystemLogLine($"PRESS [NEXT HAIL] TO BEGIN DAY {_gameState.Day:D2} WATCH.", CommsTextTone.AmberDimmed);
+        }
+        else if (completedStage == PreShiftStage.Day15ForemanLiveHail)
+        {
+            _gameState.Day15ForemanHailCompleted = true;
+            _gameState.SaveToDisk();
+
+            AddSystemLogLine("[SYS] CONSORTIUM HAIL CLOSED -- STELLAR STOKER MASS DIAL ONLINE.", CommsTextTone.ClearanceTeal);
+            string[] day15Directive = Day2And3ScriptedDialogue.BuildDailyShiftDirectiveLines(
+                _gameState.Day,
+                _gameState.Day2SuspectDetained,
+                _gameState.Day2SuspectRegistration,
+                _gameState.Day2SuspectDeclaredOrigin,
+                _config);
+            for (int d = 0; d < day15Directive.Length; d++)
+            {
+                AddSystemLogLine(day15Directive[d], d == 0 ? CommsTextTone.AmberPrimary : CommsTextTone.AmberDimmed);
+            }
+            AddSystemLogLine($"PRESS [NEXT HAIL] TO BEGIN DAY {_gameState.Day:D2} WATCH.", CommsTextTone.AmberDimmed);
+        }
         else
         {
-            _gameState.Day3PreShiftHailCompleted = true;
+            _gameState.Day4PreShiftHailCompleted = true;
+            _gameState.SecurityStrikesActive = true;
             _gameState.SaveToDisk();
 
             AddSystemLogLine("[SYS] INTERNAL HAIL CLOSED -- WARP SPECTROMETER & SECURITY STRIKES ONLINE.", CommsTextTone.ClearanceTeal);
-            AddSystemLogLine("PRESS [NEXT HAIL] TO BEGIN DAY 03 WATCH.", CommsTextTone.AmberDimmed);
+            AddSystemLogLine($"PRESS [NEXT HAIL] TO BEGIN DAY {_gameState.Day:D2} WATCH.", CommsTextTone.AmberDimmed);
         }
 
-        _onTriggerDayStartTutorial?.Invoke(_gameState.Day);
+        TryAutoUnfoldBookletForCurrentDay();
     }
 
     // =========================================================================
@@ -202,13 +367,16 @@ public sealed partial class DeskScreen
             return;
 
         _activeShip.ProtocolReviewVerified = true;
+        _activeShip.FlaggedInfractions.Add(violationType);
         _verifiedViolationSummary = summary;
         _protocolReviewModeActive = false;
         _reviewFirstSelection = ReviewTarget.None;
         _reviewStatusNote = "PROTOCOL VIOLATED";
+        _duplicateFaultNoteTimer = 0f;
         _noFaultTraceTimer = 0f;
         _noFaultTargetA = ReviewTarget.None;
         _noFaultTargetB = ReviewTarget.None;
+        _faultTraceTimer = FaultTraceDurationSeconds;
 
         BuildConfrontationLines(violationType, out string officerPrompt, out string captainExcuse);
 
@@ -325,6 +493,39 @@ public sealed partial class DeskScreen
                 captainExcuse = _activeShip.ConfrontationGuiltyExcuseOrigin;
                 break;
 
+            case ShipInfractionType.SpokenRouteDiscrepancy:
+                officerPrompt = $"You stated departure from {_activeShip.GroundTruth.SpokenOriginSystem} on comms, contradicting your filed origin {_activeShip.Slate.OriginSystem}.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseSpokenRoute;
+                break;
+
+            case ShipInfractionType.SpokenCargoDiscrepancy:
+                officerPrompt = $"You declared {_activeShip.GroundTruth.SpokenCargoItem} on comms, contradicting your Cargo Manifest ({_activeShip.GroundTruth.WaferCargoManifestItem}).";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseSpokenCargo;
+                break;
+
+            case ShipInfractionType.BannedCargoItem:
+                officerPrompt = $"Your Cargo Manifest lists {_activeShip.GroundTruth.WaferCargoManifestItem}, which is permanently banned at Void Gate 3.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseBannedCargo;
+                break;
+
+            case ShipInfractionType.CargoManifestDiscrepancy:
+                officerPrompt = $"Your Cargo Manifest cert-wafer lists {_activeShip.GroundTruth.WaferCargoManifestItem}, contradicting your Data Slate ({_activeShip.Slate.CargoManifest}).";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseManifestMismatch;
+                break;
+
+            case ShipInfractionType.WithheldIllicitCargoManifest:
+                officerPrompt = "Your subspace bundle omitted the mandatory Cargo Manifest cert-wafer. Produce it or prepare for detention.";
+                captainExcuse = _activeShip.ConfrontationGuiltyExcuseWithheldManifest;
+                break;
+
+            case ShipInfractionType.StokerMassMismatch:
+                // TODO: USER DIALOGUE PASS
+                officerPrompt = $"Stellar Stoker anchor reads {_activeShip.GroundTruth.ActualMass:N0} T, exceeding your declared {_activeShip.Slate.DeclaredTonnage:N0} T.";
+                captainExcuse = string.IsNullOrWhiteSpace(_activeShip.ConfrontationGuiltyExcuseMassMismatch)
+                    ? "Ballast trim must have run heavy. That scale's off!" // TODO: USER DIALOGUE PASS
+                    : _activeShip.ConfrontationGuiltyExcuseMassMismatch;
+                break;
+
             default:
                 officerPrompt = "Protocol discrepancy verified on your vessel.";
                 captainExcuse = _activeShip.RefusalLine;
@@ -353,6 +554,15 @@ public sealed partial class DeskScreen
             ReviewTarget.ViewportShipHull => IsManualHullsEnforced || _captainRefusedCompliance,
             ReviewTarget.DataSlateCargo => IsCargoPowerUnlocked,
             ReviewTarget.SpsMiniScreenCargoPower => IsCargoPowerUnlocked,
+            ReviewTarget.ReferenceManualPrefixEntry => IsManualUnlocked,
+            ReviewTarget.ReferenceManualSpeciesEntry => IsManualUnlocked,
+            ReviewTarget.ReferenceManualHullEntry => IsManualHullsEnforced,
+            ReviewTarget.CommsTranscriptStatement => IsSpectrometerOperational || IsCargoPowerUnlocked,
+            ReviewTarget.CargoManifestWafer => IsWaferWriterOperational,
+            ReviewTarget.ReferenceManualCargoBannedEntry => IsCargoManualTabUnlocked,
+            ReviewTarget.WaferWriterModule => IsWaferWriterOperational,
+            ReviewTarget.DataSlateMass => IsStokerOperational,
+            ReviewTarget.StokerMeasuredMassLed => IsStokerOperational && _stokerMassAnchoredForShip,
             _ => false
         };
 
@@ -361,16 +571,34 @@ public sealed partial class DeskScreen
         if (_faultStage != FaultSequenceStage.None)
             return false;
 
+        // Allow clicking [ANCHOR] on the Stellar Stoker even while Protocol Review mode is active
+        if (IsStokerOperational && mouse.IsHit(StokerAnchorBtnX, StokerAnchorBtnY, StokerAnchorBtnW, StokerAnchorBtnH))
+        {
+            TryAnchorStokerMassForActiveShip();
+            return true;
+        }
+
         ReviewTarget hitTarget = DetectProtocolReviewTargetAtMouse(mouse);
         if (hitTarget == ReviewTarget.None || _activeShip == null)
             return false;
+
+        if (hitTarget == ReviewTarget.ReferenceManualPrefixEntry &&
+            _deskItems.TryGetValue(DeskItemId.ReferenceManual, out DraggableDeskItem? manualItem))
+        {
+            int rowStartY = manualItem.Y + 39;
+            int clickedIdx = (mouse.Y - rowStartY) / 12;
+            if (clickedIdx >= 0 && clickedIdx < ManualPrefixDirectory.Length)
+            {
+                SyncManualSelectionToDirectoryIndex(clickedIdx);
+            }
+        }
 
         AudioHooks.Play("terminal_key_click");
 
         // Standalone violation: Day 14+ compliance refusal
         if (hitTarget == ReviewTarget.ViewportShipHull && _captainRefusedCompliance)
         {
-            BeginProtocolFaultSequence(
+            TryTriggerOrReportDuplicateFault(
                 ShipInfractionType.RefusedShieldsOrWeaponsCompliance,
                 "OUTRIGHT REFUSAL TO LOWER SHIELDS / POWER DOWN WEAPONS",
                 ReviewTarget.ViewportShipHull,
@@ -414,6 +642,43 @@ public sealed partial class DeskScreen
             return ReviewTarget.VisualSignalTransponderId;
         }
 
+        // Clickable Captain Auto-Interrogation Statement inside CRT Comms Log (scroll-aware hitbox)
+        if (IsReviewTargetUnlocked(ReviewTarget.CommsTranscriptStatement) &&
+            TryGetVisibleTranscriptStatementRect(out Rectangle stmtRect) &&
+            mouse.IsHit(stmtRect))
+        {
+            return ReviewTarget.CommsTranscriptStatement;
+        }
+
+        // Day 12+ Printed Cargo Manifest Cert-Wafers on desk (topmost first)
+        if (IsReviewTargetUnlocked(ReviewTarget.CargoManifestWafer) && _deskWafers.Count > 0)
+        {
+            for (int wIdx = _deskWafers.Count - 1; wIdx >= 0; wIdx--)
+            {
+                CertWaferCard wCard = _deskWafers[wIdx];
+                if (mouse.IsHit(wCard.X, wCard.Y, WaferCardW, WaferCardH))
+                {
+                    if (string.Equals(wCard.ShipRegistration, _activeShip.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase))
+                        return ReviewTarget.CargoManifestWafer;
+                    break;
+                }
+            }
+        }
+
+        // Day 15+ Stellar Stoker 2-line Digital LED readout (once [ANCHOR] has measured physical mass)
+        if (IsReviewTargetUnlocked(ReviewTarget.StokerMeasuredMassLed) &&
+            mouse.IsHit(StokerLedX, StokerLedY, StokerLedW, StokerLedH))
+        {
+            return ReviewTarget.StokerMeasuredMassLed;
+        }
+
+        // Day 12+ Wafer Writer module (for flagging omitted / withheld Cargo Manifest packet)
+        if (IsReviewTargetUnlocked(ReviewTarget.WaferWriterModule) &&
+            mouse.IsHit(_layout.WaferWriter.X, _layout.WaferWriter.Y, _layout.WaferWriter.W, _layout.WaferWriter.H))
+        {
+            return ReviewTarget.WaferWriterModule;
+        }
+
         // Day 2+ SPS Anomaly Mini-Screen: strictly selectable evidence source inside Protocol Review mode
         if (IsSpsUnlocked && _spsLoggedAnomalies.Count > 0)
         {
@@ -440,7 +705,7 @@ public sealed partial class DeskScreen
 
         if (IsReviewTargetUnlocked(ReviewTarget.SpsLensConduit) && _spsEnabled && mouse.IsHit(_lastSpsLensRect))
         {
-            Rectangle shipRect = new(ShipAnchorX + _shipSlideOffset, ShipAnchorY, ShipRenderW, ShipRenderH);
+            Rectangle shipRect = GetActiveShipHullScreenRect();
             bool lensOverlapsShip =
                 _lastSpsLensRect.X < shipRect.X + shipRect.Width &&
                 _lastSpsLensRect.X + _lastSpsLensRect.Width > shipRect.X &&
@@ -498,7 +763,7 @@ public sealed partial class DeskScreen
                     return ReviewTarget.None;
                 }
 
-                if (_gameState.Day == 2)
+                if (_gameState.Day < _config.DayUnlockWarpScanner)
                 {
                     if (mouse.IsHit(item.X + 73, item.Y + 21, rightHotW, 26))
                         return ReviewTarget.DataSlatePrefix;
@@ -518,6 +783,9 @@ public sealed partial class DeskScreen
                 if (mouse.IsHit(item.X + 73, item.Y + 58, rightHotW, 13))
                     return IsReviewTargetUnlocked(ReviewTarget.DataSlateWeapons) ? ReviewTarget.DataSlateWeapons : ReviewTarget.None;
 
+                if (mouse.IsHit(item.X + 73, item.Y + 72, rightHotW, 13))
+                    return IsReviewTargetUnlocked(ReviewTarget.DataSlateMass) ? ReviewTarget.DataSlateMass : ReviewTarget.None;
+
                 int rowW = item.Width - 8;
                 if (mouse.IsHit(item.X + 4, item.Y + 103, rowW, 12))
                     return IsReviewTargetUnlocked(ReviewTarget.DataSlateOrg) ? ReviewTarget.DataSlateOrg : ReviewTarget.None;
@@ -534,8 +802,40 @@ public sealed partial class DeskScreen
                 if (mouse.IsHit(item.X + 4, item.Y + 175, rowW, 24))
                     return IsReviewTargetUnlocked(ReviewTarget.DataSlateCargo) ? ReviewTarget.DataSlateCargo : ReviewTarget.None;
             }
-            else if (id == DeskItemId.ReferenceManual)
+            else if (id == DeskItemId.ReferenceManual && IsManualUnlocked)
             {
+                int mx = item.X;
+                int my = item.Y;
+                int maxTab = IsCargoManualTabUnlocked ? 3 : (IsManualHullsEnforced ? 2 : 1);
+                int activeTab = Math.Clamp(_manualActiveTab, 0, maxTab);
+
+                // Leave tab header bar and faction/class cycling buttons free for navigation
+                if (mouse.IsHit(mx, my, item.Width, 38))
+                    return ReviewTarget.None;
+
+                if (activeTab == 0)
+                {
+                    int rowsH = ManualPrefixDirectory.Length * 12;
+                    if (mouse.IsHit(mx + 6, my + 39, item.Width - 12, rowsH))
+                        return ReviewTarget.ReferenceManualPrefixEntry;
+                }
+                else if (activeTab == 1)
+                {
+                    if (mouse.IsHit(mx + 6, my + 60, item.Width - 12, item.Height - 66))
+                        return ReviewTarget.ReferenceManualSpeciesEntry;
+                }
+                else if (activeTab == 2 && IsManualHullsEnforced)
+                {
+                    if (mouse.IsHit(mx + 6, my + 60, item.Width - 12, 88))
+                        return ReviewTarget.ReferenceManualHullEntry;
+                }
+                else if (activeTab == 3 && IsCargoManualTabUnlocked)
+                {
+                    int bannedRowsH = CargoCatalog.Load().BannedCargoList.Count * 20;
+                    if (mouse.IsHit(mx + 6, my + 54, item.Width - 12, bannedRowsH))
+                        return ReviewTarget.ReferenceManualCargoBannedEntry;
+                }
+
                 return ReviewTarget.None;
             }
 
@@ -545,13 +845,98 @@ public sealed partial class DeskScreen
         return ReviewTarget.None;
     }
 
+    private void TryTriggerOrReportDuplicateFault(
+        ShipInfractionType violationType,
+        string summary,
+        ReviewTarget highlightA,
+        ReviewTarget highlightB)
+    {
+        if (_activeShip == null)
+            return;
+
+        if (_activeShip.FlaggedInfractions.Contains(violationType))
+        {
+            _protocolReviewModeActive = false;
+            _reviewFirstSelection = ReviewTarget.None;
+            _duplicateFaultNoteTimer = DuplicateFaultNoteDurationSeconds;
+            _reviewStatusNote = "MISMATCH ALREADY FOUND";
+            AddSystemLogLine("[SYS] PROTOCOL REVIEW: MISMATCH ALREADY FOUND.", CommsTextTone.AmberPrimary);
+            AudioHooks.Play("terminal_key_click");
+            return;
+        }
+
+        BeginProtocolFaultSequence(violationType, summary, highlightA, highlightB);
+    }
+
     private void EvaluateProtocolReviewPair(ReviewTarget a, ReviewTarget b)
     {
         if (_activeShip == null)
             return;
 
         bool IsPair(ReviewTarget x, ReviewTarget y) => (a == x && b == y) || (a == y && b == x);
+        static bool IsManualRegistryTarget(ReviewTarget t) =>
+            t is ReviewTarget.ReferenceManualPrefixEntry or ReviewTarget.ReferenceManualSpeciesEntry;
+
         ShipGroundTruth truth = _activeShip.GroundTruth;
+
+        // 0a. Day 15+ Stellar Stoker MEASURED LED vs. Data Slate MASS (or Cargo Manifest Wafer / Data Slate Cargo)
+        if (IsPair(ReviewTarget.StokerMeasuredMassLed, ReviewTarget.DataSlateMass) ||
+            IsPair(ReviewTarget.StokerMeasuredMassLed, ReviewTarget.CargoManifestWafer) ||
+            IsPair(ReviewTarget.StokerMeasuredMassLed, ReviewTarget.DataSlateCargo))
+        {
+            if (IsStokerOperational && _stokerMassAnchoredForShip)
+            {
+                if (IsWaferWriterOperational &&
+                    truth.ExpectsCargoManifestWafer &&
+                    truth.CargoManifestInitiallyOmitted &&
+                    !truth.CargoManifestTransmitted &&
+                    !truth.OmittedManifestIsDishonest)
+                {
+                    // Honest captain omitted a legal Cargo Manifest accounting for extra freight mass -> transmits wafer!
+                    _protocolReviewModeActive = false;
+                    _reviewFirstSelection = ReviewTarget.None;
+                    _noFaultTraceTimer = NoFaultTraceDurationSeconds;
+                    _noFaultTargetA = a;
+                    _noFaultTargetB = b;
+                    _reviewStatusNote = "REQUESTING MANIFEST...";
+                    _isTransmittingMissingWafer = true;
+                    _missingWaferTransmitElapsed = 0f;
+                    AudioHooks.Play("terminal_key_confirm");
+                    EnqueueOfficerLine("Your hull mass exceeds your Data Slate. Transmit your Cargo Manifest cert-wafer.", CommsTextTone.ClearanceTeal);
+                    EnqueueCaptainLine(
+                        $"CAPT: \"{_activeShip.HonestOmittedManifestReplyLine}\"",
+                        CommsTextTone.AmberPrimary,
+                        preDelaySeconds: 0.18f,
+                        showReceivingIndicatorDuringPreDelay: true,
+                        suppressAutoReceivingLag: true);
+                    return;
+                }
+
+                StokerCalibrationResult cal = ValidationEngine.EvaluateStokerMassCalibration(
+                    _activeShip,
+                    _gameState.Day,
+                    _config,
+                    _stokerSafeLoad,
+                    _stokerShock);
+
+                if (!cal.IsCalibrated || truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.StokerMassMismatch))
+                {
+                    TryTriggerOrReportDuplicateFault(
+                        ShipInfractionType.StokerMassMismatch,
+                        $"MEASURED {truth.ActualMass:N0} T vs DECLARED {_activeShip.Slate.DeclaredTonnage:N0} T",
+                        a, b);
+                }
+                else
+                {
+                    LogNoDiscrepancyDetected(a, b);
+                }
+            }
+            else
+            {
+                LogNoDiscrepancyDetected(a, b);
+            }
+            return;
+        }
 
         // 0. Data Slate REG CODE vs. Raw Transponder ID
         if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.VisualSignalTransponderId))
@@ -559,7 +944,7 @@ public sealed partial class DeskScreen
             if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.TransponderIdMismatch) ||
                 !string.Equals(truth.RawTransponderId, _activeShip.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase))
             {
-                BeginProtocolFaultSequence(
+                TryTriggerOrReportDuplicateFault(
                     ShipInfractionType.TransponderIdMismatch,
                     $"RAW ID '{truth.RawTransponderId}' vs SLATE '{_activeShip.Slate.RegistrationCode}'",
                     a, b);
@@ -577,7 +962,7 @@ public sealed partial class DeskScreen
             if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.ExpiredRegistration))
             {
                 (int curY, int curM) = Constants.GetStationCycle(_gameState.Day);
-                BeginProtocolFaultSequence(
+                TryTriggerOrReportDuplicateFault(
                     ShipInfractionType.ExpiredRegistration,
                     $"EXPIRED REG ({_activeShip.Slate.RegistrationExpiryDisplay} < CYC {Constants.FormatStationCycle(curY, curM)})",
                     a, b);
@@ -589,12 +974,56 @@ public sealed partial class DeskScreen
             return;
         }
 
-        // 2. Data Slate Prefix vs. Data Slate ORG
-        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.DataSlateOrg))
+        // 2. Data Slate Prefix/ORG/Species vs. Brengop Reference Manual Registrar Entries (or direct Slate Prefix vs Org)
+        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.DataSlateOrg) ||
+            ((a is ReviewTarget.DataSlatePrefix or ReviewTarget.DataSlateOrg) && IsManualRegistryTarget(b)) ||
+            ((b is ReviewTarget.DataSlatePrefix or ReviewTarget.DataSlateOrg) && IsManualRegistryTarget(a)))
         {
             if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixOrganizationMismatch))
             {
-                BeginProtocolFaultSequence(
+                TryTriggerOrReportDuplicateFault(
+                    ShipInfractionType.PrefixOrganizationMismatch,
+                    $"PREFIX '{_activeShip.Slate.DeclaredPrefix}' vs ORG '{_activeShip.Slate.DeclaredFactionName}'",
+                    a, b);
+            }
+            else if (IsManualRegistryTarget(a) || IsManualRegistryTarget(b))
+            {
+                if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixSpeciesMismatch))
+                {
+                    TryTriggerOrReportDuplicateFault(
+                        ShipInfractionType.PrefixSpeciesMismatch,
+                        $"PREFIX '{_activeShip.Slate.DeclaredPrefix}' PROHIBITS {_activeShip.Slate.DeclaredCaptainSpecies.ToString().ToUpperInvariant()}",
+                        a, b);
+                }
+                else
+                {
+                    LogNoDiscrepancyDetected(a, b);
+                }
+            }
+            else
+            {
+                LogNoDiscrepancyDetected(a, b);
+            }
+            return;
+        }
+
+        // 3. Data Slate Prefix/ORG/SPEC vs. Data Slate SPEC or Brengop Reference Manual Registrar
+        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.DataSlateSpecies) ||
+            IsPair(ReviewTarget.DataSlateOrg, ReviewTarget.DataSlateSpecies) ||
+            (a == ReviewTarget.DataSlateSpecies && IsManualRegistryTarget(b)) ||
+            (b == ReviewTarget.DataSlateSpecies && IsManualRegistryTarget(a)))
+        {
+            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixSpeciesMismatch))
+            {
+                TryTriggerOrReportDuplicateFault(
+                    ShipInfractionType.PrefixSpeciesMismatch,
+                    $"PREFIX '{_activeShip.Slate.DeclaredPrefix}' PROHIBITS {_activeShip.Slate.DeclaredCaptainSpecies.ToString().ToUpperInvariant()}",
+                    a, b);
+            }
+            else if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixOrganizationMismatch) &&
+                     (IsManualRegistryTarget(a) || IsManualRegistryTarget(b)))
+            {
+                TryTriggerOrReportDuplicateFault(
                     ShipInfractionType.PrefixOrganizationMismatch,
                     $"PREFIX '{_activeShip.Slate.DeclaredPrefix}' vs ORG '{_activeShip.Slate.DeclaredFactionName}'",
                     a, b);
@@ -606,35 +1035,21 @@ public sealed partial class DeskScreen
             return;
         }
 
-        // 3. Data Slate Prefix/ORG vs. Data Slate SPEC
-        if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.DataSlateSpecies) ||
-            IsPair(ReviewTarget.DataSlateOrg, ReviewTarget.DataSlateSpecies))
-        {
-            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixSpeciesMismatch))
-            {
-                BeginProtocolFaultSequence(
-                    ShipInfractionType.PrefixSpeciesMismatch,
-                    $"PREFIX '{_activeShip.Slate.DeclaredPrefix}' PROHIBITS {_activeShip.Slate.DeclaredCaptainSpecies.ToString().ToUpperInvariant()}",
-                    a, b);
-            }
-            else
-            {
-                LogNoDiscrepancyDetected(a, b);
-            }
-            return;
-        }
-
-        // 4. Data Slate Prefix/ORG/CLASS vs. Live Viewport Ship Hull
+        // 4. Data Slate Prefix/ORG/CLASS or Viewport Hull vs. Viewport Hull or Brengop Reference Manual HULLS tab (Day 10+)
         if (IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.ViewportShipHull) ||
             IsPair(ReviewTarget.DataSlateOrg, ReviewTarget.ViewportShipHull) ||
-            IsPair(ReviewTarget.DataSlateClass, ReviewTarget.ViewportShipHull))
+            IsPair(ReviewTarget.DataSlateClass, ReviewTarget.ViewportShipHull) ||
+            IsPair(ReviewTarget.ViewportShipHull, ReviewTarget.ReferenceManualHullEntry) ||
+            IsPair(ReviewTarget.DataSlateClass, ReviewTarget.ReferenceManualHullEntry) ||
+            IsPair(ReviewTarget.DataSlatePrefix, ReviewTarget.ReferenceManualHullEntry) ||
+            IsPair(ReviewTarget.DataSlateOrg, ReviewTarget.ReferenceManualHullEntry))
         {
             if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.PrefixHullSilhouetteMismatch))
             {
                 string summary = truth.IsClassSilhouetteMismatch
                     ? $"CLASS '{ShortClass(_activeShip.Slate.DeclaredShipClass)}' vs {ShortClass(truth.ActualShipClass)} HULL"
                     : $"PREFIX '{_activeShip.Slate.DeclaredPrefix}' vs {ShipGenerator.GetHullFactionReadableName(truth.ActualVisualFaction)} HULL";
-                BeginProtocolFaultSequence(ShipInfractionType.PrefixHullSilhouetteMismatch, summary, a, b);
+                TryTriggerOrReportDuplicateFault(ShipInfractionType.PrefixHullSilhouetteMismatch, summary, a, b);
             }
             else
             {
@@ -644,7 +1059,6 @@ public sealed partial class DeskScreen
         }
 
         // 5. Data Slate WPN: OFFLINE vs. SPS Anomaly Mini-Screen [!] HOT WPN or SPS Lens Conduit
-        //    (Honest armed ships declaring WPN: ARMED have HasSpoofedWeapons == false -> NO DISCREPANCY!)
         if (IsPair(ReviewTarget.DataSlateWeapons, ReviewTarget.SpsMiniScreenHotWeapons) ||
             IsPair(ReviewTarget.DataSlateWeapons, ReviewTarget.SpsLensConduit))
         {
@@ -658,7 +1072,7 @@ public sealed partial class DeskScreen
                     }
                 }
 
-                BeginProtocolFaultSequence(
+                TryTriggerOrReportDuplicateFault(
                     ShipInfractionType.SpoofedWeaponsHot,
                     "SPOOFED WEAPONS: SLATE 'OFFLINE' vs HOT SPS MOUNT",
                     a, b);
@@ -670,9 +1084,11 @@ public sealed partial class DeskScreen
             return;
         }
 
-        // 6. Data Slate CARGO vs. SPS Anomaly Mini-Screen Violet Cargo Draw or SPS Lens Conduit
+        // 6. Data Slate CARGO / Cargo Manifest Wafer vs. SPS Anomaly Mini-Screen [!] POWERED CARGO or SPS Lens Conduit
         if (IsPair(ReviewTarget.DataSlateCargo, ReviewTarget.SpsMiniScreenCargoPower) ||
-            IsPair(ReviewTarget.DataSlateCargo, ReviewTarget.SpsLensConduit))
+            IsPair(ReviewTarget.DataSlateCargo, ReviewTarget.SpsLensConduit) ||
+            IsPair(ReviewTarget.CargoManifestWafer, ReviewTarget.SpsMiniScreenCargoPower) ||
+            IsPair(ReviewTarget.CargoManifestWafer, ReviewTarget.SpsLensConduit))
         {
             if (IsCargoPowerUnlocked && truth.ActualCargoPowerDraw && !truth.ActualShieldsUp)
             {
@@ -684,10 +1100,20 @@ public sealed partial class DeskScreen
                     }
                 }
 
-                BeginProtocolFaultSequence(
-                    ShipInfractionType.UnexplainedCargoPowerDraw,
-                    "SPS VIOLET POWER DRAW IN DECLARED EMPTY HOLD",
-                    a, b);
+                if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.BannedCargoItem))
+                {
+                    TryTriggerOrReportDuplicateFault(
+                        ShipInfractionType.BannedCargoItem,
+                        $"SPS VIOLET POWERED CONTRABAND ({truth.WaferCargoManifestItem.ToUpperInvariant()})",
+                        a, b);
+                }
+                else
+                {
+                    TryTriggerOrReportDuplicateFault(
+                        ShipInfractionType.UnexplainedCargoPowerDraw,
+                        "SPS VIOLET POWER DRAW IN DECLARED HOLD",
+                        a, b);
+                }
             }
             else
             {
@@ -701,10 +1127,136 @@ public sealed partial class DeskScreen
         {
             if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.FalsifiedOriginWaveform))
             {
-                BeginProtocolFaultSequence(
+                TryTriggerOrReportDuplicateFault(
                     ShipInfractionType.FalsifiedOriginWaveform,
                     $"WARP STRIP '{truth.ActualOriginSystem.ToUpperInvariant()}' vs SLATE '{_activeShip.Slate.OriginSystem.ToUpperInvariant()}'",
                     a, b);
+            }
+            else
+            {
+                LogNoDiscrepancyDetected(a, b);
+            }
+            return;
+        }
+
+        // 8. Clickable Comms Transcript Statement vs. Origin (DataSlateOrigin / WarpStripPaper) on Day 4+
+        if (IsPair(ReviewTarget.CommsTranscriptStatement, ReviewTarget.DataSlateOrigin) ||
+            IsPair(ReviewTarget.CommsTranscriptStatement, ReviewTarget.WarpStripPaper))
+        {
+            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.SpokenRouteDiscrepancy))
+            {
+                TryTriggerOrReportDuplicateFault(
+                    ShipInfractionType.SpokenRouteDiscrepancy,
+                    $"COMMS ORIGIN '{truth.SpokenOriginSystem.ToUpperInvariant()}' vs FILED '{_activeShip.Slate.OriginSystem.ToUpperInvariant()}'",
+                    a, b);
+            }
+            else if ((a == ReviewTarget.WarpStripPaper || b == ReviewTarget.WarpStripPaper) &&
+                     truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.FalsifiedOriginWaveform))
+            {
+                TryTriggerOrReportDuplicateFault(
+                    ShipInfractionType.FalsifiedOriginWaveform,
+                    $"WARP STRIP '{truth.ActualOriginSystem.ToUpperInvariant()}' vs SPOKEN '{_activeShip.Slate.OriginSystem.ToUpperInvariant()}'",
+                    a, b);
+            }
+            else
+            {
+                LogNoDiscrepancyDetected(a, b);
+            }
+            return;
+        }
+
+        // 9. Clickable Comms Transcript Statement vs. Cargo Manifest Cert-Wafer or Data Slate Cargo on Day 12+
+        if (IsPair(ReviewTarget.CommsTranscriptStatement, ReviewTarget.CargoManifestWafer) ||
+            IsPair(ReviewTarget.CommsTranscriptStatement, ReviewTarget.DataSlateCargo))
+        {
+            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.SpokenCargoDiscrepancy))
+            {
+                TryTriggerOrReportDuplicateFault(
+                    ShipInfractionType.SpokenCargoDiscrepancy,
+                    $"COMMS CARGO '{truth.SpokenCargoItem.ToUpperInvariant()}' vs MANIFEST '{truth.WaferCargoManifestItem.ToUpperInvariant()}'",
+                    a, b);
+            }
+            else
+            {
+                LogNoDiscrepancyDetected(a, b);
+            }
+            return;
+        }
+
+        // 10. Cargo Manifest Cert-Wafer / Data Slate Cargo vs. Manual CARGO Banned List on Day 12+
+        if (IsPair(ReviewTarget.CargoManifestWafer, ReviewTarget.ReferenceManualCargoBannedEntry) ||
+            IsPair(ReviewTarget.DataSlateCargo, ReviewTarget.ReferenceManualCargoBannedEntry))
+        {
+            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.BannedCargoItem) ||
+                CargoCatalog.Load().IsBannedCargo(truth.WaferCargoManifestItem, out _) ||
+                CargoCatalog.Load().IsBannedCargo(_activeShip.Slate.CargoManifest, out _))
+            {
+                TryTriggerOrReportDuplicateFault(
+                    ShipInfractionType.BannedCargoItem,
+                    $"BANNED CONTRABAND CARGO: '{truth.WaferCargoManifestItem.ToUpperInvariant()}'",
+                    a, b);
+            }
+            else
+            {
+                LogNoDiscrepancyDetected(a, b);
+            }
+            return;
+        }
+
+        // 11. Cargo Manifest Cert-Wafer vs. Data Slate Cargo on Day 12+
+        if (IsPair(ReviewTarget.CargoManifestWafer, ReviewTarget.DataSlateCargo))
+        {
+            if (truth.ActiveInfractions.Any(inf => inf.Type == ShipInfractionType.CargoManifestDiscrepancy) ||
+                (!string.IsNullOrWhiteSpace(truth.WaferCargoManifestItem) &&
+                 !_activeShip.Slate.CargoManifest.Contains(truth.WaferCargoManifestItem, StringComparison.OrdinalIgnoreCase) &&
+                 !truth.WaferCargoManifestItem.Contains("Empty", StringComparison.OrdinalIgnoreCase)))
+            {
+                TryTriggerOrReportDuplicateFault(
+                    ShipInfractionType.CargoManifestDiscrepancy,
+                    $"MANIFEST WAFER '{truth.WaferCargoManifestItem.ToUpperInvariant()}' vs SLATE '{_activeShip.Slate.CargoManifest}'",
+                    a, b);
+            }
+            else
+            {
+                LogNoDiscrepancyDetected(a, b);
+            }
+            return;
+        }
+
+        // 12. Missing / Withheld Cargo Manifest Packet Interrogation (WaferWriterModule vs DataSlateCargo / Prefix / Comms)
+        if (a == ReviewTarget.WaferWriterModule || b == ReviewTarget.WaferWriterModule)
+        {
+            if (IsWaferWriterOperational &&
+                truth.ExpectsCargoManifestWafer &&
+                truth.CargoManifestInitiallyOmitted &&
+                !truth.CargoManifestTransmitted)
+            {
+                if (!truth.OmittedManifestIsDishonest)
+                {
+                    _protocolReviewModeActive = false;
+                    _reviewFirstSelection = ReviewTarget.None;
+                    _noFaultTraceTimer = NoFaultTraceDurationSeconds;
+                    _noFaultTargetA = a;
+                    _noFaultTargetB = b;
+                    _reviewStatusNote = "REQUESTING MANIFEST...";
+                    _isTransmittingMissingWafer = true;
+                    _missingWaferTransmitElapsed = 0f;
+                    AudioHooks.Play("terminal_key_confirm");
+                    EnqueueOfficerLine("Your subspace bundle omitted a Cargo Manifest cert-wafer. Transmit it now.", CommsTextTone.ClearanceTeal);
+                    EnqueueCaptainLine(
+                        $"CAPT: \"{_activeShip.HonestOmittedManifestReplyLine}\"",
+                        CommsTextTone.AmberPrimary,
+                        preDelaySeconds: 0.18f,
+                        showReceivingIndicatorDuringPreDelay: true,
+                        suppressAutoReceivingLag: true);
+                }
+                else
+                {
+                    TryTriggerOrReportDuplicateFault(
+                        ShipInfractionType.WithheldIllicitCargoManifest,
+                        "WITHHELD CARGO MANIFEST PACKET",
+                        a, b);
+                }
             }
             else
             {
@@ -746,6 +1298,15 @@ public sealed partial class DeskScreen
             ReviewTarget.WarpStripPaper => "WARP STRIP PAPER",
             ReviewTarget.SpsMiniScreenHotWeapons => "SPS LOG: HOT WPN",
             ReviewTarget.SpsMiniScreenCargoPower => "SPS LOG: CARGO PWR",
+            ReviewTarget.ReferenceManualPrefixEntry => "MANUAL: SHIP REG",
+            ReviewTarget.ReferenceManualSpeciesEntry => "MANUAL: SPECIES REG",
+            ReviewTarget.ReferenceManualHullEntry => "MANUAL: HULL CHART",
+            ReviewTarget.CommsTranscriptStatement => "COMMS STATEMENT",
+            ReviewTarget.CargoManifestWafer => "CARGO MANIFEST WAFER",
+            ReviewTarget.ReferenceManualCargoBannedEntry => "MANUAL: BANNED CARGO",
+            ReviewTarget.WaferWriterModule => "WAFER WRITER DEMUX",
+            ReviewTarget.DataSlateMass => "SLATE DECLARED MASS",
+            ReviewTarget.StokerMeasuredMassLed => "STOKER MEASURED LED",
             _ => "NONE"
         };
 
@@ -837,7 +1398,7 @@ public sealed partial class DeskScreen
     {
         DeskRect tr = _layout.Transcript;
         int visibleRows = _layout.TranscriptVisibleRows;
-        bool faultLocked = _faultStage != FaultSequenceStage.None || (_activeShip != null && _activeShip.ProtocolReviewVerified);
+        bool faultLocked = HasActiveProtocolFaultTrace;
 
         Raylib.DrawRectangle(tr.X, tr.Y, tr.W, tr.H, Palette.DeepSpaceVoid);
         Raylib.DrawRectangleLines(tr.X, tr.Y, tr.W, tr.H,
@@ -846,13 +1407,16 @@ public sealed partial class DeskScreen
         // Header bar
         Raylib.DrawRectangle(tr.X + 1, tr.Y + 1, tr.W - 2, 16, Palette.OutlineVoid);
         Raylib.DrawLine(tr.X + 1, tr.Y + 17, tr.Right - 1, tr.Y + 17, Palette.WeatheredGunmetalEdge);
-        string channelTitle = _preShiftStage == PreShiftStage.Day1VorstLiveHail
-            ? "INTERNAL COMMS // CMDR. VORST"
-            : (_preShiftStage == PreShiftStage.Day3KordaniLiveHail
-                ? "INTERNAL COMMS // KORDANI SECURITY"
-                : "CRT COMMS DIALOGUE LOG");
-        Raylib.DrawText(TruncateByPixelWidth(channelTitle, 10, tr.W - 14), tr.X + 8, tr.Y + 4, 10,
-            IsPreShiftTalkingHeadHailActive ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
+        string channelTitle = _preShiftStage switch
+        {
+            PreShiftStage.Day1VorstLiveHail or PreShiftStage.Day3KordaniLiveHail => "INTERNAL COMMS // CMDR. VORST",
+            PreShiftStage.Day2NixaLiveHail or PreShiftStage.Day8NixaLiveHail or PreShiftStage.Day15ForemanLiveHail => "INTERNAL COMMS // REGEER NIXA",
+            _ => "CRT COMMS DIALOGUE LOG"
+        };
+        Color channelCol = IsPreShiftTalkingHeadHailActive
+            ? (IsPreShiftBrengopHailActive ? Palette.CrtAmberPrimary : Palette.AlertCrimson)
+            : Palette.CrtAmberPrimary;
+        UiText.Draw(TruncateByPixelWidth(channelTitle, 10, tr.W - 14), tr.X + 8, tr.Y + 4, 10, channelCol);
 
         List<WrappedTranscriptRow> wrapped = WrapTranscriptForDisplay(_layout.TranscriptTextMaxPx);
         int maxTop = Math.Max(0, wrapped.Count - visibleRows);
@@ -869,13 +1433,51 @@ public sealed partial class DeskScreen
         int endIdx = Math.Min(wrapped.Count, _transcriptScrollTopLine + visibleRows);
         bool cursorBlinkOn = ((int)(_elapsedVisualTime * 7.0f) % 2) == 0;
         int maxCursorRight = tr.Right - ScrollbarW - 6;
+        int firstVisibleStmtRow = -1;
+        int lastVisibleStmtRow = -1;
+
+        for (int i = _transcriptScrollTopLine; i < endIdx; i++)
+        {
+            if (wrapped[i].IsStatementEvidence)
+            {
+                int visOffset = i - _transcriptScrollTopLine;
+                if (firstVisibleStmtRow < 0) firstVisibleStmtRow = visOffset;
+                lastVisibleStmtRow = visOffset;
+            }
+        }
+
+        if (firstVisibleStmtRow >= 0)
+        {
+            int stmtX = tr.X + 4;
+            int stmtY = tr.Y + 21 + firstVisibleStmtRow * 13;
+            int stmtW = tr.W - ScrollbarW - 8;
+            int stmtH = (lastVisibleStmtRow - firstVisibleStmtRow + 1) * 13 + 1;
+
+            if (IsTargetFaultHighlighted(ReviewTarget.CommsTranscriptStatement))
+            {
+                Color fCol = GetFaultPulseColor();
+                Raylib.DrawRectangle(stmtX, stmtY, stmtW, stmtH, Palette.BrownDwarfGlowDeep);
+                Raylib.DrawRectangleLines(stmtX, stmtY, stmtW, stmtH, fCol);
+            }
+            else if (_protocolReviewModeActive && IsShipInspectableForReview && IsReviewTargetUnlocked(ReviewTarget.CommsTranscriptStatement))
+            {
+                bool hovered = mouse.IsHit(stmtX, stmtY, stmtW, stmtH);
+                bool selected = _reviewFirstSelection == ReviewTarget.CommsTranscriptStatement;
+                if (hovered || selected)
+                {
+                    Raylib.DrawRectangle(stmtX, stmtY, stmtW, stmtH, new Color(46, 36, 18, 180));
+                }
+                DrawReviewHotspotOutline(mouse, stmtX, stmtY, stmtW, stmtH, selected);
+            }
+        }
+
         for (int i = _transcriptScrollTopLine; i < endIdx; i++)
         {
             WrappedTranscriptRow row = wrapped[i];
-            PixelText.DrawText(row.Line, tr.X + 8, drawY, 10, row.Col);
+            UiText.Draw(row.Line, tr.X + 8, drawY, 10, row.Col);
             if (row.ShowTypingCursor && cursorBlinkOn)
             {
-                int cx = tr.X + 8 + PixelText.MeasureText(row.Line, 10) + 2;
+                int cx = tr.X + 8 + UiText.MeasureWidth(row.Line, 10) + 2;
                 if (cx + 5 <= maxCursorRight)
                 {
                     Raylib.DrawRectangle(cx, drawY + 1, 5, 8, row.Col);
@@ -950,7 +1552,7 @@ public sealed partial class DeskScreen
     // =========================================================================
     private bool IsTargetFaultHighlighted(ReviewTarget target) =>
         target != ReviewTarget.None &&
-        (_faultStage != FaultSequenceStage.None || (_activeShip != null && _activeShip.ProtocolReviewVerified)) &&
+        HasActiveProtocolFaultTrace &&
         (_faultHighlightA == target || _faultHighlightB == target);
 
     // Calm steady crimson border (no aggressive strobing/flashing)
@@ -1017,12 +1619,12 @@ public sealed partial class DeskScreen
                 rect = new Rectangle(TopCycleX, TopCycleY, TopCycleW, TopCycleH);
                 return true;
             case ReviewTarget.ViewportShipHull:
-                rect = new Rectangle(ShipAnchorX + _shipSlideOffset, ShipAnchorY, ShipRenderW, ShipRenderH);
+                rect = GetActiveShipHullScreenRect();
                 return true;
             case ReviewTarget.SpsLensConduit:
                 rect = (_spsEnabled && _lastSpsLensRect.Width > 0 && _lastSpsLensRect.Height > 0)
                     ? _lastSpsLensRect
-                    : new Rectangle(ShipAnchorX + _shipSlideOffset, ShipAnchorY, ShipRenderW, ShipRenderH);
+                    : GetActiveShipHullScreenRect();
                 return true;
             case ReviewTarget.WarpStripPaper:
                 if (_warpPhase == WarpPrinterPhase.AnchoredReadyToTear)
@@ -1046,7 +1648,7 @@ public sealed partial class DeskScreen
             case ReviewTarget.DataSlatePrefix:
                 rect = _gameState.Day == 1
                     ? new Rectangle(sx + 73, sy + 22, rightHotW, 30)
-                    : (_gameState.Day == 2
+                    : (_gameState.Day < _config.DayUnlockWarpScanner
                         ? new Rectangle(sx + 73, sy + 21, rightHotW, 26)
                         : new Rectangle(sx + 73, sy + 21, rightHotW, 22));
                 return true;
@@ -1054,10 +1656,16 @@ public sealed partial class DeskScreen
                 rect = new Rectangle(sx + 73, sy + 44, rightHotW, 13);
                 return true;
             case ReviewTarget.DataSlateWeapons:
-                rect = _gameState.Day == 2
+                rect = _gameState.Day < _config.DayUnlockWarpScanner
                     ? new Rectangle(sx + 73, sy + 50, rightHotW, 15)
                     : new Rectangle(sx + 73, sy + 58, rightHotW, 13);
                 return true;
+            case ReviewTarget.DataSlateMass:
+                rect = new Rectangle(sx + 73, sy + 72, rightHotW, 13);
+                return IsStokerOperational;
+            case ReviewTarget.StokerMeasuredMassLed:
+                rect = new Rectangle(StokerLedX, StokerLedY, StokerLedW, StokerLedH);
+                return IsStokerOperational && _stokerMassAnchoredForShip;
             case ReviewTarget.DataSlateOrg:
                 rect = new Rectangle(sx + 4, sy + 103, rowW, 12);
                 return true;
@@ -1073,6 +1681,59 @@ public sealed partial class DeskScreen
             case ReviewTarget.DataSlateCargo:
                 rect = new Rectangle(sx + 4, sy + 175, rowW, 24);
                 return true;
+            case ReviewTarget.ReferenceManualPrefixEntry:
+            {
+                DraggableDeskItem manual = _deskItems[DeskItemId.ReferenceManual];
+                rect = new Rectangle(manual.X + 6, manual.Y + 39, manual.Width - 12, ManualPrefixDirectory.Length * 12);
+                return manual.IsVisible;
+            }
+            case ReviewTarget.ReferenceManualSpeciesEntry:
+            {
+                DraggableDeskItem manual = _deskItems[DeskItemId.ReferenceManual];
+                rect = new Rectangle(manual.X + 6, manual.Y + 60, manual.Width - 12, manual.Height - 66);
+                return manual.IsVisible;
+            }
+            case ReviewTarget.ReferenceManualHullEntry:
+            {
+                DraggableDeskItem manual = _deskItems[DeskItemId.ReferenceManual];
+                rect = new Rectangle(manual.X + 6, manual.Y + 60, manual.Width - 12, 88);
+                return manual.IsVisible;
+            }
+            case ReviewTarget.ReferenceManualCargoBannedEntry:
+            {
+                DraggableDeskItem manual = _deskItems[DeskItemId.ReferenceManual];
+                int bannedH = CargoCatalog.Load().BannedCargoList.Count * 20;
+                rect = new Rectangle(manual.X + 6, manual.Y + 54, manual.Width - 12, bannedH);
+                return manual.IsVisible;
+            }
+            case ReviewTarget.CommsTranscriptStatement:
+            {
+                if (TryGetVisibleTranscriptStatementRect(out Rectangle stmtRect))
+                {
+                    rect = stmtRect;
+                    return true;
+                }
+                DeskRect tr = _layout.Transcript;
+                rect = new Rectangle(tr.X + 4, tr.Bottom - 20, tr.W - ScrollbarW - 8, 14);
+                return true;
+            }
+            case ReviewTarget.CargoManifestWafer:
+            {
+                for (int i = _deskWafers.Count - 1; i >= 0; i--)
+                {
+                    CertWaferCard wCard = _deskWafers[i];
+                    if (_activeShip != null &&
+                        string.Equals(wCard.ShipRegistration, _activeShip.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase))
+                    {
+                        rect = new Rectangle(wCard.X, wCard.Y, WaferCardW, WaferCardH);
+                        return true;
+                    }
+                }
+                return false;
+            }
+            case ReviewTarget.WaferWriterModule:
+                rect = _layout.WaferWriter.ToRaylib();
+                return IsWaferWriterOperational;
             default:
                 return false;
         }
@@ -1092,7 +1753,44 @@ public sealed partial class DeskScreen
     // =========================================================================
     // CommsTypewriterQueue Helpers & Transcript Wrapping
     // =========================================================================
-    private readonly record struct WrappedTranscriptRow(string Line, Color Col, bool ShowTypingCursor = false);
+    private readonly record struct WrappedTranscriptRow(
+        string Line,
+        Color Col,
+        bool ShowTypingCursor = false,
+        bool IsStatementEvidence = false);
+
+    internal bool TryGetVisibleTranscriptStatementRect(out Rectangle rect)
+    {
+        rect = default;
+        DeskRect tr = _layout.Transcript;
+        int visibleRows = _layout.TranscriptVisibleRows;
+        List<WrappedTranscriptRow> wrapped = WrapTranscriptForDisplay(_layout.TranscriptTextMaxPx);
+        int maxTop = Math.Max(0, wrapped.Count - visibleRows);
+        int topLine = _transcriptAutoFollowBottom ? maxTop : Math.Clamp(_transcriptScrollTopLine, 0, maxTop);
+        int endIdx = Math.Min(wrapped.Count, topLine + visibleRows);
+
+        int firstVis = -1;
+        int lastVis = -1;
+        for (int i = topLine; i < endIdx; i++)
+        {
+            if (wrapped[i].IsStatementEvidence)
+            {
+                int visRow = i - topLine;
+                if (firstVis < 0) firstVis = visRow;
+                lastVis = visRow;
+            }
+        }
+
+        if (firstVis < 0)
+            return false;
+
+        rect = new Rectangle(
+            tr.X + 4,
+            tr.Y + 21 + firstVis * 13,
+            tr.W - ScrollbarW - 8,
+            (lastVis - firstVis + 1) * 13 + 1);
+        return true;
+    }
 
     private static Color ToneToColor(CommsTextTone tone) =>
         tone switch
@@ -1170,6 +1868,7 @@ public sealed partial class DeskScreen
         float preDelaySeconds = 0f,
         bool showReceivingIndicatorDuringPreDelay = false,
         bool suppressAutoReceivingLag = false,
+        bool isCaptainStatementEvidence = false,
         Action? onStart = null,
         Action? onComplete = null)
     {
@@ -1185,6 +1884,7 @@ public sealed partial class DeskScreen
             preDelaySeconds: preDelaySeconds,
             showReceivingIndicatorDuringPreDelay: showReceivingIndicatorDuringPreDelay,
             suppressAutoReceivingLag: suppressAutoReceivingLag,
+            isCaptainStatementEvidence: isCaptainStatementEvidence,
             onStart: onStart,
             onComplete: onComplete);
     }
@@ -1197,7 +1897,7 @@ public sealed partial class DeskScreen
             Color col = ToneToColor(entry.Tone);
             foreach (string line in WrapTextByPixelWidth(entry.Text, fontSize: 10, maxPixelWidth, maxLines: 64))
             {
-                output.Add(new WrappedTranscriptRow(line, col));
+                output.Add(new WrappedTranscriptRow(line, col, IsStatementEvidence: entry.IsCaptainStatementEvidence));
             }
         }
 
@@ -1207,6 +1907,7 @@ public sealed partial class DeskScreen
             string fullText = _commsQueue.ActiveFullText;
             int visibleCount = _commsQueue.ActiveVisibleCharCount;
             Color activeCol = ToneToColor(_commsQueue.ActiveTone);
+            bool activeStmt = _commsQueue.ActiveIsCaptainStatementEvidence;
 
             List<string> fullWrapped = WrapTextByPixelWidth(fullText, fontSize: 10, maxPixelWidth, maxLines: 64);
             int remaining = visibleCount;
@@ -1220,14 +1921,14 @@ public sealed partial class DeskScreen
 
                 if (remaining >= rowText.Length)
                 {
-                    output.Add(new WrappedTranscriptRow(rowText, activeCol));
+                    output.Add(new WrappedTranscriptRow(rowText, activeCol, IsStatementEvidence: activeStmt));
                     lastAddedIdx = output.Count - 1;
                     // Account for the space separator between wrapped lines
                     remaining -= rowText.Length + 1;
                 }
                 else
                 {
-                    output.Add(new WrappedTranscriptRow(rowText[..remaining], activeCol, ShowTypingCursor: true));
+                    output.Add(new WrappedTranscriptRow(rowText[..remaining], activeCol, ShowTypingCursor: true, IsStatementEvidence: activeStmt));
                     lastAddedIdx = output.Count - 1;
                     remaining = 0;
                     break;

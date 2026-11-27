@@ -231,10 +231,10 @@ public sealed class PauseMenuOverlay
         string title = _showingSettings
             ? "BOOTH 04 TERMINAL // SETTINGS"
             : "VG-3 WATCH TERMINAL // PAUSED";
-        Raylib.DrawText(title, bx + 16, by + 11, 10, Palette.CrtAmberPrimary);
+        UiText.Draw(title, bx + 16, by + 11, 10, Palette.CrtAmberPrimary);
 
         string subLine = $"SLOT {_gameState.ActiveSaveSlot:D2}  |  DAY {_gameState.Day:D2}  |  TIMER & ANIMATIONS FROZEN";
-        Raylib.DrawText(subLine, bx + 16, by + 38, 10, Palette.ClearanceTeal);
+        UiText.Draw(subLine, bx + 16, by + 38, 10, Palette.ClearanceTeal);
         Raylib.DrawLine(bx + 12, by + 56, bx + BoxW - 12, by + 56, Palette.WeatheredGunmetalEdge);
 
         int btnX = bx + 40;
@@ -249,8 +249,8 @@ public sealed class PauseMenuOverlay
             DrawPauseButton(mouse, btnX, by + 242, btnW, 32, "QUIT TO DESKTOP", Palette.AlertCrimson);
 
             const string footer = "PRESS [ESC] TO RESUME SHIFT";
-            int fw = Raylib.MeasureText(footer, 10);
-            Raylib.DrawText(footer, bx + (BoxW - fw) / 2, by + BoxH - 24, 10, Palette.CrtAmberDimmed);
+            int fw = UiText.MeasureWidth(footer, 10);
+            UiText.Draw(footer, bx + (BoxW - fw) / 2, by + BoxH - 24, 10, Palette.CrtAmberDimmed);
         }
         else
         {
@@ -265,8 +265,8 @@ public sealed class PauseMenuOverlay
             Raylib.DrawRectangleLines(btnX + 52, by + 120, btnW - 104, 30, Palette.WeatheredGunmetalEdge);
             int volPct = (int)MathF.Round(AudioHooks.MasterVolume * 100f);
             string volText = $"VOLUME: {volPct}% (STUB)";
-            int volW = Raylib.MeasureText(volText, 10);
-            Raylib.DrawText(volText, btnX + 52 + (btnW - 104 - volW) / 2, by + 130, 10, Palette.CrtAmberPrimary);
+            int volW = UiText.MeasureWidth(volText, 10);
+            UiText.Draw(volText, btnX + 52 + (btnW - 104 - volW) / 2, by + 130, 10, Palette.CrtAmberPrimary);
             DrawPauseButton(mouse, btnX + btnW - 48, by + 120, 48, 30, " + ", Palette.CrtAmberPrimary);
 
             string muteLabel = AudioHooks.IsMuted
@@ -277,8 +277,8 @@ public sealed class PauseMenuOverlay
 
             DrawPauseButton(mouse, btnX, by + 236, btnW, 32, "< BACK TO PAUSE MENU [ESC]", Palette.ClearanceTeal);
             const string hint = "F11 / ALT+ENTER ALSO TOGGLES FULLSCREEN";
-            int hw = Raylib.MeasureText(hint, 10);
-            Raylib.DrawText(hint, bx + (BoxW - hw) / 2, by + BoxH - 24, 10, Palette.CrtAmberDimmed);
+            int hw = UiText.MeasureWidth(hint, 10);
+            UiText.Draw(hint, bx + (BoxW - hw) / 2, by + BoxH - 24, 10, Palette.CrtAmberDimmed);
         }
     }
 
@@ -291,7 +291,7 @@ public sealed class PauseMenuOverlay
 
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        int tw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, x + Math.Max(6, (w - tw) / 2), y + (h - 10) / 2, 10, fg);
+        int tw = UiText.MeasureWidth(label, 10);
+        UiText.Draw(label, x + Math.Max(6, (w - tw) / 2), y + (h - 10) / 2, 10, fg);
     }
 }

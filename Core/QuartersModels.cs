@@ -85,6 +85,7 @@ public sealed class TerminalEmail
     public bool IsMorningRoster { get; set; } = false;
     public bool IsTerminalHackEmail { get; set; } = false;
     public bool IsDay1BrengopEmail { get; set; } = false;
+    public string? CustomStatusLine { get; set; } = null;
 
     public TerminalEmail Clone() => new()
     {
@@ -103,7 +104,8 @@ public sealed class TerminalEmail
         LinkedMissionId = LinkedMissionId,
         IsMorningRoster = IsMorningRoster,
         IsTerminalHackEmail = IsTerminalHackEmail,
-        IsDay1BrengopEmail = IsDay1BrengopEmail
+        IsDay1BrengopEmail = IsDay1BrengopEmail,
+        CustomStatusLine = CustomStatusLine
     };
 
     /// <summary>

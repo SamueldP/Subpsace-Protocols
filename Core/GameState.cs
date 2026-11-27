@@ -156,11 +156,34 @@ public sealed class TutorialFlags
         FirstEveningQuartersSeen = FirstEveningQuartersSeen
     };
 
-    public static TutorialEventHook GetHookForDay(int day) => day switch
+    public static TutorialEventHook GetHookForDay(int day, int warpUnlockDay = Constants.DefaultDayUnlockWarpScanner)
     {
-        <= 1 => TutorialEventHook.OnDay1Start,
-        2 => TutorialEventHook.OnDay2Start,
-        _ => TutorialEventHook.OnDay3Start
+        if (day <= 1)
+            return TutorialEventHook.OnDay1Start;
+        if (day < warpUnlockDay)
+            return TutorialEventHook.OnDay2Start;
+        return TutorialEventHook.OnDay3Start;
+    }
+}
+
+public sealed class EncounterRecord
+{
+    [JsonPropertyName("day")] public int Day { get; set; }
+    [JsonPropertyName("faction")] public string Faction { get; set; } = string.Empty;
+    [JsonPropertyName("species")] public string Species { get; set; } = string.Empty;
+    [JsonPropertyName("captainName")] public string CaptainName { get; set; } = string.Empty;
+    [JsonPropertyName("shipReg")] public string ShipReg { get; set; } = string.Empty;
+    [JsonPropertyName("hadViolation")] public bool HadViolation { get; set; }
+    [JsonPropertyName("violationType")] public string? ViolationType { get; set; }
+    [JsonPropertyName("verdict")] public string Verdict { get; set; } = "Cleared";
+    [JsonPropertyName("tookBribe")] public bool TookBribe { get; set; }
+    [JsonPropertyName("storyTag")] public string? StoryTag { get; set; }
+
+    public EncounterRecord Clone() => new()
+    {
+        Day = Day, Faction = Faction, Species = Species, CaptainName = CaptainName,
+        ShipReg = ShipReg, HadViolation = HadViolation, ViolationType = ViolationType,
+        Verdict = Verdict, TookBribe = TookBribe, StoryTag = StoryTag
     };
 }
 
@@ -173,7 +196,9 @@ public sealed class SaveSlotSummary
     public int RunSeed { get; init; }
     public int PactScrip { get; init; }
     public int SecurityStrikes { get; init; }
+    public bool SecurityStrikesActive { get; init; }
     public bool Day2SuspectDetained { get; init; }
+    public bool GhostRouteSuspectDetained { get; init; }
 }
 
 /// <summary>
@@ -216,18 +241,51 @@ public sealed class GameState
     public int LastCleanAuditFineApplied { get; set; } = 0;
     public ShiftLedgerSummary? LastShiftSummary { get; set; } = null;
 
-    // 1b. Day 2 Hardcoded Suspect ("The Ghost Route") & Day 3 Branching State
+    // 1b. Day 3 Hardcoded Suspect ("The Ghost Route") & Day 4 Branching State
+    // Preserves Day2SuspectDetained / Day3PreShiftHailCompleted aliases for backward save compatibility.
+    private bool _ghostRouteSuspectDetained = false;
+    private bool _day4PreShiftHailCompleted = false;
+
     public bool Day2SuspectEncountered { get; set; } = false;
-    public bool Day2SuspectDetained { get; set; } = false;
+
+    public bool Day2SuspectDetained
+    {
+        get => _ghostRouteSuspectDetained;
+        set => _ghostRouteSuspectDetained = value;
+    }
+
+    public bool GhostRouteSuspectDetained
+    {
+        get => _ghostRouteSuspectDetained;
+        set => _ghostRouteSuspectDetained = value;
+    }
+
     public string Day2SuspectRegistration { get; set; } = "ORN-442-K";
     public string Day2SuspectDeclaredOrigin { get; set; } = "Oruun-4";
     public string Day2SuspectActualOrigin { get; set; } = "Ashen Rift";
     public string Day2SuspectPrefix { get; set; } = "ORN-";
     public string Day2SuspectShipName { get; set; } = "LITHOS MONOLITH";
     public bool Day3KordaniOvernightRepApplied { get; set; } = false;
-    public bool Day3PreShiftHailCompleted { get; set; } = false;
+
+    public bool Day3PreShiftHailCompleted
+    {
+        get => _day4PreShiftHailCompleted;
+        set => _day4PreShiftHailCompleted = value;
+    }
+
+    public bool Day4PreShiftHailCompleted
+    {
+        get => _day4PreShiftHailCompleted;
+        set => _day4PreShiftHailCompleted = value;
+    }
+
     public bool Day1BrengopEmailRead { get; set; } = false;
     public bool Day1VorstHailCompleted { get; set; } = false;
+    public bool Day2NixaHailCompleted { get; set; } = false;
+    public bool Day8NixaHailCompleted { get; set; } = false;
+    public bool Day12CargoIntroShown { get; set; } = false;
+    public bool Day15ForemanHailCompleted { get; set; } = false;
+    public List<string> AutoUnfoldedBookletTags { get; set; } = [];
 
     // 2. Currency (Pure Pact Scrip / SC Economy) & Living Fees
     public int PactScrip { get; set; } = 45;
@@ -244,10 +302,12 @@ public sealed class GameState
     // 4. Clerical Warnings, Fines, Kordani Security Strikes (/3 cap) & Stellar Stoker Overload Consequences
     public int ClericalWarningsThisShift { get; set; } = 0;
     public int SecurityStrikes { get; set; } = 0;
+    public bool SecurityStrikesActive { get; set; } = false;
     public bool PendingThreeStrikeAudit { get; set; } = false;
     public bool StokerOverloadedToday { get; set; } = false;
     public bool PendingStokerBerthSearch { get; set; } = false;
     public bool NextDayPowerBrownout { get; set; } = false;
+    public bool LastShiftStokerOverload { get; set; } = false;
 
     // 5. Espionage, Logs, Upgradeable Contraband Pocket (1->3), Vent Stash & 0500 Service Chute
     public int UnauthorizedLogCount { get; set; } = 0;
@@ -269,6 +329,8 @@ public sealed class GameState
     // 5c. Active Slate Bus Covert Mission Tracking, Terminal Hack Unlock & Forum Event Flags
     public bool TerminalHackedUnlocked { get; set; } = false;
     public bool Day6UnsolicitedDropDelivered { get; set; } = false;
+    public string Day6IntroTargetReg { get; set; } = string.Empty;
+    public int Day6IntroTargetSlot { get; set; } = -1;
     public string ActiveCovertMissionId { get; set; } = string.Empty;
     public string ActiveCovertTargetReg { get; set; } = string.Empty;
     public string ActiveCovertTargetPrefix { get; set; } = string.Empty;
@@ -304,6 +366,14 @@ public sealed class GameState
 
     // 11. Reusable Playtest Tutorial Event Hook Tracker (persisted per save, reset on New Game)
     public TutorialFlags TutorialFlags { get; set; } = new();
+
+    // 11b. Synchronized "884-D — MY NOTES" Field Booklet Page & Seen-Page Count
+    public int ActiveBookletPageIndex { get; set; } = 0;
+    public int SeenBookletPageCount { get; set; } = 0;
+
+    // 12. Persisted Campaign Encounter History Log (all 28 days, atomic inside save_slot_X.json)
+    [JsonPropertyName("encounterHistory")]
+    public List<EncounterRecord> EncounterHistory { get; set; } = new();
 
     [JsonIgnore]
     public int UnreadEmailCount => Emails.Count(e => !e.IsRead);
@@ -400,6 +470,15 @@ public sealed class GameState
         Emails.Insert(0, email);
     }
 
+    public void AppendEncounterRecord(EncounterRecord record)
+    {
+        if (record == null)
+            return;
+
+        EncounterHistory ??= [];
+        EncounterHistory.Add(record.Clone());
+    }
+
     public void InitializeDefaultScores()
     {
         RepScore = new Dictionary<string, int>(RepScore, StringComparer.OrdinalIgnoreCase);
@@ -454,6 +533,7 @@ public sealed class GameState
         [
             "Day2_GhostRouteEncountered",
             "Day3_SpectrometerRepaired",
+            "Day4_SpectrometerRepaired",
             "SideQuest_HelaniCourierWarpSignature",
             "SideQuest_OrunFreighter442",
             "KordaniDestroyOverrideUnlocked"
@@ -477,6 +557,7 @@ public sealed class GameState
             Day2SuspectShipName = "LITHOS MONOLITH";
 
         TutorialFlags ??= new TutorialFlags();
+        EncounterHistory ??= [];
     }
 
     public int GetRep(string prefix) =>
@@ -534,6 +615,11 @@ public sealed class GameState
         Day3PreShiftHailCompleted = false;
         Day1BrengopEmailRead = false;
         Day1VorstHailCompleted = false;
+        Day2NixaHailCompleted = false;
+        Day8NixaHailCompleted = false;
+        Day12CargoIntroShown = false;
+        Day15ForemanHailCompleted = false;
+        AutoUnfoldedBookletTags.Clear();
 
         PactScrip = 45;
         MissedBerthLeaseCount = 0;
@@ -545,10 +631,12 @@ public sealed class GameState
 
         ClericalWarningsThisShift = 0;
         SecurityStrikes = 0;
+        SecurityStrikesActive = false;
         PendingThreeStrikeAudit = false;
         StokerOverloadedToday = false;
         PendingStokerBerthSearch = false;
         NextDayPowerBrownout = false;
+        LastShiftStokerOverload = false;
 
         UnauthorizedLogCount = 0;
         PocketCapacity = 1;
@@ -569,6 +657,8 @@ public sealed class GameState
 
         TerminalHackedUnlocked = false;
         Day6UnsolicitedDropDelivered = false;
+        Day6IntroTargetReg = string.Empty;
+        Day6IntroTargetSlot = -1;
         ActiveCovertMissionId = string.Empty;
         ActiveCovertTargetReg = string.Empty;
         ActiveCovertTargetPrefix = string.Empty;
@@ -588,15 +678,20 @@ public sealed class GameState
         BrengopKordaniTensionMeter = 0;
         HasKordaniMilitaryInsigniaOnDesk = false;
         TutorialFlags = new TutorialFlags();
+        ActiveBookletPageIndex = 0;
+        SeenBookletPageCount = 0;
 
         RepScore.Clear();
         PowerScore.Clear();
         DelayedRippleQueue.Clear();
         QuestFlags.Clear();
         EndingFlags.Clear();
+        EncounterHistory ??= [];
+        EncounterHistory.Clear();
 
         InitializeDefaultScores();
         QuestFlags["Day3_SpectrometerRepaired"] = false;
+        QuestFlags["Day4_SpectrometerRepaired"] = false;
         SaveToDisk();
     }
 
@@ -625,6 +720,11 @@ public sealed class GameState
         Day3PreShiftHailCompleted = src.Day3PreShiftHailCompleted;
         Day1BrengopEmailRead = Day >= 2 || src.Day1BrengopEmailRead;
         Day1VorstHailCompleted = Day >= 2 || src.Day1VorstHailCompleted;
+        Day2NixaHailCompleted = Day >= 3 || src.Day2NixaHailCompleted;
+        Day8NixaHailCompleted = Day >= 9 || src.Day8NixaHailCompleted;
+        Day12CargoIntroShown = Day > Constants.DefaultDayUnlockWaferCargo || src.Day12CargoIntroShown;
+        Day15ForemanHailCompleted = Day > Constants.DefaultDayUnlockStoker || src.Day15ForemanHailCompleted;
+        AutoUnfoldedBookletTags = src.AutoUnfoldedBookletTags != null ? [.. src.AutoUnfoldedBookletTags] : [];
 
         PactScrip = src.PactScrip;
         MissedBerthLeaseCount = src.MissedBerthLeaseCount;
@@ -636,10 +736,12 @@ public sealed class GameState
 
         ClericalWarningsThisShift = src.ClericalWarningsThisShift;
         SecurityStrikes = src.SecurityStrikes;
+        SecurityStrikesActive = src.SecurityStrikesActive || Day >= Constants.DefaultDayUnlockWarpScanner;
         PendingThreeStrikeAudit = src.PendingThreeStrikeAudit;
         StokerOverloadedToday = src.StokerOverloadedToday;
         PendingStokerBerthSearch = src.PendingStokerBerthSearch;
         NextDayPowerBrownout = src.NextDayPowerBrownout;
+        LastShiftStokerOverload = src.LastShiftStokerOverload;
 
         UnauthorizedLogCount = src.UnauthorizedLogCount;
         PocketCapacity = Math.Clamp(src.PocketCapacity, 1, 3);
@@ -668,6 +770,8 @@ public sealed class GameState
 
         TerminalHackedUnlocked = src.TerminalHackedUnlocked;
         Day6UnsolicitedDropDelivered = src.Day6UnsolicitedDropDelivered;
+        Day6IntroTargetReg = src.Day6IntroTargetReg ?? string.Empty;
+        Day6IntroTargetSlot = src.Day6IntroTargetSlot is >= 1 and <= 3 ? src.Day6IntroTargetSlot : -1;
         ActiveCovertMissionId = src.ActiveCovertMissionId ?? string.Empty;
         ActiveCovertTargetReg = src.ActiveCovertTargetReg ?? string.Empty;
         ActiveCovertTargetPrefix = src.ActiveCovertTargetPrefix ?? string.Empty;
@@ -687,25 +791,30 @@ public sealed class GameState
         BrengopKordaniTensionMeter = src.BrengopKordaniTensionMeter;
         HasKordaniMilitaryInsigniaOnDesk = src.HasKordaniMilitaryInsigniaOnDesk;
         TutorialFlags = (src.TutorialFlags ?? new TutorialFlags()).Clone();
+        ActiveBookletPageIndex = Math.Max(0, src.ActiveBookletPageIndex);
+        SeenBookletPageCount = Math.Max(0, src.SeenBookletPageCount);
 
         RepScore = new Dictionary<string, int>(src.RepScore, StringComparer.OrdinalIgnoreCase);
         PowerScore = new Dictionary<string, int>(src.PowerScore, StringComparer.OrdinalIgnoreCase);
         DelayedRippleQueue = [.. src.DelayedRippleQueue];
         QuestFlags = new Dictionary<string, bool>(src.QuestFlags, StringComparer.OrdinalIgnoreCase);
         EndingFlags = new Dictionary<string, bool>(src.EndingFlags, StringComparer.OrdinalIgnoreCase);
+        EncounterHistory = src.EncounterHistory?.Select(r => r.Clone()).ToList() ?? [];
 
         InitializeDefaultScores();
-        QuestFlags["Day3_SpectrometerRepaired"] = Day >= 3;
+        bool warpUnlocked = Day >= Constants.DefaultDayUnlockWarpScanner;
+        QuestFlags["Day3_SpectrometerRepaired"] = warpUnlocked;
+        QuestFlags["Day4_SpectrometerRepaired"] = warpUnlocked;
     }
 
     /// <summary>
     /// Advances or jumps to the target day, resetting per-shift clerical warnings to 0,
-    /// activating the Day 3+ Warp Field Residue Spectrometer repair, and silently applying
-    /// the overnight +2 Kordani rep_score bonus if the Day 2 suspect was detained.
+    /// activating Day 4+ Warp Field Residue Spectrometer & /3 Security Strikes, and silently applying
+    /// the overnight +2 Kordani rep_score bonus if the Day 3 Ghost Route suspect was detained.
     /// </summary>
     public void AdvanceToDay(int targetDay)
     {
-        Day = Math.Max(1, targetDay);
+        Day = Math.Clamp(targetDay, 1, Constants.MaxCampaignDay);
         QuartersPhase = QuartersPhase.Morning;
         ShipsProcessedToday = 0;
         ClericalWarningsThisShift = 0;
@@ -714,11 +823,13 @@ public sealed class GameState
         BribeOfferedThisShift = false;
         TonightRationOrder = NightlyRationOrder.None;
 
-        if (Day >= 3)
+        SecurityStrikesActive = Day >= Constants.DefaultDayUnlockWarpScanner;
+        if (SecurityStrikesActive)
         {
             QuestFlags["Day3_SpectrometerRepaired"] = true;
+            QuestFlags["Day4_SpectrometerRepaired"] = true;
 
-            if (Day2SuspectDetained && !Day3KordaniOvernightRepApplied)
+            if (GhostRouteSuspectDetained && !Day3KordaniOvernightRepApplied)
             {
                 // Silently increment hidden Kordani rep_score by +2 overnight (zero UI notification)
                 RepScore["KDF-"] = GetRep("KDF-") + 2;
@@ -728,9 +839,28 @@ public sealed class GameState
         else
         {
             QuestFlags["Day3_SpectrometerRepaired"] = false;
+            QuestFlags["Day4_SpectrometerRepaired"] = false;
         }
 
-        if (Day >= 2)
+        if (Day <= 1)
+        {
+            Day1BrengopEmailRead = false;
+            Day1VorstHailCompleted = false;
+            bool foundDay1Mail = false;
+            foreach (TerminalEmail e in Emails)
+            {
+                if (e.IsDay1BrengopEmail || e.EmailId.Equals(TerminalEmail.Day1BrengopEmailId, StringComparison.OrdinalIgnoreCase))
+                {
+                    e.IsRead = false;
+                    foundDay1Mail = true;
+                }
+            }
+            if (!foundDay1Mail)
+            {
+                AddEmail(TerminalEmail.CreateDay1BrengopReassignmentEmail());
+            }
+        }
+        else if (Day >= 2)
         {
             Day1BrengopEmailRead = true;
             Day1VorstHailCompleted = true;
@@ -743,10 +873,26 @@ public sealed class GameState
             }
         }
 
-        if (Day == 3)
+        if (Day == Constants.DefaultDayUnlockWarpScanner)
         {
-            Day3PreShiftHailCompleted = false;
+            Day4PreShiftHailCompleted = false;
         }
+
+        Day2NixaHailCompleted = Day > 2;
+        Day8NixaHailCompleted = Day > Constants.DefaultDayUnlockManualPart1;
+        Day15ForemanHailCompleted = Day > Constants.DefaultDayUnlockStoker;
+        if (Day <= Constants.DefaultDayUnlockWaferCargo)
+        {
+            Day12CargoIntroShown = false;
+        }
+        AutoUnfoldedBookletTags.RemoveAll(t =>
+            (Day == 1 && t == "day1_shift") ||
+            (Day == 2 && t == "day2_sps") ||
+            (Day == Constants.DefaultDayUnlockWarpScanner && t == "day4_warp") ||
+            (Day == Constants.DefaultDayUnlockManualPart1 && t == "day8_manual") ||
+            (Day == Constants.DefaultDayUnlockManualHulls && t == "day10_hulls") ||
+            (Day == Constants.DefaultDayUnlockWaferCargo && t == "day12_cargo") ||
+            (Day == Constants.DefaultDayUnlockStoker && t == "day15_stoker"));
 
         if (Day >= 7)
         {
@@ -795,7 +941,9 @@ public sealed class GameState
                         RunSeed = loaded.RunSeed,
                         PactScrip = loaded.PactScrip,
                         SecurityStrikes = loaded.SecurityStrikes,
-                        Day2SuspectDetained = loaded.Day2SuspectDetained
+                        SecurityStrikesActive = loaded.SecurityStrikesActive || loaded.Day >= Constants.DefaultDayUnlockWarpScanner,
+                        Day2SuspectDetained = loaded.Day2SuspectDetained,
+                        GhostRouteSuspectDetained = loaded.GhostRouteSuspectDetained
                     };
                     continue;
                 }

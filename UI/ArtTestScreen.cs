@@ -1,21 +1,29 @@
 using System.Numerics;
 using Raylib_cs;
 using SubspaceProtocols.Core;
+using SubspaceProtocols.Data;
 using SubspaceProtocols.Procedural;
 
 namespace SubspaceProtocols.UI;
 
 /// <summary>
 /// Full interactive debug gallery for /design/08_Physical_Look accessible from Main Menu
-/// and via --art-test CLI flag. Allows cycling every active species, portrait mode,
-/// 4-SEED COMPARE side-by-side verification (LIVE + HOLO), faction/commercial organization,
-/// ship class (enforcing the Availability Matrix), random seed, and live toggling
-/// shieldsUp, weaponsHot, isDecommissioned, isMolting, and SPS while displaying active
-/// VRAM texture count to verify zero memory leaks.
+/// and via --art-test / F5 debug shortcut.
+/// Includes:
+/// - Tab 1 ([PORTRAITS &amp; SHIPS]): 14 species portraits, 4-seed compare, ShipRenderer V1/V2 &amp; SPS toggles.
+/// - Tab 2 ([CORRIDOR]): Procedural 16x32@3x Deck 4 Player Selector (with JSON persistence) &amp; Random NPC Lineup.
 /// </summary>
-public sealed class ArtTestScreen : IScreen
+public sealed partial class ArtTestScreen : IScreen
 {
+    public enum ArtTestTab
+    {
+        PortraitsAndShips = 0,
+        Corridor = 1
+    }
+
     private readonly ScreenManager _screenManager;
+    private readonly Core.ConfigFlags _config;
+    private ArtTestTab _activeTab = ArtTestTab.PortraitsAndShips;
 
     private Texture2D _cachedPortraitTex;
     private PortraitRenderOptions? _lastPortraitOptions;
@@ -24,8 +32,13 @@ public sealed class ArtTestScreen : IScreen
     private readonly Texture2D[] _compareHoloTextures = new Texture2D[4];
     private PortraitRenderOptions? _lastCompareBaseOptions;
 
+    private readonly Texture2D[] _compareShipTextures = new Texture2D[4];
+    private ShipRenderOptions? _lastCompareShipBaseOptions;
+    private ShipArtVersion _lastCompareShipArtVersion;
+
     private Texture2D _cachedShipTex;
     private ShipRenderOptions? _lastShipOptions;
+    private ShipArtVersion _lastSingleShipArtVersion;
 
     // Gallery state
     private int _speciesUiIndex = 0;
@@ -48,6 +61,7 @@ public sealed class ArtTestScreen : IScreen
     private bool _crudeCrayonToggle = false;
     private bool _cargoHighDraw = false;
     private bool _commsBroken = false;
+    private bool _hasHullScorch = false;
     private bool _animPaused = false;
     private int _animTick = 0;
     private float _tickAccumulator = 0f;
@@ -98,14 +112,16 @@ public sealed class ArtTestScreen : IScreen
         (PortraitRenderMode.CrudeCrayon, false, "CRUDE CRAYON (FORGED ID)")
     ];
 
-    public ArtTestScreen(ScreenManager screenManager)
+    public ArtTestScreen(ScreenManager screenManager, Core.ConfigFlags? config = null)
     {
         _screenManager = screenManager;
+        _config = config ?? new Core.ConfigFlags();
     }
 
     public void OnEnter()
     {
-        EnsureCachedTexturesUpToDate(forceRebuild: true);
+        InitializeCorridorTabState();
+        EnsureActiveTabTexturesUpToDate(forceRebuild: true);
     }
 
     public void OnExit()
@@ -126,10 +142,62 @@ public sealed class ArtTestScreen : IScreen
             }
         }
 
-        HandleKeyboardShortcuts();
-        HandleMouseInput(mouse);
+        if (_corridorSavedBannerTimer > 0f)
+        {
+            _corridorSavedBannerTimer = Math.Max(0f, _corridorSavedBannerTimer - deltaTime);
+        }
 
-        EnsureCachedTexturesUpToDate(forceRebuild: false);
+        if (Raylib.IsKeyPressed(KeyboardKey.Tab))
+        {
+            SwitchTab(_activeTab == ArtTestTab.PortraitsAndShips
+                ? ArtTestTab.Corridor
+                : ArtTestTab.PortraitsAndShips);
+        }
+
+        if (_activeTab == ArtTestTab.Corridor)
+        {
+            HandleCorridorTabKeyboard();
+            HandleCorridorTabMouse(mouse);
+        }
+        else
+        {
+            HandleKeyboardShortcuts();
+            HandleMouseInput(mouse);
+        }
+
+        EnsureActiveTabTexturesUpToDate(forceRebuild: false);
+    }
+
+    private void SwitchTab(ArtTestTab nextTab)
+    {
+        if (_activeTab == nextTab)
+            return;
+
+        _activeTab = nextTab;
+        if (nextTab == ArtTestTab.Corridor)
+        {
+            UnloadPortraitsAndShipsTextures();
+            InitializeCorridorTabState();
+        }
+        else
+        {
+            UnloadCorridorTabTextures();
+        }
+
+        AudioHooks.Play("terminal_key_tab");
+        EnsureActiveTabTexturesUpToDate(forceRebuild: true);
+    }
+
+    private void EnsureActiveTabTexturesUpToDate(bool forceRebuild)
+    {
+        if (_activeTab == ArtTestTab.Corridor)
+        {
+            EnsureCorridorTabTexturesUpToDate(forceRebuild);
+        }
+        else
+        {
+            EnsureCachedTexturesUpToDate(forceRebuild);
+        }
     }
 
     private void HandleKeyboardShortcuts()
@@ -183,6 +251,15 @@ public sealed class ArtTestScreen : IScreen
             _spsEnabled = !_spsEnabled;
             AudioHooks.Play(_spsEnabled ? "sps_scanner_on" : "sps_scanner_off");
         }
+        else if (Raylib.IsKeyPressed(KeyboardKey.G) || Raylib.IsKeyPressed(KeyboardKey.Seven))
+        {
+            ToggleShipArtVersion();
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Eight))
+        {
+            _hasHullScorch = !_hasHullScorch;
+            AudioHooks.Play("terminal_key_tab");
+        }
     }
 
     private void HandleMouseInput(VirtualMouseState mouse)
@@ -190,7 +267,17 @@ public sealed class ArtTestScreen : IScreen
         if (!mouse.LeftPressed)
             return;
 
-        // Top Header: Main Menu (1100, 6, 164, 28)
+        // Top Header: Tab Switcher + Main Menu (1100, 6, 164, 28)
+        if (mouse.IsHit(12, 6, 196, 28))
+        {
+            SwitchTab(ArtTestTab.PortraitsAndShips);
+            return;
+        }
+        if (mouse.IsHit(214, 6, 148, 28))
+        {
+            SwitchTab(ArtTestTab.Corridor);
+            return;
+        }
         if (mouse.IsHit(1100, 6, 164, 28))
         {
             AudioHooks.Play("terminal_key_confirm");
@@ -284,20 +371,24 @@ public sealed class ArtTestScreen : IScreen
         {
             CycleFaction(1);
         }
-        else if (mouse.IsHit(576, 152, 44, 36))
+        else if (mouse.IsHit(576, 152, 40, 36))
         {
             CycleShipClass(-1);
         }
-        else if (mouse.IsHit(624, 152, 304, 36) || mouse.IsHit(932, 152, 44, 36))
+        else if (mouse.IsHit(620, 152, 212, 36) || mouse.IsHit(836, 152, 40, 36))
         {
             CycleShipClass(1);
         }
-        else if (mouse.IsHit(984, 152, 268, 36))
+        else if (mouse.IsHit(884, 152, 168, 36))
         {
             _shipRenderMode = _shipRenderMode == ShipRenderMode.Live
                 ? ShipRenderMode.Manual
                 : ShipRenderMode.Live;
             AudioHooks.Play("terminal_key_tab");
+        }
+        else if (mouse.IsHit(1060, 152, 192, 36))
+        {
+            ToggleShipArtVersion();
         }
         // Direct Ship Class Availability Matrix buttons (y = 196)
         else if (mouse.IsHit(576, 196, 128, 36))
@@ -337,21 +428,34 @@ public sealed class ArtTestScreen : IScreen
             AudioHooks.Play(_spsEnabled ? "sps_scanner_on" : "sps_scanner_off");
         }
         // Ship Live Toggles Row 2 (y = 284)
-        else if (mouse.IsHit(576, 284, 332, 36))
+        else if (mouse.IsHit(576, 284, 228, 36))
         {
             _isDecommissioned = !_isDecommissioned;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(916, 284, 168, 36))
+        else if (mouse.IsHit(810, 284, 134, 36))
+        {
+            _hasHullScorch = !_hasHullScorch;
+            AudioHooks.Play("terminal_key_tab");
+        }
+        else if (mouse.IsHit(950, 284, 146, 36))
         {
             _cargoHighDraw = !_cargoHighDraw;
             AudioHooks.Play("terminal_key_tab");
         }
-        else if (mouse.IsHit(1092, 284, 160, 36))
+        else if (mouse.IsHit(1102, 284, 150, 36))
         {
             _commsBroken = !_commsBroken;
             AudioHooks.Play("terminal_key_tab");
         }
+    }
+
+    private void ToggleShipArtVersion()
+    {
+        _config.ShipArtVersion = _config.ShipArtVersion == ShipArtVersion.V1_Classic
+            ? ShipArtVersion.V2_HiBit
+            : ShipArtVersion.V1_Classic;
+        AudioHooks.Play("terminal_key_tab");
     }
 
     private void ToggleFourSeedCompare()
@@ -360,13 +464,15 @@ public sealed class ArtTestScreen : IScreen
         AudioHooks.Play("terminal_key_confirm");
         if (_fourSeedCompare)
         {
-            // Unload single portrait texture while in 4-seed compare mode
+            // Unload single portrait & ship textures while in 4-seed compare mode
             PixelBuffer.UnloadTexture(ref _cachedPortraitTex);
+            PixelBuffer.UnloadTexture(ref _cachedShipTex);
             _lastPortraitOptions = null;
+            _lastShipOptions = null;
         }
         else
         {
-            // Cleanly unload all 8 compare textures when returning to single view
+            // Cleanly unload all compare textures when returning to single view
             UnloadCompareGridTextures();
         }
     }
@@ -470,18 +576,36 @@ public sealed class ArtTestScreen : IScreen
             IsDecommissioned = _isDecommissioned,
             CargoHighDraw = _cargoHighDraw,
             CommsBroken = _commsBroken,
+            HasDownstreamHullScorch = _hasHullScorch,
             AnimTick = _animTick
         };
     }
 
+    private static bool AreShipOptionsEqualForRender(ShipRenderOptions? a, ShipRenderOptions b) =>
+        a != null &&
+        a.SeedId == b.SeedId &&
+        a.Faction == b.Faction &&
+        a.RequestedClass == b.RequestedClass &&
+        a.Mode == b.Mode &&
+        a.SpsEnabled == b.SpsEnabled &&
+        a.ShieldsUp == b.ShieldsUp &&
+        a.WeaponsHot == b.WeaponsHot &&
+        a.IsDecommissioned == b.IsDecommissioned &&
+        a.CargoHighDraw == b.CargoHighDraw &&
+        a.CommsBroken == b.CommsBroken &&
+        a.HasDownstreamHullScorch == b.HasDownstreamHullScorch &&
+        a.EffectiveAnimBucket == b.EffectiveAnimBucket;
+
     /// <summary>
     /// Enforces strict caching: regenerates and re-uploads GPU Texture2D ONLY when the seed,
-    /// species/faction, toggles, or quantized animation bucket actually changes.
+    /// species/faction, art version, toggles, or quantized animation bucket actually changes.
     /// Explicitly unloads the previous GPU textures before uploading replacements.
     /// </summary>
     private void EnsureCachedTexturesUpToDate(bool forceRebuild)
     {
         PortraitRenderOptions nextPortrait = BuildCurrentPortraitOptions();
+        ShipRenderOptions nextShip = BuildCurrentShipOptions();
+        ShipArtVersion activeArtVersion = _config.ShipArtVersion;
 
         if (_fourSeedCompare)
         {
@@ -498,7 +622,7 @@ public sealed class ArtTestScreen : IScreen
 
             if (compareDirty)
             {
-                UnloadCompareGridTextures();
+                UnloadComparePortraitTextures();
                 for (int i = 0; i < 4; i++)
                 {
                     string subSeed = $"{nextPortrait.SeedId}{CompareSeedSuffixes[i]}";
@@ -520,6 +644,27 @@ public sealed class ArtTestScreen : IScreen
                     _compareHoloTextures[i] = holoBuf.ToTexture2D();
                 }
                 _lastCompareBaseOptions = nextPortrait;
+            }
+
+            bool compareShipDirty = forceRebuild ||
+                _compareShipTextures[0].Id == 0 ||
+                _lastCompareShipArtVersion != activeArtVersion ||
+                !AreShipOptionsEqualForRender(_lastCompareShipBaseOptions, nextShip);
+
+            if (compareShipDirty)
+            {
+                UnloadCompareShipTextures();
+                for (int i = 0; i < 4; i++)
+                {
+                    string subSeed = $"{nextShip.SeedId}{CompareSeedSuffixes[i]}";
+                    ShipRenderOptions subOpt = nextShip with { SeedId = subSeed };
+                    PixelBuffer sBuf = activeArtVersion == ShipArtVersion.V2_HiBit
+                        ? ShipRendererV2.RenderNative280x120Buffer(subOpt, out _)
+                        : ShipRenderer.RenderBuffer(subOpt);
+                    _compareShipTextures[i] = sBuf.ToTexture2D();
+                }
+                _lastCompareShipBaseOptions = nextShip;
+                _lastCompareShipArtVersion = activeArtVersion;
             }
         }
         else
@@ -544,30 +689,22 @@ public sealed class ArtTestScreen : IScreen
                 _cachedPortraitTex = pBuf.ToTexture2D();
                 _lastPortraitOptions = nextPortrait;
             }
-        }
 
-        ShipRenderOptions nextShip = BuildCurrentShipOptions();
-        bool shipDirty = forceRebuild ||
-            _cachedShipTex.Id == 0 ||
-            _lastShipOptions == null ||
-            _lastShipOptions.SeedId != nextShip.SeedId ||
-            _lastShipOptions.Faction != nextShip.Faction ||
-            _lastShipOptions.RequestedClass != nextShip.RequestedClass ||
-            _lastShipOptions.Mode != nextShip.Mode ||
-            _lastShipOptions.SpsEnabled != nextShip.SpsEnabled ||
-            _lastShipOptions.ShieldsUp != nextShip.ShieldsUp ||
-            _lastShipOptions.WeaponsHot != nextShip.WeaponsHot ||
-            _lastShipOptions.IsDecommissioned != nextShip.IsDecommissioned ||
-            _lastShipOptions.CargoHighDraw != nextShip.CargoHighDraw ||
-            _lastShipOptions.CommsBroken != nextShip.CommsBroken ||
-            _lastShipOptions.EffectiveAnimBucket != nextShip.EffectiveAnimBucket;
+            bool shipDirty = forceRebuild ||
+                _cachedShipTex.Id == 0 ||
+                _lastSingleShipArtVersion != activeArtVersion ||
+                !AreShipOptionsEqualForRender(_lastShipOptions, nextShip);
 
-        if (shipDirty)
-        {
-            PixelBuffer.UnloadTexture(ref _cachedShipTex);
-            PixelBuffer sBuf = ShipRenderer.RenderBuffer(nextShip);
-            _cachedShipTex = sBuf.ToTexture2D();
-            _lastShipOptions = nextShip;
+            if (shipDirty)
+            {
+                PixelBuffer.UnloadTexture(ref _cachedShipTex);
+                PixelBuffer sBuf = activeArtVersion == ShipArtVersion.V2_HiBit
+                    ? ShipRendererV2.RenderBuffer(nextShip)
+                    : ShipRenderer.RenderBuffer(nextShip);
+                _cachedShipTex = sBuf.ToTexture2D();
+                _lastShipOptions = nextShip;
+                _lastSingleShipArtVersion = activeArtVersion;
+            }
         }
     }
 
@@ -576,17 +713,27 @@ public sealed class ArtTestScreen : IScreen
         Raylib.ClearBackground(Palette.DeepSpaceVoid);
 
         // =====================================================================
-        // 1. TOP HEADER & LIVE VRAM TEXTURE TELEMETRY (1280x720 Native)
+        // 1. TOP HEADER, TAB SWITCHER & LIVE VRAM TEXTURE TELEMETRY (1280x720)
         // =====================================================================
         Raylib.DrawRectangle(0, 0, Constants.VirtualWidth, 40, Palette.OutlineVoid);
         Raylib.DrawLine(0, 40, Constants.VirtualWidth, 40, Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText("08_PHYSICAL_LOOK // PROCEDURAL ART GALLERY (1280x720 NATIVE)", 12, 15, 10, Palette.CrtAmberPrimary);
+
+        DrawToggleButton(mouse, 12, 6, 196, 28,
+            "[PORTRAITS & SHIPS]", _activeTab == ArtTestTab.PortraitsAndShips, Palette.CrtAmberPrimary);
+        DrawToggleButton(mouse, 214, 6, 148, 28,
+            "[CORRIDOR]", _activeTab == ArtTestTab.Corridor, Palette.ClearanceTeal);
 
         string vramText =
             $"VRAM TEX: {PixelBuffer.TotalActiveVramTextures} (PROC:{PixelBuffer.ActiveProceduralTextureCount} GEN:{PixelBuffer.TotalProceduralTexturesCreated} FREE:{PixelBuffer.TotalProceduralTexturesUnloaded})";
-        Raylib.DrawText(vramText, 512, 15, 10, Palette.ClearanceTeal);
+        UiText.Draw(vramText, 382, 15, 10, Palette.ClearanceTeal);
 
         DrawButton(mouse, 1100, 6, 164, 28, "MAIN MENU");
+
+        if (_activeTab == ArtTestTab.Corridor)
+        {
+            DrawCorridorTabVirtual(mouse);
+            return;
+        }
 
         // =====================================================================
         // 2. SEED & ANIMATION BAR (y = 52..88)
@@ -596,7 +743,7 @@ public sealed class ArtTestScreen : IScreen
         DrawButton(mouse, 228, 52, 176, 36, "RANDOM [R]");
 
         uint fnvHash = DeterministicRng.HashSeedFnv1a(_currentSeed);
-        Raylib.DrawText($"SEED: {_currentSeed} (FNV1a: 0x{fnvHash:X8})", 418, 65, 10, Palette.CrtAmberPrimary);
+        UiText.Draw($"SEED: {_currentSeed} (FNV1a: 0x{fnvHash:X8})", 418, 65, 10, Palette.CrtAmberPrimary);
 
         DrawToggleButton(mouse, 1048, 52, 220, 36,
             _animPaused ? "ANIM: PAUSED" : "ANIM: LIVE",
@@ -649,7 +796,7 @@ public sealed class ArtTestScreen : IScreen
                     Raylib.DrawRectangleLines(px - 1, 383, 130, 130, Palette.ClearanceTeal);
                 }
             }
-            Raylib.DrawText("TOP: 4 SEEDS [LIVE 128x128]   |   BOT: 4 SEEDS [HOLO 128x128]", 28, 516, 10, Palette.ClearanceTeal);
+            UiText.Draw("TOP: 4 SEEDS [LIVE 128x128]   |   BOT: 4 SEEDS [HOLO 128x128]", 28, 516, 10, Palette.ClearanceTeal);
         }
         else
         {
@@ -667,14 +814,14 @@ public sealed class ArtTestScreen : IScreen
 
                 Raylib.DrawTexture(_cachedPortraitTex, 452, 248, Color.White);
                 Raylib.DrawRectangleLines(451, 247, 66, 66, Palette.WeatheredGunmetalEdge);
-                Raylib.DrawText("64x64 NATIVE", 448, 322, 10, Palette.CrtAmberPrimary);
-                Raylib.DrawText("128x128 (2X)", 306, 384, 10, Palette.CrtAmberDimmed);
+                UiText.Draw("64x64 NATIVE", 448, 322, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("128x128 (2X)", 306, 384, 10, Palette.CrtAmberDimmed);
             }
 
-            Raylib.DrawText("7-LAYER PIPELINE OK", 304, 412, 10, Palette.ClearanceTeal);
-            Raylib.DrawText("BAYER 4x4 + #080b10", 304, 432, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("NO ZULAK/VESH/PRENN", 304, 452, 10, Palette.ClearanceTeal);
-            Raylib.DrawText("4X CRT (256x256)", 48, 512, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("7-LAYER PIPELINE OK", 304, 412, 10, Palette.ClearanceTeal);
+            UiText.Draw("BAYER 4x4 + #080b10", 304, 432, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("NO ZULAK/VESH/PRENN", 304, 452, 10, Palette.ClearanceTeal);
+            UiText.Draw("4X CRT (256x256)", 48, 512, 10, Palette.CrtAmberDimmed);
         }
 
         // Quick 1-click Portrait Mode row (y = 532)
@@ -683,8 +830,8 @@ public sealed class ArtTestScreen : IScreen
         DrawToggleButton(mouse, 284, 532, 124, 36, "HOLO", _portraitModeIndex is 2 or 3, Palette.ClearanceTeal);
         DrawToggleButton(mouse, 414, 532, 134, 36, "CRAYON", _portraitModeIndex == 4, Palette.AlertCrimson);
 
-        Raylib.DrawText(spEntry.Note, 24, 584, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawText("KEYS: [S]PECIES [M]ODE [V] 4-SEED COMPARE [4]MOLT", 24, 616, 10, Palette.CrtAmberDimmed);
+        UiText.Draw(spEntry.Note, 24, 584, 10, Palette.CrtAmberPrimary);
+        UiText.Draw("KEYS: [S]PECIES [M]ODE [V] 4-SEED COMPARE [4]MOLT", 24, 616, 10, Palette.CrtAmberDimmed);
 
         // =====================================================================
         // 4. RIGHT PANEL: 120x56 LEFT-FACING STARSHIP RENDERER & SPS LAYER (x = 564..1268)
@@ -701,13 +848,18 @@ public sealed class ArtTestScreen : IScreen
             $"{_factionIndex + 1}/{ShipRenderer.AllFactions.Count}: {ShipRenderer.GetFactionDisplayName(faction)}");
         DrawButton(mouse, 1208, 108, 44, 36, ">");
 
-        DrawButton(mouse, 576, 152, 44, 36, "<");
-        DrawButton(mouse, 624, 152, 304, 36, $"CLASS: {effectiveClass.ToString().ToUpperInvariant()}");
-        DrawButton(mouse, 932, 152, 44, 36, ">");
+        DrawButton(mouse, 576, 152, 40, 36, "<");
+        DrawButton(mouse, 620, 152, 212, 36, $"CLASS: {effectiveClass.ToString().ToUpperInvariant()}");
+        DrawButton(mouse, 836, 152, 40, 36, ">");
 
-        DrawToggleButton(mouse, 984, 152, 268, 36,
+        DrawToggleButton(mouse, 884, 152, 168, 36,
             _shipRenderMode == ShipRenderMode.Manual ? "CHART: MANUAL" : "VIEW: LIVE",
             _shipRenderMode == ShipRenderMode.Manual, Palette.CrtAmberPrimary);
+
+        bool isShipV2 = _config.ShipArtVersion == ShipArtVersion.V2_HiBit;
+        DrawToggleButton(mouse, 1060, 152, 192, 36,
+            isShipV2 ? "SHIP ART: V2" : "SHIP ART: V1",
+            isShipV2, Palette.ClearanceTeal);
 
         // Ship Class Availability Matrix Pills (y = 196)
         DrawClassMatrixPill(mouse, 576, 196, 128, 36, "MIL", faction, ShipClass.Military, effectiveClass);
@@ -733,63 +885,120 @@ public sealed class ArtTestScreen : IScreen
         string decommLabel = !_isDecommissioned
             ? "isDecomm: OFF [3]"
             : (effectiveDecomm ? "isDecomm: ACTIVE" : "isDecomm: GU CIV/CRG!");
-        DrawToggleButton(mouse, 576, 284, 332, 36,
+        DrawToggleButton(mouse, 576, 284, 228, 36,
             decommLabel,
             effectiveDecomm,
             _isDecommissioned && !effectiveDecomm ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
 
-        DrawToggleButton(mouse, 916, 284, 168, 36,
+        DrawToggleButton(mouse, 810, 284, 134, 36,
+            _hasHullScorch ? "SCORCH: ON" : "SCORCH: OFF",
+            _hasHullScorch, Palette.BrownDwarfGlowRim);
+
+        DrawToggleButton(mouse, 950, 284, 146, 36,
             _cargoHighDraw ? "CARGO:HOT" : "CARGO:STD",
             _cargoHighDraw, Palette.SpsCargoHighDraw);
 
-        DrawToggleButton(mouse, 1092, 284, 160, 36,
+        DrawToggleButton(mouse, 1102, 284, 150, 36,
             _commsBroken ? "COMMS:BRK" : "COMMS:OK",
             !_commsBroken, Palette.SpsCommsActive);
 
-        // 120x56 Left-Facing Starship Viewport (4x scaled -> 480x224)
-        Raylib.DrawText("<-- BOW (LEFT: x=8..35)      STERN/PYLONS (RIGHT: x=75..114) -->", 580, 334, 10, Palette.CrtAmberDimmed);
-        if (_cachedShipTex.Id != 0)
+        if (_fourSeedCompare)
         {
-            Raylib.DrawRectangle(580, 360, Constants.ShipWidth * 4, Constants.ShipHeight * 4, Palette.DeepSpaceVoid);
-            Rectangle src = new(0, 0, Constants.ShipWidth, Constants.ShipHeight);
-            Rectangle dst4x = new(580, 360, Constants.ShipWidth * 4, Constants.ShipHeight * 4);
-            Raylib.DrawTexturePro(_cachedShipTex, src, dst4x, Vector2.Zero, 0f, Color.White);
-            Color borderCol = _spsEnabled ? Palette.SpsCommsActive : Palette.BrownDwarfGlowRim;
-            Raylib.DrawRectangleLines(579, 359, Constants.ShipWidth * 4 + 2, Constants.ShipHeight * 4 + 2, borderCol);
+            UiText.Draw("4-SEED COMPARE: [G] TOGGLE V1/V2  |  WITHIN-CLASS VARIETY & SILHOUETTE LOCK", 576, 328, 10, Palette.ClearanceTeal);
+            for (int i = 0; i < 4; i++)
+            {
+                int cellX = 576 + (i % 2) * 340;
+                int cellY = 344 + (i / 2) * 128;
+                const int cellW = 336;
+                const int cellH = 122;
+
+                Raylib.DrawRectangle(cellX, cellY, cellW, cellH, Palette.DeepSpaceVoid);
+                if (_compareShipTextures[i].Id != 0)
+                {
+                    if (isShipV2 && _compareShipTextures[i].Width == ShipRendererV2.ArtWidth)
+                    {
+                        Raylib.DrawTexture(_compareShipTextures[i], cellX + (cellW - ShipRendererV2.ArtWidth) / 2, cellY + 1, Color.White);
+                    }
+                    else
+                    {
+                        Rectangle src = new(0, 0, Constants.ShipWidth, Constants.ShipHeight);
+                        Rectangle dst2x = new(cellX + (cellW - Constants.ShipWidth * 2) / 2, cellY + 5, Constants.ShipWidth * 2, Constants.ShipHeight * 2);
+                        Raylib.DrawTexturePro(_compareShipTextures[i], src, dst2x, Vector2.Zero, 0f, Color.White);
+                    }
+                }
+                Color cellBorder = _spsEnabled ? Palette.SpsCommsActive : Palette.WeatheredGunmetalEdge;
+                Raylib.DrawRectangleLines(cellX, cellY, cellW, cellH, cellBorder);
+                string seedTag = i == 0 ? "BASE" : CompareSeedSuffixes[i].TrimStart('-');
+                UiText.Draw(seedTag, cellX + 6, cellY + 4, 10, Palette.CrtAmberPrimary);
+            }
+
+            UiText.Draw(
+                isShipV2
+                    ? "V2 HI-BIT 280x120 (1X CELLS) | COMPARE 4 SEEDS FOR LIVERY, GREEBLES & WEAR"
+                    : "V1 CLASSIC 120x56 (2X CELLS) | PRESS [G] TO COMPARE WITH V2 HI-BIT",
+                576, 608, 10, Palette.ClearanceTeal);
+            UiText.Draw("SPS RULE: Dynamic anchors per class; blocked by static arcs if shieldsUp.", 576, 632, 10, Palette.CrtAmberDimmed);
         }
-
-        // Right-side SPS & Hull Telemetry Legend Box (x = 1072..1252, y = 360..584)
-        Raylib.DrawRectangle(1072, 360, 180, 224, Palette.DeepSpaceVoid);
-        Raylib.DrawRectangleLines(1072, 360, 180, 224, Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText("SPS HARDPOINTS", 1084, 374, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawText(_weaponsHot ? "WPN: #ef4444" : "WPN: #1e293b", 1084, 404, 10,
-            _weaponsHot ? Palette.SpsWeaponsHot : Palette.CrtAmberDimmed);
-        Raylib.DrawText("WRP: #f59e0b", 1084, 428, 10, Palette.SpsWarpPrimed);
-        Raylib.DrawText(!_commsBroken ? "COM: #38bdf8" : "COM: #475569", 1084, 452, 10,
-            !_commsBroken ? Palette.SpsCommsActive : Palette.CrtAmberDimmed);
-        Raylib.DrawText(_cargoHighDraw ? "CRG: #a855f7" : "CRG: #1e293b", 1084, 476, 10,
-            _cargoHighDraw ? Palette.SpsCargoHighDraw : Palette.CrtAmberDimmed);
-        Raylib.DrawText("GRID: 120x56 (4X)", 1084, 512, 10, Palette.ClearanceTeal);
-        Raylib.DrawText("FACE: LEFT", 1084, 536, 10, Palette.CrtAmberPrimary);
-
-        string shipRuleNote = effectiveClass switch
+        else
         {
-            ShipClass.Civilian => "CIV SILHOUETTE: Compact ~68px shuttle/runabout profile with dynamic SPS anchors.",
-            ShipClass.Cargo => "CRG SILHOUETTE: Stretched ~108px heavy hauler spine/pods with dynamic SPS anchors.",
-            ShipClass.Military => "MIL SILHOUETTE: Compact wide aggressive combat hull with tucked-in armored pylons.",
-            ShipClass.Diplomatic => "DIP SILHOUETTE: Stretched sleek cruiser/command yacht with dorsal fins/domes.",
-            _ => "PRUNJUN HACK-JOB: Rigid Factions A+B+C + Round Bubble Cockpit + Clipped Flames."
-        };
-        Raylib.DrawText(shipRuleNote, 580, 604, 10, Palette.ClearanceTeal);
-        Raylib.DrawText("SPS RULE: Dynamic anchors per class; blocked by static arcs if shieldsUp.", 580, 632, 10, Palette.CrtAmberDimmed);
+            // Left-Facing Starship Viewport (576, 346, 560, 240): V2 560x240 1:1 or V1 120x56 @ 4x (480x224)
+            UiText.Draw(
+                isShipV2
+                    ? "<-- BOW (LEFT)      V2 HI-BIT 280x120 @ 2X (560x240)      STERN/PYLONS (RIGHT) -->"
+                    : "<-- BOW (LEFT: x=8..35)      V1 120x56 @ 4X (480x224)      STERN/PYLONS (RIGHT) -->",
+                576, 328, 10, Palette.CrtAmberDimmed);
+
+            Raylib.DrawRectangle(576, 346, 560, 240, Palette.DeepSpaceVoid);
+            if (_cachedShipTex.Id != 0)
+            {
+                if (isShipV2 && _cachedShipTex.Width == ShipRendererV2.OutputWidth && _cachedShipTex.Height == ShipRendererV2.OutputHeight)
+                {
+                    Raylib.DrawTexture(_cachedShipTex, 576, 346, Color.White);
+                }
+                else
+                {
+                    Rectangle src = new(0, 0, Constants.ShipWidth, Constants.ShipHeight);
+                    Rectangle dst4x = new(616, 354, Constants.ShipWidth * 4, Constants.ShipHeight * 4);
+                    Raylib.DrawTexturePro(_cachedShipTex, src, dst4x, Vector2.Zero, 0f, Color.White);
+                }
+            }
+            Color borderCol = _spsEnabled ? Palette.SpsCommsActive : Palette.BrownDwarfGlowRim;
+            Raylib.DrawRectangleLines(575, 345, 562, 242, borderCol);
+
+            // Right-side SPS & Hull Telemetry Legend Box (x = 1144..1256, y = 346..586)
+            Raylib.DrawRectangle(1144, 346, 112, 240, Palette.DeepSpaceVoid);
+            Raylib.DrawRectangleLines(1144, 346, 112, 240, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("SPS / ART", 1152, 360, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(_weaponsHot ? "WPN:#ef4444" : "WPN:#1e293b", 1152, 390, 10,
+                _weaponsHot ? Palette.SpsWeaponsHot : Palette.CrtAmberDimmed);
+            UiText.Draw("WRP:#f59e0b", 1152, 414, 10, Palette.SpsWarpPrimed);
+            UiText.Draw(!_commsBroken ? "COM:#38bdf8" : "COM:#475569", 1152, 438, 10,
+                !_commsBroken ? Palette.SpsCommsActive : Palette.CrtAmberDimmed);
+            UiText.Draw(_cargoHighDraw ? "CRG:#a855f7" : "CRG:#1e293b", 1152, 462, 10,
+                _cargoHighDraw ? Palette.SpsCargoHighDraw : Palette.CrtAmberDimmed);
+            UiText.Draw(isShipV2 ? "V2:280x120" : "V1:120x56", 1152, 498, 10, Palette.ClearanceTeal);
+            UiText.Draw(isShipV2 ? "SCALE: 2X" : "SCALE: 4X", 1152, 520, 10, Palette.CrtAmberPrimary);
+            UiText.Draw("FACE: LEFT", 1152, 542, 10, Palette.CrtAmberDimmed);
+
+            string shipRuleNote = effectiveClass switch
+            {
+                ShipClass.Civilian => "CIV SILHOUETTE: Compact shuttle/runabout profile with dynamic SPS anchors.",
+                ShipClass.Cargo => "CRG SILHOUETTE: Stretched heavy hauler spine/pods with dynamic SPS anchors.",
+                ShipClass.Military => "MIL SILHOUETTE: Compact wide aggressive combat hull with tucked-in armored pylons.",
+                ShipClass.Diplomatic => "DIP SILHOUETTE: Stretched sleek cruiser/command yacht with dorsal fins/domes.",
+                _ => "PRUNJUN HACK-JOB: Rigid Factions A+B+C + Round Bubble Cockpit + Clipped Flames."
+            };
+            UiText.Draw(shipRuleNote, 576, 608, 10, Palette.ClearanceTeal);
+            UiText.Draw("SPS RULE: Dynamic anchors per class; blocked by static arcs if shieldsUp.", 576, 632, 10, Palette.CrtAmberDimmed);
+        }
 
         // =====================================================================
         // 5. FOOTER STATUS BAR (y = 680..720)
         // =====================================================================
         Raylib.DrawRectangle(0, 680, Constants.VirtualWidth, 40, Palette.OutlineVoid);
         Raylib.DrawLine(0, 680, Constants.VirtualWidth, 680, Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText(
-            "HOTKEYS: [S]PECIES [M]ODE [V] 4-SEED [F]ACTION [C]LASS [R]ANDOM [1]SHIELD [2]WPN [3]DECOMM [4]MOLT [5]SPS",
+        UiText.Draw(
+            "KEYS: [S]PEC [M]ODE [V]4-SEED [F]ACT [C]LASS [G]V1/V2 [R]ND [1]SHLD [2]WPN [3]DEC [4]MLT [5]SPS [8]SCRCH",
             16, 695, 10, Palette.CrtAmberDimmed);
     }
 
@@ -821,8 +1030,8 @@ public sealed class ArtTestScreen : IScreen
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
         string label = allowed ? $"[{shortName}]" : $"x{shortName}x";
-        int lw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, x + Math.Max(6, (w - lw) / 2), y + (h - 10) / 2, 10, textCol);
+        int lw = UiText.MeasureWidth(label, 10);
+        UiText.Draw(label, x + Math.Max(6, (w - lw) / 2), y + (h - 10) / 2, 10, textCol);
     }
 
     private static void DrawButton(VirtualMouseState mouse, int x, int y, int w, int h, string text)
@@ -830,8 +1039,8 @@ public sealed class ArtTestScreen : IScreen
         bool hovered = mouse.IsHit(x, y, w, h);
         Raylib.DrawRectangle(x, y, w, h, hovered ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, w, h, hovered ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
-        int tw = Raylib.MeasureText(text, 10);
-        Raylib.DrawText(text, x + Math.Max(6, (w - tw) / 2), y + (h - 10) / 2, 10, Palette.CrtAmberPrimary);
+        int tw = UiText.MeasureWidth(text, 10);
+        UiText.Draw(text, x + Math.Max(6, (w - tw) / 2), y + (h - 10) / 2, 10, Palette.CrtAmberPrimary);
     }
 
     private static void DrawToggleButton(
@@ -851,11 +1060,11 @@ public sealed class ArtTestScreen : IScreen
 
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        int tw = Raylib.MeasureText(text, 10);
-        Raylib.DrawText(text, x + Math.Max(5, (w - tw) / 2), y + (h - 10) / 2, 10, txtCol);
+        int tw = UiText.MeasureWidth(text, 10);
+        UiText.Draw(text, x + Math.Max(5, (w - tw) / 2), y + (h - 10) / 2, 10, txtCol);
     }
 
-    private void UnloadCompareGridTextures()
+    private void UnloadComparePortraitTextures()
     {
         for (int i = 0; i < 4; i++)
         {
@@ -865,7 +1074,22 @@ public sealed class ArtTestScreen : IScreen
         _lastCompareBaseOptions = null;
     }
 
-    private void UnloadCachedTextures()
+    private void UnloadCompareShipTextures()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            PixelBuffer.UnloadTexture(ref _compareShipTextures[i]);
+        }
+        _lastCompareShipBaseOptions = null;
+    }
+
+    private void UnloadCompareGridTextures()
+    {
+        UnloadComparePortraitTextures();
+        UnloadCompareShipTextures();
+    }
+
+    private void UnloadPortraitsAndShipsTextures()
     {
         PixelBuffer.UnloadTexture(ref _cachedPortraitTex);
         PixelBuffer.UnloadTexture(ref _cachedShipTex);
@@ -874,8 +1098,40 @@ public sealed class ArtTestScreen : IScreen
         _lastShipOptions = null;
     }
 
+    private void UnloadCachedTextures()
+    {
+        UnloadPortraitsAndShipsTextures();
+        UnloadCorridorTabTextures();
+    }
+
     public void Unload()
     {
         UnloadCachedTextures();
+    }
+
+    internal void SmokeToggleShipArtVersion()
+    {
+        ToggleShipArtVersion();
+        EnsureCachedTexturesUpToDate(forceRebuild: false);
+    }
+
+    internal void SmokeSetFourSeedCompare(bool enabled)
+    {
+        if (_fourSeedCompare != enabled)
+        {
+            ToggleFourSeedCompare();
+        }
+        EnsureCachedTexturesUpToDate(forceRebuild: false);
+    }
+
+    internal (int SingleW, int SingleH, int CompareShipCount, int CompareShipW, int CompareShipH) SmokeGetShipTextureMetrics()
+    {
+        int count = 0;
+        for (int i = 0; i < _compareShipTextures.Length; i++)
+        {
+            if (_compareShipTextures[i].Id != 0)
+                count++;
+        }
+        return (_cachedShipTex.Width, _cachedShipTex.Height, count, _compareShipTextures[0].Width, _compareShipTextures[0].Height);
     }
 }

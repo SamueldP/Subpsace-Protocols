@@ -22,6 +22,7 @@ public sealed class CommsTranscriptLine
     public string Text { get; init; } = string.Empty;
     public CommsSpeakerKind Speaker { get; init; }
     public CommsTextTone Tone { get; init; }
+    public bool IsCaptainStatementEvidence { get; init; }
 }
 
 public sealed class CommsQueuedLine
@@ -35,6 +36,7 @@ public sealed class CommsQueuedLine
     public bool ShowReceivingIndicatorDuringPreDelay { get; init; }
     public bool SuppressAutoReceivingLag { get; init; }
     public bool IsTalkingHeadLine { get; init; }
+    public bool IsCaptainStatementEvidence { get; init; }
     public Action? OnStart { get; init; }
     public Action? OnComplete { get; init; }
 }
@@ -51,7 +53,6 @@ public sealed class CommsQueuedLine
 public sealed class CommsTypewriterQueue
 {
     private const int MaxCommittedLines = 64;
-    private const int TypeBleepCharCadence = 3; // Throttled silent audio stub every 2-3 printed non-whitespace characters
 
     private readonly List<CommsTranscriptLine> _committedLines = [];
     private readonly Queue<CommsQueuedLine> _queue = new();
@@ -64,7 +65,6 @@ public sealed class CommsTypewriterQueue
     private bool _awaitingTalkingHeadClickAdvance;
     private int _visibleChars;
     private float _charCooldown;
-    private int _bleepCountdown = 1;
     private CommsSpeakerKind _lastSpokenSpeaker = CommsSpeakerKind.System;
 
     public IReadOnlyList<CommsTranscriptLine> CommittedLines => _committedLines;
@@ -87,9 +87,13 @@ public sealed class CommsTypewriterQueue
     public string ActiveVisibleText => IsTypingActiveLine ? _activeLine!.Text[..ActiveVisibleCharCount] : string.Empty;
     public CommsTextTone ActiveTone => _activeLine?.Tone ?? CommsTextTone.AmberPrimary;
     public CommsSpeakerKind ActiveSpeaker => _activeLine?.Speaker ?? CommsSpeakerKind.System;
+    public bool ActiveIsCaptainStatementEvidence => _activeLine?.IsCaptainStatementEvidence ?? false;
 
     public void Clear()
     {
+        AudioHooks.OnCommsLineEnd(isCaptain: false);
+        AudioHooks.StopActiveCommsVoices();
+
         _committedLines.Clear();
         _queue.Clear();
         _activeLine = null;
@@ -100,7 +104,6 @@ public sealed class CommsTypewriterQueue
         _awaitingTalkingHeadClickAdvance = false;
         _visibleChars = 0;
         _charCooldown = 0f;
-        _bleepCountdown = 1;
         _lastSpokenSpeaker = CommsSpeakerKind.System;
     }
 
@@ -151,6 +154,7 @@ public sealed class CommsTypewriterQueue
         bool showReceivingIndicatorDuringPreDelay = false,
         bool suppressAutoReceivingLag = false,
         bool isTalkingHeadLine = false,
+        bool isCaptainStatementEvidence = false,
         Action? onStart = null,
         Action? onComplete = null)
     {
@@ -168,6 +172,7 @@ public sealed class CommsTypewriterQueue
             ShowReceivingIndicatorDuringPreDelay = showReceivingIndicatorDuringPreDelay,
             SuppressAutoReceivingLag = suppressAutoReceivingLag,
             IsTalkingHeadLine = isTalkingHeadLine,
+            IsCaptainStatementEvidence = isCaptainStatementEvidence,
             OnStart = onStart,
             OnComplete = onComplete
         });
@@ -199,7 +204,8 @@ public sealed class CommsTypewriterQueue
         float charsPerSec,
         float talkingHeadCharsPerSec = 32.0f,
         float talkingHeadLinePauseSeconds = 0.95f,
-        TalkingHeadAdvanceMode talkingHeadAdvanceMode = TalkingHeadAdvanceMode.AutoAdvance)
+        TalkingHeadAdvanceMode talkingHeadAdvanceMode = TalkingHeadAdvanceMode.AutoAdvance,
+        float? rawDeltaSeconds = null)
     {
         if (scaledDeltaSeconds <= 0f)
             return;
@@ -207,6 +213,9 @@ public sealed class CommsTypewriterQueue
         float routineStep = 1.0f / Math.Clamp(charsPerSec, 15.0f, 300.0f);
         float talkingHeadStep = 1.0f / Math.Clamp(talkingHeadCharsPerSec, 10.0f, 150.0f);
         float clampedPause = Math.Clamp(talkingHeadLinePauseSeconds, 0.10f, 5.0f);
+        float rawRatio = (scaledDeltaSeconds > 1e-6f && rawDeltaSeconds.HasValue)
+            ? Math.Max(0f, rawDeltaSeconds.Value) / scaledDeltaSeconds
+            : 1.0f;
         float remainingDt = scaledDeltaSeconds;
 
         int guard = 0;
@@ -250,12 +259,15 @@ public sealed class CommsTypewriterQueue
 
                     if (remainingDt < _postLinePauseRemaining)
                     {
+                        AudioHooks.TickCommsCooldown(remainingDt * rawRatio);
                         _postLinePauseRemaining -= remainingDt;
                         remainingDt = 0f;
                         break;
                     }
 
-                    remainingDt -= _postLinePauseRemaining;
+                    float consumedPause = _postLinePauseRemaining;
+                    AudioHooks.TickCommsCooldown(consumedPause * rawRatio);
+                    remainingDt -= consumedPause;
                     _postLinePauseRemaining = 0f;
                     BeginDequeuedLine(_queue.Dequeue());
                 }
@@ -272,12 +284,15 @@ public sealed class CommsTypewriterQueue
             {
                 if (remainingDt < _preDelayRemaining)
                 {
+                    AudioHooks.TickCommsCooldown(remainingDt * rawRatio);
                     _preDelayRemaining -= remainingDt;
                     remainingDt = 0f;
                     break;
                 }
 
-                remainingDt -= _preDelayRemaining;
+                float consumedPreDelay = _preDelayRemaining;
+                AudioHooks.TickCommsCooldown(consumedPreDelay * rawRatio);
+                remainingDt -= consumedPreDelay;
                 _preDelayRemaining = 0f;
                 _isShowingReceivingIndicator = false;
             }
@@ -297,9 +312,16 @@ public sealed class CommsTypewriterQueue
                     continue;
                 }
 
+                if (_activeLine.Speaker != CommsSpeakerKind.System)
+                {
+                    AudioHooks.OnCommsLineStart(
+                        _activeLine.Speaker == CommsSpeakerKind.Officer,
+                        _activeLine.Speaker == CommsSpeakerKind.Captain,
+                        _activeLine.Text);
+                }
+
                 _visibleChars = Math.Clamp(_activeLine.InstantPrefixLength, 0, _activeLine.Text.Length);
                 _charCooldown = activeCharStep;
-                _bleepCountdown = 1;
 
                 if (_visibleChars >= _activeLine.Text.Length)
                 {
@@ -315,12 +337,15 @@ public sealed class CommsTypewriterQueue
             {
                 if (remainingDt < _charCooldown)
                 {
+                    AudioHooks.TickCommsCooldown(remainingDt * rawRatio);
                     _charCooldown -= remainingDt;
                     remainingDt = 0f;
                     break;
                 }
 
-                remainingDt -= _charCooldown;
+                float consumedCooldown = _charCooldown;
+                AudioHooks.TickCommsCooldown(consumedCooldown * rawRatio);
+                remainingDt -= consumedCooldown;
                 _charCooldown = 0f;
             }
 
@@ -329,16 +354,12 @@ public sealed class CommsTypewriterQueue
             char printed = _activeLine.Text[charIdx];
             _visibleChars++;
 
-            if (!char.IsWhiteSpace(printed) && _activeLine.Speaker != CommsSpeakerKind.System)
+            if (_activeLine.Speaker != CommsSpeakerKind.System)
             {
-                _bleepCountdown--;
-                if (_bleepCountdown <= 0)
-                {
-                    AudioHooks.Play(_activeLine.Speaker == CommsSpeakerKind.Officer
-                        ? "comms_type_officer"
-                        : "comms_type_captain");
-                    _bleepCountdown = TypeBleepCharCadence;
-                }
+                AudioHooks.OnCommsCharRevealed(
+                    printed,
+                    _activeLine.Speaker == CommsSpeakerKind.Officer,
+                    _activeLine.Speaker == CommsSpeakerKind.Captain);
             }
 
             if (_visibleChars >= _activeLine.Text.Length)
@@ -441,6 +462,7 @@ public sealed class CommsTypewriterQueue
             }
 
             CommsQueuedLine current = _activeLine!;
+            bool wasStarted = _activeLineStarted;
             _preDelayRemaining = 0f;
             _isShowingReceivingIndicator = false;
             if (!_activeLineStarted)
@@ -455,10 +477,14 @@ public sealed class CommsTypewriterQueue
             _activeLineStarted = false;
             _charCooldown = 0f;
 
-            AppendCommitted(current.Text, current.Speaker, current.Tone);
+            AppendCommitted(current.Text, current.Speaker, current.Tone, current.IsCaptainStatementEvidence);
             if (current.Speaker != CommsSpeakerKind.System)
             {
                 _lastSpokenSpeaker = current.Speaker;
+            }
+            if (wasStarted && !current.IsInstant && current.Speaker != CommsSpeakerKind.System)
+            {
+                AudioHooks.OnCommsLineEnd(current.Speaker == CommsSpeakerKind.Captain);
             }
             if (invokeCallbacks)
             {
@@ -473,13 +499,26 @@ public sealed class CommsTypewriterQueue
     /// </summary>
     public void SnapActiveAndDropPendingQueue()
     {
+        bool resolvedLineEnd = false;
         if (IsTypingActiveLine && _activeLine != null)
         {
-            AppendCommitted(_activeLine.Text, _activeLine.Speaker, _activeLine.Tone);
-            if (_activeLine.Speaker != CommsSpeakerKind.System)
+            CommsQueuedLine finished = _activeLine;
+            bool wasStarted = _activeLineStarted;
+            AppendCommitted(finished.Text, finished.Speaker, finished.Tone, finished.IsCaptainStatementEvidence);
+            if (finished.Speaker != CommsSpeakerKind.System)
             {
-                _lastSpokenSpeaker = _activeLine.Speaker;
+                _lastSpokenSpeaker = finished.Speaker;
             }
+            if (wasStarted && !finished.IsInstant && finished.Speaker != CommsSpeakerKind.System)
+            {
+                AudioHooks.OnCommsLineEnd(finished.Speaker == CommsSpeakerKind.Captain);
+                resolvedLineEnd = true;
+            }
+        }
+
+        if (!resolvedLineEnd)
+        {
+            AudioHooks.OnCommsLineEnd(isCaptain: false);
         }
 
         _activeLine = null;
@@ -568,7 +607,6 @@ public sealed class CommsTypewriterQueue
         _activeLineStarted = false;
         _visibleChars = 0;
         _charCooldown = 0f;
-        _bleepCountdown = 1;
 
         bool autoReceivingLag =
             !item.IsInstant &&
@@ -630,7 +668,7 @@ public sealed class CommsTypewriterQueue
         {
             CommsQueuedLine instant = _queue.Dequeue();
             instant.OnStart?.Invoke();
-            AppendCommitted(instant.Text, instant.Speaker, instant.Tone);
+            AppendCommitted(instant.Text, instant.Speaker, instant.Tone, instant.IsCaptainStatementEvidence);
             instant.OnComplete?.Invoke();
         }
     }
@@ -641,6 +679,7 @@ public sealed class CommsTypewriterQueue
             return;
 
         CommsQueuedLine finished = _activeLine;
+        bool wasStarted = _activeLineStarted;
         _activeLine = null;
         _activeLineStarted = false;
         _preDelayRemaining = 0f;
@@ -648,22 +687,28 @@ public sealed class CommsTypewriterQueue
         _visibleChars = 0;
         _charCooldown = 0f;
 
-        AppendCommitted(finished.Text, finished.Speaker, finished.Tone);
+        AppendCommitted(finished.Text, finished.Speaker, finished.Tone, finished.IsCaptainStatementEvidence);
         if (finished.Speaker != CommsSpeakerKind.System)
         {
             _lastSpokenSpeaker = finished.Speaker;
         }
 
+        if (wasStarted && !finished.IsInstant && finished.Speaker != CommsSpeakerKind.System)
+        {
+            AudioHooks.OnCommsLineEnd(finished.Speaker == CommsSpeakerKind.Captain);
+        }
+
         finished.OnComplete?.Invoke();
     }
 
-    private void AppendCommitted(string text, CommsSpeakerKind speaker, CommsTextTone tone)
+    private void AppendCommitted(string text, CommsSpeakerKind speaker, CommsTextTone tone, bool isStatementEvidence = false)
     {
         _committedLines.Add(new CommsTranscriptLine
         {
             Text = text,
             Speaker = speaker,
-            Tone = tone
+            Tone = tone,
+            IsCaptainStatementEvidence = isStatementEvidence
         });
 
         while (_committedLines.Count > MaxCommittedLines)

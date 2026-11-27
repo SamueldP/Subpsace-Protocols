@@ -8,7 +8,8 @@ public enum ScreenId
     Corridor = 1,
     Desk = 2,
     Quarters = 3,
-    ArtTest = 4
+    ArtTest = 4,
+    Intro = 5
 }
 
 /// <summary>

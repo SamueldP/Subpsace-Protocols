@@ -54,8 +54,6 @@ public readonly record struct DeskLayoutRects
     public int TranscriptTextMaxPx { get; init; }
     public DeskRect CommsStrip { get; init; }
     public DeskRect NextHailBtn { get; init; }
-    public DeskRect LowerShieldsBtn { get; init; }
-    public DeskRect PwrDownWpnBtn { get; init; }
     public DeskRect ProtocolReviewBtn { get; init; }
     public DeskRect SlateBus { get; init; }
     public DeskRect SlateBusDockedSlate { get; init; }
@@ -121,9 +119,7 @@ public readonly record struct DeskLayoutRects
                 TranscriptVisibleRows = 14,
                 TranscriptTextMaxPx = 364 - ScrollbarW - 14,
                 CommsStrip = new DeskRect(908, 264, 364, 44),
-                NextHailBtn = new DeskRect(908, 264, 116, 44),
-                LowerShieldsBtn = new DeskRect(1032, 264, 116, 44),
-                PwrDownWpnBtn = new DeskRect(1156, 264, 116, 44),
+                NextHailBtn = new DeskRect(908, 264, 364, 44),
                 ProtocolReviewBtn = new DeskRect(908, 316, 364, 36),
                 SlateBus = new DeskRect(680, 264, 220, 44),
                 SlateBusDockedSlate = new DeskRect(698, 308, DataSlateW, DataSlateH),
@@ -151,9 +147,7 @@ public readonly record struct DeskLayoutRects
         DeskRect feedBoxB = new(1052, 264, 220, 88);
         DeskRect transcriptB = new(680, 40, 364, 172);
         DeskRect commsStripB = new(680, 220, 364, 36);
-        DeskRect nextHailB = new(680, 220, 116, 36);
-        DeskRect lowerShieldsB = new(804, 220, 116, 36);
-        DeskRect pwrDownWpnB = new(928, 220, 116, 36);
+        DeskRect nextHailB = new(680, 220, 364, 36);
         DeskRect protocolReviewB = new(680, 264, 364, 36);
         DeskRect slateBusB = new(752, 308, 220, 44);
         DeskRect dockedSlateB = new(770, 352, DataSlateW, DataSlateH);
@@ -203,8 +197,6 @@ public readonly record struct DeskLayoutRects
             TranscriptTextMaxPx = 364 - ScrollbarW - 14,
             CommsStrip = commsStripB,
             NextHailBtn = nextHailB,
-            LowerShieldsBtn = lowerShieldsB,
-            PwrDownWpnBtn = pwrDownWpnB,
             ProtocolReviewBtn = protocolReviewB,
             SlateBus = slateBusB,
             SlateBusDockedSlate = dockedSlateB,
@@ -246,8 +238,6 @@ public readonly record struct DeskLayoutRects
             ("Viewscreen", Viewscreen),
             ("Transcript", Transcript),
             ("NextHailBtn", NextHailBtn),
-            ("LowerShieldsBtn", LowerShieldsBtn),
-            ("PwrDownWpnBtn", PwrDownWpnBtn),
             ("ProtocolReviewBtn", ProtocolReviewBtn),
             ("SlateBus", SlateBus),
             ("WaferWriter", WaferWriter),

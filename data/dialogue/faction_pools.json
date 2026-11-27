@@ -1,0 +1,825 @@
+{
+  "FTV-": {
+    "greetings": [
+      "{shipName} ({reg}) holding. Clear our lane.",
+      "{shipName}, {reg}, inbound. Run the check.",
+      "Tramp hull {reg} holding. Packet queued."
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "Beacon {reg} was re-riveted in a drydock rush out on the rim — the hull transponder just lags a cycle behind.",
+        "Brown Dwarf static chews half our packet headers. Trust the slate on {shipName}, not that bargain-bin receiver."
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: FTV- SpoofedWeaponsHot excuse 1]",
+        "[TODO: FTV- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "We skirted a gravity eddy off {origin} to dodge toll pickets — that coil trace always bends funny afterward.",
+        "Look, independent haulers take the quiet drift lanes out of {origin}. Your salvaged spectrometer is reading ghosts."
+      ],
+      "ExpiredRegistration": [
+        "[TODO: FTV- ExpiredRegistration excuse 1]",
+        "[TODO: FTV- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: FTV- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: FTV- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: FTV- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: FTV- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: FTV- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: FTV- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: FTV- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: FTV- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "We're scraping margin on thin fuel out of {origin} — give an independent captain some slack on the paperwork.",
+        "Brengop factors squeeze us at every buoy. It's a harmless filing snag on {reg}, nothing worth locking clamps over.",
+        "Look, {shipName} hauls honest freight for outer-belt ports. Don't bury us in Pact fines over a clerk's typo."
+      ]
+    },
+    "detentionReactions": [
+      "Clamps?! That impound fee is going to wipe three weeks of salvage margin on {shipName}!",
+      "Easy on the hull, Booth 04! You keep clamping free traders and nobody's going to haul water to your dock.",
+      "Fine — lock the berth! Tell the Brengop factor he can try squeezing Scrip out of an empty hold."
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "Word on the outer buoys says Booth 04 cuts free traders a break on messy slates. Good to know.",
+        "Heard from a tramp crew out of {origin} that you waved a rough packet through. Appreciate the fair watch."
+      ],
+      "RepeatedDetentions": [
+        "Free Trader channels are flashing red about Booth 04 clamps. Keep your finger off that lever, officer.",
+        "Two tramp hulls detained in as many shifts — half the independent lane is thinking of bypassing Void Gate 3."
+      ],
+      "TookBribe": [
+        "Chatter on the rim says Booth 04 knows how to pocket quiet Scrip when the slate gets thick.",
+        "Captains along the drift say you're open to practical arrangements if the manifest runs heavy."
+      ]
+    }
+  },
+  "MNG-": {
+    "greetings": [
+      "Guild rig {shipName} holding. Cycle our packet.",
+      "{reg}, Guild haul inbound. Open the lane.",
+      "{shipName} ({reg}) holding. Keep the scan brisk."
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "Ore grit and micro-slag eat transponder casings on the Oruun-4 run — {reg} is valid on the syndicate ledger.",
+        "That hull unit got swapped off a sister barge in the belt. Check the slate checksum for {shipName}, not the casing."
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: MNG- SpoofedWeaponsHot excuse 1]",
+        "[TODO: MNG- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "High-iron belt dust off {origin} twists every warp residue coil in this sector. Ask your maintenance chief.",
+        "We ran a sling-burn around heavy slag fields outside {origin}. Your secondhand strip is reading belt static."
+      ],
+      "ExpiredRegistration": [
+        "[TODO: MNG- ExpiredRegistration excuse 1]",
+        "[TODO: MNG- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: MNG- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: MNG- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: MNG- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: MNG- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: MNG- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: MNG- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: MNG- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: MNG- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "Guild dispatch stamped {reg} before launch — take up any clerical noise with the Dul-Krag factor, not my crew.",
+        "Every hour {shipName} sits in holding costs tonnage at the refinery. Clear the berth and file a note.",
+        "We haul steel and silicate for Pact foundries. A smudge on the slate doesn't make us smugglers."
+      ]
+    },
+    "detentionReactions": [
+      "You're clamping a Mining Guild rig?! Dispatch will have your berth tariff tripled by morning!",
+      "Big mistake, Booth 04. Delaying Guild ore out of {origin} lands straight on the Brengop ledger.",
+      "Lock the clamps then — our claim-guard escorts will remember who stalled {shipName} at the gate."
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "Syndicate dispatch noted you kept Guild ore moving last shift despite slate hiccups. Smart watch, clerk.",
+        "Word in the Oruun-4 haulers' channel is Booth 04 doesn't nitpick Guild barges. Keep the lane green."
+      ],
+      "RepeatedDetentions": [
+        "Guild foremen are fuming over Booth 04 clamping our rigs two shifts running. Don't test the syndicate.",
+        "Watch yourself, clerk — holding up Guild tonnage puts your station's ore quotas in the red."
+      ],
+      "TookBribe": [
+        "Foremen say Booth 04 takes a practical cut to keep heavy rigs on schedule. Good to keep in mind.",
+        "Heard around the Oruun-4 docks that a little extra Scrip clears Guild paperwork real fast here."
+      ]
+    }
+  },
+  "KDF-": {
+    "greetings": [
+      "[TODO: KDF- greeting 1]",
+      "[TODO: KDF- greeting 2]",
+      "[TODO: KDF- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: KDF- TransponderMismatch excuse 1]",
+        "[TODO: KDF- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: KDF- SpoofedWeaponsHot excuse 1]",
+        "[TODO: KDF- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: KDF- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: KDF- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: KDF- ExpiredRegistration excuse 1]",
+        "[TODO: KDF- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: KDF- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: KDF- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: KDF- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: KDF- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: KDF- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: KDF- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: KDF- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: KDF- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: KDF- General excuse 1]",
+        "[TODO: KDF- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: KDF- detention reaction 1]",
+      "[TODO: KDF- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: KDF- ClearedViolation callback 1]",
+        "[TODO: KDF- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: KDF- RepeatedDetentions callback 1]",
+        "[TODO: KDF- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: KDF- TookBribe callback 1]",
+        "[TODO: KDF- TookBribe callback 2]"
+      ]
+    }
+  },
+  "BMC-": {
+    "greetings": [
+      "[TODO: BMC- greeting 1]",
+      "[TODO: BMC- greeting 2]",
+      "[TODO: BMC- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: BMC- TransponderMismatch excuse 1]",
+        "[TODO: BMC- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: BMC- SpoofedWeaponsHot excuse 1]",
+        "[TODO: BMC- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: BMC- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: BMC- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: BMC- ExpiredRegistration excuse 1]",
+        "[TODO: BMC- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: BMC- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: BMC- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: BMC- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: BMC- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: BMC- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: BMC- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: BMC- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: BMC- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: BMC- General excuse 1]",
+        "[TODO: BMC- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: BMC- detention reaction 1]",
+      "[TODO: BMC- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: BMC- ClearedViolation callback 1]",
+        "[TODO: BMC- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: BMC- RepeatedDetentions callback 1]",
+        "[TODO: BMC- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: BMC- TookBribe callback 1]",
+        "[TODO: BMC- TookBribe callback 2]"
+      ]
+    }
+  },
+  "FTC-": {
+    "greetings": [
+      "[TODO: FTC- greeting 1]",
+      "[TODO: FTC- greeting 2]",
+      "[TODO: FTC- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: FTC- TransponderMismatch excuse 1]",
+        "[TODO: FTC- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: FTC- SpoofedWeaponsHot excuse 1]",
+        "[TODO: FTC- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: FTC- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: FTC- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: FTC- ExpiredRegistration excuse 1]",
+        "[TODO: FTC- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: FTC- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: FTC- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: FTC- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: FTC- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: FTC- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: FTC- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: FTC- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: FTC- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: FTC- General excuse 1]",
+        "[TODO: FTC- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: FTC- detention reaction 1]",
+      "[TODO: FTC- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: FTC- ClearedViolation callback 1]",
+        "[TODO: FTC- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: FTC- RepeatedDetentions callback 1]",
+        "[TODO: FTC- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: FTC- TookBribe callback 1]",
+        "[TODO: FTC- TookBribe callback 2]"
+      ]
+    }
+  },
+  "ORN-": {
+    "greetings": [
+      "[TODO: ORN- greeting 1]",
+      "[TODO: ORN- greeting 2]",
+      "[TODO: ORN- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: ORN- TransponderMismatch excuse 1]",
+        "[TODO: ORN- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: ORN- SpoofedWeaponsHot excuse 1]",
+        "[TODO: ORN- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: ORN- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: ORN- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: ORN- ExpiredRegistration excuse 1]",
+        "[TODO: ORN- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: ORN- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: ORN- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: ORN- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: ORN- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: ORN- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: ORN- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: ORN- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: ORN- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: ORN- General excuse 1]",
+        "[TODO: ORN- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: ORN- detention reaction 1]",
+      "[TODO: ORN- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: ORN- ClearedViolation callback 1]",
+        "[TODO: ORN- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: ORN- RepeatedDetentions callback 1]",
+        "[TODO: ORN- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: ORN- TookBribe callback 1]",
+        "[TODO: ORN- TookBribe callback 2]"
+      ]
+    }
+  },
+  "ZNI-": {
+    "greetings": [
+      "[TODO: ZNI- greeting 1]",
+      "[TODO: ZNI- greeting 2]",
+      "[TODO: ZNI- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: ZNI- TransponderMismatch excuse 1]",
+        "[TODO: ZNI- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: ZNI- SpoofedWeaponsHot excuse 1]",
+        "[TODO: ZNI- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: ZNI- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: ZNI- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: ZNI- ExpiredRegistration excuse 1]",
+        "[TODO: ZNI- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: ZNI- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: ZNI- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: ZNI- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: ZNI- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: ZNI- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: ZNI- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: ZNI- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: ZNI- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: ZNI- General excuse 1]",
+        "[TODO: ZNI- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: ZNI- detention reaction 1]",
+      "[TODO: ZNI- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: ZNI- ClearedViolation callback 1]",
+        "[TODO: ZNI- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: ZNI- RepeatedDetentions callback 1]",
+        "[TODO: ZNI- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: ZNI- TookBribe callback 1]",
+        "[TODO: ZNI- TookBribe callback 2]"
+      ]
+    }
+  },
+  "PRJ-": {
+    "greetings": [
+      "[TODO: PRJ- greeting 1]",
+      "[TODO: PRJ- greeting 2]",
+      "[TODO: PRJ- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: PRJ- TransponderMismatch excuse 1]",
+        "[TODO: PRJ- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: PRJ- SpoofedWeaponsHot excuse 1]",
+        "[TODO: PRJ- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: PRJ- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: PRJ- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: PRJ- ExpiredRegistration excuse 1]",
+        "[TODO: PRJ- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: PRJ- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: PRJ- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: PRJ- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: PRJ- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: PRJ- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: PRJ- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: PRJ- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: PRJ- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: PRJ- General excuse 1]",
+        "[TODO: PRJ- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: PRJ- detention reaction 1]",
+      "[TODO: PRJ- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: PRJ- ClearedViolation callback 1]",
+        "[TODO: PRJ- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: PRJ- RepeatedDetentions callback 1]",
+        "[TODO: PRJ- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: PRJ- TookBribe callback 1]",
+        "[TODO: PRJ- TookBribe callback 2]"
+      ]
+    }
+  },
+  "TLV-": {
+    "greetings": [
+      "[TODO: TLV- greeting 1]",
+      "[TODO: TLV- greeting 2]",
+      "[TODO: TLV- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: TLV- TransponderMismatch excuse 1]",
+        "[TODO: TLV- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: TLV- SpoofedWeaponsHot excuse 1]",
+        "[TODO: TLV- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: TLV- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: TLV- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: TLV- ExpiredRegistration excuse 1]",
+        "[TODO: TLV- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: TLV- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: TLV- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: TLV- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: TLV- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: TLV- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: TLV- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: TLV- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: TLV- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: TLV- General excuse 1]",
+        "[TODO: TLV- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: TLV- detention reaction 1]",
+      "[TODO: TLV- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: TLV- ClearedViolation callback 1]",
+        "[TODO: TLV- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: TLV- RepeatedDetentions callback 1]",
+        "[TODO: TLV- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: TLV- TookBribe callback 1]",
+        "[TODO: TLV- TookBribe callback 2]"
+      ]
+    }
+  },
+  "KRW-": {
+    "greetings": [
+      "[TODO: KRW- greeting 1]",
+      "[TODO: KRW- greeting 2]",
+      "[TODO: KRW- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: KRW- TransponderMismatch excuse 1]",
+        "[TODO: KRW- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: KRW- SpoofedWeaponsHot excuse 1]",
+        "[TODO: KRW- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: KRW- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: KRW- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: KRW- ExpiredRegistration excuse 1]",
+        "[TODO: KRW- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: KRW- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: KRW- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: KRW- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: KRW- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: KRW- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: KRW- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: KRW- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: KRW- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: KRW- General excuse 1]",
+        "[TODO: KRW- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: KRW- detention reaction 1]",
+      "[TODO: KRW- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: KRW- ClearedViolation callback 1]",
+        "[TODO: KRW- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: KRW- RepeatedDetentions callback 1]",
+        "[TODO: KRW- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: KRW- TookBribe callback 1]",
+        "[TODO: KRW- TookBribe callback 2]"
+      ]
+    }
+  },
+  "HBR-": {
+    "greetings": [
+      "[TODO: HBR- greeting 1]",
+      "[TODO: HBR- greeting 2]",
+      "[TODO: HBR- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: HBR- TransponderMismatch excuse 1]",
+        "[TODO: HBR- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: HBR- SpoofedWeaponsHot excuse 1]",
+        "[TODO: HBR- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: HBR- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: HBR- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: HBR- ExpiredRegistration excuse 1]",
+        "[TODO: HBR- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: HBR- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: HBR- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: HBR- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: HBR- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: HBR- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: HBR- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: HBR- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: HBR- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: HBR- General excuse 1]",
+        "[TODO: HBR- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: HBR- detention reaction 1]",
+      "[TODO: HBR- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: HBR- ClearedViolation callback 1]",
+        "[TODO: HBR- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: HBR- RepeatedDetentions callback 1]",
+        "[TODO: HBR- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: HBR- TookBribe callback 1]",
+        "[TODO: HBR- TookBribe callback 2]"
+      ]
+    }
+  },
+  "GUV-": {
+    "greetings": [
+      "[TODO: GUV- greeting 1]",
+      "[TODO: GUV- greeting 2]",
+      "[TODO: GUV- greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: GUV- TransponderMismatch excuse 1]",
+        "[TODO: GUV- TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: GUV- SpoofedWeaponsHot excuse 1]",
+        "[TODO: GUV- SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: GUV- FalsifiedOriginWaveform excuse 1]",
+        "[TODO: GUV- FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: GUV- ExpiredRegistration excuse 1]",
+        "[TODO: GUV- ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: GUV- PrefixOrganizationMismatch excuse 1]",
+        "[TODO: GUV- PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: GUV- PrefixSpeciesMismatch excuse 1]",
+        "[TODO: GUV- PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: GUV- PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: GUV- PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: GUV- UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: GUV- UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: GUV- General excuse 1]",
+        "[TODO: GUV- General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: GUV- detention reaction 1]",
+      "[TODO: GUV- detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: GUV- ClearedViolation callback 1]",
+        "[TODO: GUV- ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: GUV- RepeatedDetentions callback 1]",
+        "[TODO: GUV- RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: GUV- TookBribe callback 1]",
+        "[TODO: GUV- TookBribe callback 2]"
+      ]
+    }
+  },
+  "DEFAULT": {
+    "greetings": [
+      "[TODO: DEFAULT greeting 1]",
+      "[TODO: DEFAULT greeting 2]",
+      "[TODO: DEFAULT greeting 3]"
+    ],
+    "excuses": {
+      "TransponderMismatch": [
+        "[TODO: DEFAULT TransponderMismatch excuse 1]",
+        "[TODO: DEFAULT TransponderMismatch excuse 2]"
+      ],
+      "SpoofedWeaponsHot": [
+        "[TODO: DEFAULT SpoofedWeaponsHot excuse 1]",
+        "[TODO: DEFAULT SpoofedWeaponsHot excuse 2]"
+      ],
+      "FalsifiedOriginWaveform": [
+        "[TODO: DEFAULT FalsifiedOriginWaveform excuse 1]",
+        "[TODO: DEFAULT FalsifiedOriginWaveform excuse 2]"
+      ],
+      "ExpiredRegistration": [
+        "[TODO: DEFAULT ExpiredRegistration excuse 1]",
+        "[TODO: DEFAULT ExpiredRegistration excuse 2]"
+      ],
+      "PrefixOrganizationMismatch": [
+        "[TODO: DEFAULT PrefixOrganizationMismatch excuse 1]",
+        "[TODO: DEFAULT PrefixOrganizationMismatch excuse 2]"
+      ],
+      "PrefixSpeciesMismatch": [
+        "[TODO: DEFAULT PrefixSpeciesMismatch excuse 1]",
+        "[TODO: DEFAULT PrefixSpeciesMismatch excuse 2]"
+      ],
+      "PrefixHullSilhouetteMismatch": [
+        "[TODO: DEFAULT PrefixHullSilhouetteMismatch excuse 1]",
+        "[TODO: DEFAULT PrefixHullSilhouetteMismatch excuse 2]"
+      ],
+      "UnexplainedCargoPowerDraw": [
+        "[TODO: DEFAULT UnexplainedCargoPowerDraw excuse 1]",
+        "[TODO: DEFAULT UnexplainedCargoPowerDraw excuse 2]"
+      ],
+      "General": [
+        "[TODO: DEFAULT General excuse 1]",
+        "[TODO: DEFAULT General excuse 2]"
+      ]
+    },
+    "detentionReactions": [
+      "[TODO: DEFAULT detention reaction 1]",
+      "[TODO: DEFAULT detention reaction 2]"
+    ],
+    "recentCallbacks": {
+      "ClearedViolation": [
+        "[TODO: DEFAULT ClearedViolation callback 1]",
+        "[TODO: DEFAULT ClearedViolation callback 2]"
+      ],
+      "RepeatedDetentions": [
+        "[TODO: DEFAULT RepeatedDetentions callback 1]",
+        "[TODO: DEFAULT RepeatedDetentions callback 2]"
+      ],
+      "TookBribe": [
+        "[TODO: DEFAULT TookBribe callback 1]",
+        "[TODO: DEFAULT TookBribe callback 2]"
+      ]
+    }
+  }
+}

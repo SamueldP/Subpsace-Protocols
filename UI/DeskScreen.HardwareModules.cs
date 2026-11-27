@@ -119,12 +119,12 @@ public sealed partial class DeskScreen
             _spsEnabled &&
             _preShiftStage == PreShiftStage.None &&
             _activeShip != null &&
-            _activeShipHardpoints != null &&
+            (_activeShipHardpoints != null || _activeShipHardpointsV2.HasValue) &&
             shipInInspectableBayState &&
             !_activeShip.GroundTruth.ActualShieldsUp &&
             mouse.IsHit(ViewportInnerX, ViewportInnerY, ViewportInnerW, ViewportInnerH);
 
-        if (!canScanHardpoints || _activeShip == null || _activeShipHardpoints == null)
+        if (!canScanHardpoints || _activeShip == null)
         {
             _spsLockProgress = Math.Max(0f, _spsLockProgress - deltaTime * 2.0f);
             if (_spsLockProgress <= 0f)
@@ -136,25 +136,46 @@ public sealed partial class DeskScreen
 
         float reticleCx = _lastSpsLensRect.X + _lastSpsLensRect.Width * 0.5f;
         float reticleCy = _lastSpsLensRect.Y + _lastSpsLensRect.Height * 0.5f;
-        float shipBaseX = ShipAnchorX + _shipSlideOffset;
-        float shipBaseY = ShipAnchorY;
 
         SpsAnomalyKind hoveredAnomaly = SpsAnomalyKind.None;
 
         // Detect ALL currently hot weapon mounts (both openly declared honest armed ships AND spoofed liars)
-        bool hasUnloggedHotWeapons =
-            ShiftController.ShouldSpsDetectHotWeapons(_activeShip) &&
-            !_spsLoggedAnomalies.Any(e => e.Kind == SpsAnomalyKind.HotWeaponMount && !e.IsCooled);
-
-        if (hasUnloggedHotWeapons)
+        bool hasHotWeapons = ShiftController.ShouldSpsDetectHotWeapons(_activeShip);
+        if (hasHotWeapons && TryGetActiveWeaponsSpsTarget(out HardpointRect wpnRect560, out Vector2 wpnCenter))
         {
-            float wx = shipBaseX + _activeShipHardpoints.ForwardWeapons.X * 2.0f + 1.0f;
-            float wy = shipBaseY + _activeShipHardpoints.ForwardWeapons.Y * 2.0f + 1.0f;
-            float dx = reticleCx - wx;
-            float dy = reticleCy - wy;
-            if (dx * dx + dy * dy <= SpsLockRadiusPx * SpsLockRadiusPx)
+            if (IsReticleNearSpsTarget(reticleCx, reticleCy, wpnRect560, wpnCenter))
             {
-                hoveredAnomaly = SpsAnomalyKind.HotWeaponMount;
+                // Auto-SPS Weapons Compliance (Day 2+): sweeping hot weapons automatically triggers
+                // "Power down weapons." once per ship (debounced via _autoSpsWeaponsOrderTriggered).
+                if (!_autoSpsWeaponsOrderTriggered)
+                {
+                    _autoSpsWeaponsOrderTriggered = true;
+                    AudioHooks.Play("terminal_key_click");
+                    ShipSpec targetShip = _activeShip;
+                    EnqueueOfficerLine("Power down weapons.", CommsTextTone.ClearanceTeal, onComplete: () =>
+                    {
+                        if (_activeShip == targetShip && !_isDetainingShip)
+                        {
+                            _pendingWeaponsOrder = true;
+                            _pendingShieldsOrder = false;
+                            _complianceTimer = targetShip.ComplianceDelaySeconds;
+                        }
+                    });
+                }
+
+                // Dishonest ships (HasSpoofedWeapons or hostile Day 22+ refusal) remain hot so the player can
+                // hold-to-lock [!] HOT WEAPONS onto the SPS Anomaly Mini-Screen for Protocol Review.
+                bool staysHotForProtocolReview =
+                    _activeShip.GroundTruth.HasSpoofedWeapons ||
+                    (_gameState.Day >= _config.DayUnlockHostilityDestroy &&
+                     _gameState.GetRep(_activeShip.Slate.DeclaredPrefix) <= Constants.RepExtremeHostileThreshold &&
+                     _activeShip.GroundTruth.WillRefuseWeaponsCompliance);
+
+                bool alreadyLogged = _spsLoggedAnomalies.Any(e => e.Kind == SpsAnomalyKind.HotWeaponMount && !e.IsCooled);
+                if (staysHotForProtocolReview && !alreadyLogged)
+                {
+                    hoveredAnomaly = SpsAnomalyKind.HotWeaponMount;
+                }
             }
         }
 
@@ -165,13 +186,9 @@ public sealed partial class DeskScreen
                 _activeShip.GroundTruth.ActualCargoPowerDraw &&
                 !_spsLoggedAnomalies.Any(e => e.Kind == SpsAnomalyKind.VioletCargoPower && !e.IsCooled);
 
-            if (hasUnloggedCargoPower)
+            if (hasUnloggedCargoPower && TryGetActiveCargoSpsTarget(out HardpointRect cargoRect560, out Vector2 cargoCenter))
             {
-                float cx = shipBaseX + _activeShipHardpoints.CargoBay.X * 2.0f + 1.0f;
-                float cy = shipBaseY + _activeShipHardpoints.CargoBay.Y * 2.0f + 1.0f;
-                float dx = reticleCx - cx;
-                float dy = reticleCy - cy;
-                if (dx * dx + dy * dy <= SpsLockRadiusPx * SpsLockRadiusPx)
+                if (IsReticleNearSpsTarget(reticleCx, reticleCy, cargoRect560, cargoCenter))
                 {
                     hoveredAnomaly = SpsAnomalyKind.VioletCargoPower;
                 }
@@ -317,6 +334,7 @@ public sealed partial class DeskScreen
         {
             bool canDetain = _activeShip != null &&
                 _phase is EncounterPhase.OpeningGreetingDelay
+                    or EncounterPhase.AwaitingAutoShieldsDrop
                     or EncounterPhase.AwaitingPortForDownload
                     or EncounterPhase.DownloadingProtocols
                     or EncounterPhase.DownloadAborted
@@ -334,10 +352,21 @@ public sealed partial class DeskScreen
             return true;
         }
 
-        // 2. NEXT HAIL (or [INSPECT ROUTE] pushback on Day 2 Ghost Route ship)
+        // 1b. Day 15+ Stellar Stoker [ANCHOR] trigger: (12, 330, 88, 18) inside (8, 264, 96, 88)
+        if (IsStokerOperational && mouse.IsHit(StokerAnchorBtnX, StokerAnchorBtnY, StokerAnchorBtnW, StokerAnchorBtnH))
+        {
+            TryAnchorStokerMassForActiveShip();
+            return true;
+        }
+
+        // 2. NEXT HAIL (or calm premature-wafer [RE-TRANSMIT], or [INSPECT ROUTE] pushback on Day 3 Ghost Route ship)
         if (mouse.IsHit(_layout.NextHailBtn.X, _layout.NextHailBtn.Y, _layout.NextHailBtn.W, _layout.NextHailBtn.H))
         {
-            if (CanTriggerGhostRoutePushback)
+            if (CanReTransmitPrematurelyWipedWafers)
+            {
+                TriggerPrematurelyWipedWaferReTransmit();
+            }
+            else if (CanTriggerGhostRoutePushback)
             {
                 TriggerGhostRoutePushback();
             }
@@ -354,44 +383,7 @@ public sealed partial class DeskScreen
             return true;
         }
 
-        bool canIssueComplianceOrder = AreCombatOrdersUnlocked &&
-            _activeShip != null &&
-            _phase is EncounterPhase.OpeningGreetingDelay
-                or EncounterPhase.AwaitingPortForDownload
-                or EncounterPhase.DownloadingProtocols
-                or EncounterPhase.DownloadAborted
-                or EncounterPhase.InspectingSlateAndShip
-                or EncounterPhase.AwaitingClearanceReturnToTopPort;
-
-        // 3. LOWER SHIELDS (Day 2+ only)
-        if (AreCombatOrdersUnlocked &&
-            mouse.IsHit(_layout.LowerShieldsBtn.X, _layout.LowerShieldsBtn.Y, _layout.LowerShieldsBtn.W, _layout.LowerShieldsBtn.H))
-        {
-            if (canIssueComplianceOrder && !_pendingShieldsOrder && _activeShip != null)
-            {
-                AudioHooks.Play("terminal_key_click");
-                EnqueueOfficerLine("Lower shields to standby.", CommsTextTone.ClearanceTeal);
-                _pendingShieldsOrder = true;
-                _complianceTimer = _activeShip.ComplianceDelaySeconds;
-            }
-            return true;
-        }
-
-        // 4. PWR DOWN WPN (Day 2+ only)
-        if (AreCombatOrdersUnlocked &&
-            mouse.IsHit(_layout.PwrDownWpnBtn.X, _layout.PwrDownWpnBtn.Y, _layout.PwrDownWpnBtn.W, _layout.PwrDownWpnBtn.H))
-        {
-            if (canIssueComplianceOrder && !_pendingWeaponsOrder && _activeShip != null)
-            {
-                AudioHooks.Play("terminal_key_click");
-                EnqueueOfficerLine("Power down forward weapon mounts.", CommsTextTone.ClearanceTeal);
-                _pendingWeaponsOrder = true;
-                _complianceTimer = _activeShip.ComplianceDelaySeconds;
-            }
-            return true;
-        }
-
-        // 5. PROTOCOL REVIEW Toggle (Day 1+)
+        // 3. PROTOCOL REVIEW Toggle (Day 1+)
         if (IsProtocolReviewUnlocked &&
             mouse.IsHit(_layout.ProtocolReviewBtn.X, _layout.ProtocolReviewBtn.Y, _layout.ProtocolReviewBtn.W, _layout.ProtocolReviewBtn.H))
         {
@@ -470,10 +462,10 @@ public sealed partial class DeskScreen
         const int textY = 11;
 
         // Left: Booth ID + Day (aligned cleanly to 8px left margin)
-        Raylib.DrawText("VOID GATE 3 // BOOTH 04", 8, textY, 10, Palette.CrtAmberDimmed);
-        Raylib.DrawText($"DAY {_gameState.Day:D2}", 170, textY, 10, Palette.CrtAmberPrimary);
+        UiText.Draw("VOID GATE 3 // BOOTH 04", 8, textY, 10, Palette.CrtAmberDimmed, denseRow: true);
+        UiText.Draw($"DAY {_gameState.Day:D2}", 200, textY, 10, Palette.CrtAmberPrimary, denseRow: true);
 
-        // Station Cycle box (236, 4, 124, 24) -- clickable in Protocol Review on Day 4+ (Manual Part 1 unlock)
+        // Station Cycle box (256, 4, 112, 24) -- clickable in Protocol Review on Day 8+ (Manual Part 1 unlock)
         (int curYear, int curMonth) = Constants.GetStationCycle(_gameState.Day);
         string cycleLabel = $"CYC {Constants.FormatStationCycle(curYear, curMonth)}";
         bool cycleSelected = _protocolReviewModeActive && _reviewFirstSelection == ReviewTarget.TopHeaderCycle;
@@ -486,26 +478,38 @@ public sealed partial class DeskScreen
         {
             DrawReviewHotspotOutline(mouse, TopCycleX, TopCycleY, TopCycleW, TopCycleH, cycleSelected);
         }
-        int cycW = Raylib.MeasureText(cycleLabel, 10);
-        Raylib.DrawText(cycleLabel, TopCycleX + (TopCycleW - cycW) / 2, TopCycleY + (TopCycleH - 10) / 2, 10,
-            cycleSelected ? Palette.ClearanceTeal : Palette.CrtAmberPrimary);
+        int cycW = UiText.MeasureWidth(cycleLabel, 10, denseRow: true);
+        UiText.Draw(cycleLabel, TopCycleX + (TopCycleW - cycW) / 2, TopCycleY + (TopCycleH - 10) / 2, 10,
+            cycleSelected ? Palette.ClearanceTeal : Palette.CrtAmberPrimary, denseRow: true);
 
-        // Pact Scrip, Daily Warnings, Security Strikes (Day 3+ strictly /3)
-        Raylib.DrawText($"PACT SCRIP: {_gameState.PactScrip} SC", 384, textY, 10, Palette.ClearanceTeal);
-        Raylib.DrawText(
-            $"WARNINGS: {_gameState.ClericalWarningsThisShift}/{Constants.FreeClericalWarningsPerShift}",
-            556, textY, 10,
-            _gameState.ClericalWarningsThisShift >= Constants.FreeClericalWarningsPerShift ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
+        // Pact Scrip, Daily Warnings, Security Strikes (Day 4+ strictly /3), Processed
+        int sx = 380;
+        string scripStr = $"PACT SCRIP: {_gameState.PactScrip} SC";
+        UiText.Draw(scripStr, sx, textY, 10, Palette.ClearanceTeal, denseRow: true);
+        sx += Math.Max(176, UiText.MeasureWidth(scripStr, 10, denseRow: true) + 16);
+
+        string warnStr = $"WARNINGS: {_gameState.ClericalWarningsThisShift}/{Constants.FreeClericalWarningsPerShift}";
+        UiText.Draw(
+            warnStr,
+            sx, textY, 10,
+            _gameState.ClericalWarningsThisShift >= Constants.FreeClericalWarningsPerShift ? Palette.AlertCrimson : Palette.CrtAmberPrimary,
+            denseRow: true);
+        sx += Math.Max(132, UiText.MeasureWidth(warnStr, 10, denseRow: true) + 16);
 
         if (AreSecurityStrikesUnlocked)
         {
-            Raylib.DrawText(
-                $"SECURITY STRIKES: {_gameState.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}",
-                704, textY, 10,
-                _gameState.SecurityStrikes > 0 ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
+            string strikeStr = $"SECURITY STRIKES: {_gameState.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}";
+            UiText.Draw(
+                strikeStr,
+                sx, textY, 10,
+                _gameState.SecurityStrikes > 0 ? Palette.AlertCrimson : Palette.CrtAmberPrimary,
+                denseRow: true);
+            sx += Math.Max(192, UiText.MeasureWidth(strikeStr, 10, denseRow: true) + 16);
         }
 
-        Raylib.DrawText($"PROCESSED: {_gameState.ShipsProcessedToday}", 916, textY, 10, Palette.CrtAmberDimmed);
+        string procStr = $"PROCESSED: {_gameState.ShipsProcessedToday}";
+        int procMaxW = Math.Max(40, PowerModuleX - 8 - sx);
+        UiText.Draw(TruncateByPixelWidth(procStr, 10, procMaxW, denseRow: true), sx, textY, 10, Palette.CrtAmberDimmed, denseRow: true);
 
         // Diegetic Top-Right POWER Indicator Module: (1172, 2, 56, 28) -- exact 8px gutter left of Pause [||] (1236)
         DrawTopPowerIndicatorModule();
@@ -548,10 +552,10 @@ public sealed partial class DeskScreen
 
         // Crisp POWER text centered directly underneath LED
         const string pwrLabel = "POWER";
-        int pw = Raylib.MeasureText(pwrLabel, 10);
+        int pw = UiText.MeasureWidth(pwrLabel, 10);
         Color txtOff = new(50, 56, 64, 255);
         Color txtOn = Palette.CrtAmberPrimary;
-        Raylib.DrawText(pwrLabel, PowerModuleX + (PowerModuleW - pw) / 2, PowerModuleY + 15, 10, BlendRgb(txtOff, txtOn, b));
+        UiText.Draw(pwrLabel, PowerModuleX + (PowerModuleW - pw) / 2, PowerModuleY + 15, 10, BlendRgb(txtOff, txtOn, b));
     }
 
     // =========================================================================
@@ -562,6 +566,7 @@ public sealed partial class DeskScreen
         bool lockedByPreShift = _preShiftStage != PreShiftStage.None || _shiftController.IsPreShiftSequenceActive;
         bool canDetain = !lockedByPreShift && _activeShip != null &&
                          (_phase is EncounterPhase.OpeningGreetingDelay
+                             or EncounterPhase.AwaitingAutoShieldsDrop
                              or EncounterPhase.AwaitingPortForDownload
                              or EncounterPhase.DownloadingProtocols
                              or EncounterPhase.DownloadAborted
@@ -580,8 +585,8 @@ public sealed partial class DeskScreen
         Raylib.DrawRectangleLines(DetainLeverX + 6, DetainLeverY + 6, DetainLeverW - 12, 22,
             canDetain || _detainLeverPulled ? Palette.AlertCrimson : Palette.WeatheredGunmetalEdge);
         const string label = "DETAIN";
-        int lw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, DetainLeverX + (DetainLeverW - lw) / 2, DetainLeverY + 12, 10,
+        int lw = UiText.MeasureWidth(label, 10);
+        UiText.Draw(label, DetainLeverX + (DetainLeverW - lw) / 2, DetainLeverY + 12, 10,
             _detainLeverPulled ? Palette.OutlineVoid : (canDetain ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge));
 
         // Vertical hazard stripes flanking the mechanical track
@@ -661,6 +666,13 @@ public sealed partial class DeskScreen
                 Raylib.DrawRectangle(bx, by, 2, 2, Palette.OxidizedBronzeWorn);
             }
         }
+        if (IsBrownoutAttenuatingPassiveSurfaces)
+        {
+            ApplyBrownoutPassiveSurfaceLighting(ViewportX, ViewportY, ViewportW, ViewportGlassInset);
+            ApplyBrownoutPassiveSurfaceLighting(ViewportX, ViewportY + ViewportH - ViewportGlassInset, ViewportW, ViewportGlassInset);
+            ApplyBrownoutPassiveSurfaceLighting(ViewportX, ViewportInnerY, ViewportGlassInset, ViewportInnerH);
+            ApplyBrownoutPassiveSurfaceLighting(ViewportInnerX + ViewportInnerW, ViewportInnerY, ViewportGlassInset, ViewportInnerH);
+        }
 
         int shakeX = 0;
         int shakeY = 0;
@@ -714,14 +726,23 @@ public sealed partial class DeskScreen
         Raylib.DrawRectangle(dwarfX - 18, dwarfY + 3, 36, 2, Palette.BrownDwarfGlowDeep);
         Raylib.DrawCircleLines(dwarfX, dwarfY, 24, Palette.BrownDwarfGlowRim);
 
-        // Exterior docking bay sill along lower edge of window
+        // Exterior docking bay sill along lower edge of window (shows subtle station lighting dips during brownout DIM/OFF)
+        bool stationBrownoutDip = IsBrownoutAttenuatingPassiveSurfaces;
+        Color sillCol = stationBrownoutDip
+            ? new Color(18, 22, 28, 255)
+            : Palette.WeatheredGunmetalMid;
+        Color sillLampCol = sunsetGlow >= 0.45f
+            ? Palette.BrownDwarfGlowRim
+            : (stationBrownoutDip
+                ? (_brownoutState == BoothBrownoutState.Off ? new Color(58, 38, 18, 255) : new Color(128, 92, 42, 255))
+                : Palette.CrtAmberDimmed);
         Raylib.DrawRectangle(ViewportInnerX, horizonY, ViewportInnerW, ViewportInnerY + ViewportInnerH - horizonY, Palette.OutlineVoid);
         Raylib.DrawLine(ViewportInnerX, horizonY, ViewportInnerX + ViewportInnerW, horizonY,
             sunsetGlow > 0.25f ? Palette.AlertCrimson : Palette.BrownDwarfGlowRim);
         for (int gx = ViewportInnerX + 20; gx < ViewportInnerX + ViewportInnerW - 18; gx += 48)
         {
-            Raylib.DrawRectangle(gx, horizonY - 5, 12, 6, Palette.WeatheredGunmetalMid);
-            Raylib.DrawPixel(gx + 5, horizonY - 3, sunsetGlow >= 0.45f ? Palette.BrownDwarfGlowRim : Palette.CrtAmberDimmed);
+            Raylib.DrawRectangle(gx, horizonY - 5, 12, 6, sillCol);
+            Raylib.DrawPixel(gx + 5, horizonY - 3, sillLampCol);
         }
 
         // Docked / Approaching Ship Sprite
@@ -731,14 +752,13 @@ public sealed partial class DeskScreen
         }
         else if (_activeShip != null && _cachedShipLiveTex.Id != 0)
         {
-            int shipDrawX = ShipAnchorX + (int)MathF.Round(_shipSlideOffset) + shakeX;
-            int shipDrawY = ShipAnchorY + shakeY;
-
-            Rectangle src = new(0, 0, Constants.ShipWidth, Constants.ShipHeight);
-            Rectangle dst = new(shipDrawX, shipDrawY, ShipRenderW, ShipRenderH);
+            GetActiveShipRenderRects(shakeX, shakeY, out Rectangle src, out Rectangle dst);
+            int shipDrawX = (int)dst.X;
+            int shipDrawY = (int)dst.Y;
             Raylib.DrawTexturePro(_cachedShipLiveTex, src, dst, Vector2.Zero, 0f, Color.White);
 
             // Protocol Review hover or Fault highlight on live ship hull
+            Rectangle hullRect = GetActiveShipHullScreenRect(shakeX, shakeY);
             bool hullFault = IsTargetFaultHighlighted(ReviewTarget.ViewportShipHull);
             bool hullReviewHover = _protocolReviewModeActive &&
                                    IsReviewTargetUnlocked(ReviewTarget.ViewportShipHull) &&
@@ -748,10 +768,14 @@ public sealed partial class DeskScreen
             if (hullFault || hullReviewHover)
             {
                 Color hiCol = hullFault ? GetFaultPulseColor() : Palette.CrtAmberPrimary;
-                Raylib.DrawRectangleLines(shipDrawX - 3, shipDrawY - 3, ShipRenderW + 6, ShipRenderH + 6, hiCol);
+                int hx = (int)hullRect.X;
+                int hy = (int)hullRect.Y;
+                int hw = (int)hullRect.Width;
+                int hh = (int)hullRect.Height;
+                Raylib.DrawRectangleLines(hx - 3, hy - 3, hw + 6, hh + 6, hiCol);
                 if (hullFault)
                 {
-                    Raylib.DrawRectangleLines(shipDrawX - 4, shipDrawY - 4, ShipRenderW + 8, ShipRenderH + 8, hiCol);
+                    Raylib.DrawRectangleLines(hx - 4, hy - 4, hw + 8, hh + 8, hiCol);
                 }
             }
 
@@ -827,6 +851,25 @@ public sealed partial class DeskScreen
         Raylib.EndScissorMode();
     }
 
+    private bool IsReticleNearSpsTarget(float reticleCx, float reticleCy, HardpointRect viewport560Rect, Vector2 screenCenter)
+    {
+        if (!IsUsingShipArtV2)
+        {
+            float dxV1 = reticleCx - screenCenter.X;
+            float dyV1 = reticleCy - screenCenter.Y;
+            return dxV1 * dxV1 + dyV1 * dyV1 <= SpsLockRadiusPx * SpsLockRadiusPx;
+        }
+
+        int slidePx = GetShipSlidePixels();
+        float rx = ShipV2AnchorX + slidePx + viewport560Rect.X;
+        float ry = ShipV2AnchorY + viewport560Rect.Y;
+        float closestX = Math.Clamp(reticleCx, rx, rx + viewport560Rect.W);
+        float closestY = Math.Clamp(reticleCy, ry, ry + viewport560Rect.H);
+        float dx = reticleCx - closestX;
+        float dy = reticleCy - closestY;
+        return dx * dx + dy * dy <= SpsLockRadiusPx * SpsLockRadiusPx;
+    }
+
     private void DrawAnimatedDetainDockingClamps(int shipDrawX, int shipDrawY, int horizonY)
     {
         float impactTime = DetainSequenceDurationSeconds * ShiftController.DetainClampImpactFraction;
@@ -836,55 +879,113 @@ public sealed partial class DeskScreen
         // Snappy mechanical ease-out slam
         float clampT = 1.0f - MathF.Pow(1.0f - rawT, 3.0f);
 
-        int foreX = shipDrawX + 52;
-        int aftX = shipDrawX + ShipRenderW - 64;
-
-        int topTargetY = shipDrawY + 28;
-        int botTargetY = shipDrawY + ShipRenderH - 28;
-
-        int topJawY = ViewportInnerY + (int)MathF.Round((topTargetY - ViewportInnerY) * clampT);
-        int botJawY = horizonY - (int)MathF.Round((horizonY - botTargetY) * clampT);
-
         bool locked = rawT >= 0.99f;
         bool flash = ((_animTick / 5) % 2) == 0;
         Color strobeCol = locked && flash ? Palette.CrtAmberPrimary : Palette.AlertCrimson;
+
+        if (IsUsingShipArtV2 && _activeShipHardpointsV2.HasValue)
+        {
+            ClampGrabZone[] zones =
+            [
+                _activeShipHardpointsV2.Value.ForeClampViewport560,
+                _activeShipHardpointsV2.Value.AftClampViewport560
+            ];
+
+            foreach (ClampGrabZone zone in zones)
+            {
+                int cx = ((shipDrawX + zone.X - 6) / 2) * 2;
+                int topTargetY = Math.Clamp(((shipDrawY + zone.TopY) / 2) * 2, ViewportInnerY + 6, horizonY - 16);
+                int botTargetY = Math.Clamp(((shipDrawY + zone.BottomY) / 2) * 2, topTargetY + 8, horizonY - 6);
+
+                int topJawY = ViewportInnerY + (int)MathF.Round((topTargetY - ViewportInnerY) * clampT / 2.0f) * 2;
+                int botJawY = horizonY - (int)MathF.Round((horizonY - botTargetY) * clampT / 2.0f) * 2;
+
+                // Top hydraulic gantry column + 2px pixel-locked pincer jaw biting directly onto hull grab pad
+                int topLen = Math.Max(4, topJawY - ViewportInnerY);
+                Raylib.DrawRectangle(cx, ViewportInnerY, 12, topLen, Palette.OutlineVoid);
+                Raylib.DrawRectangle(cx + 2, ViewportInnerY, 8, topLen, Palette.WeatheredGunmetalMid);
+                Raylib.DrawRectangle(cx + 4, ViewportInnerY, 4, topLen, Palette.WeatheredGunmetalEdge);
+                Raylib.DrawRectangle(cx - 6, topJawY - 10, 24, 12, Palette.OutlineVoid);
+                Raylib.DrawRectangle(cx - 4, topJawY - 8, 20, 8, Palette.OxidizedBronzeShadow);
+                Raylib.DrawRectangle(cx - 4, topJawY - 8, 20, 2, Palette.OxidizedBronzeWorn);
+                Raylib.DrawRectangle(cx - 4, topJawY, 6, 6, Palette.OutlineVoid);
+                Raylib.DrawRectangle(cx - 2, topJawY, 4, 4, strobeCol);
+                Raylib.DrawRectangle(cx + 10, topJawY, 6, 6, Palette.OutlineVoid);
+                Raylib.DrawRectangle(cx + 10, topJawY, 4, 4, strobeCol);
+
+                // Bottom hydraulic gantry column + pincer jaw
+                int botLen = Math.Max(4, horizonY - botJawY);
+                Raylib.DrawRectangle(cx, botJawY, 12, botLen, Palette.OutlineVoid);
+                Raylib.DrawRectangle(cx + 2, botJawY, 8, botLen, Palette.WeatheredGunmetalMid);
+                Raylib.DrawRectangle(cx + 4, botJawY, 4, botLen, Palette.WeatheredGunmetalEdge);
+                Raylib.DrawRectangle(cx - 6, botJawY - 2, 24, 12, Palette.OutlineVoid);
+                Raylib.DrawRectangle(cx - 4, botJawY, 20, 8, Palette.OxidizedBronzeShadow);
+                Raylib.DrawRectangle(cx - 4, botJawY, 20, 2, Palette.OxidizedBronzeWorn);
+                Raylib.DrawRectangle(cx - 4, botJawY - 6, 6, 6, Palette.OutlineVoid);
+                Raylib.DrawRectangle(cx - 2, botJawY - 4, 4, 4, strobeCol);
+                Raylib.DrawRectangle(cx + 10, botJawY - 6, 6, 6, Palette.OutlineVoid);
+                Raylib.DrawRectangle(cx + 10, botJawY - 4, 4, 4, strobeCol);
+
+                if (locked)
+                {
+                    Raylib.DrawRectangle(cx + 5, topJawY + 4, 2, Math.Max(2, botJawY - topJawY - 8), strobeCol);
+                    if (_viewportImpactShakeTimer > 0f)
+                    {
+                        Raylib.DrawRectangle(cx - 8, topJawY + 2, 2, 2, Palette.CrtAmberPrimary);
+                        Raylib.DrawRectangle(cx + 18, topJawY + 2, 2, 2, Palette.CrtAmberPrimary);
+                        Raylib.DrawRectangle(cx - 8, botJawY - 4, 2, 2, Palette.CrtAmberPrimary);
+                        Raylib.DrawRectangle(cx + 18, botJawY - 4, 2, 2, Palette.CrtAmberPrimary);
+                    }
+                }
+            }
+            return;
+        }
+
+        int foreX = shipDrawX + 52;
+        int aftX = shipDrawX + ShipRenderW - 64;
+
+        int v1TopTargetY = shipDrawY + 28;
+        int v1BotTargetY = shipDrawY + ShipRenderH - 28;
+
+        int v1TopJawY = ViewportInnerY + (int)MathF.Round((v1TopTargetY - ViewportInnerY) * clampT);
+        int v1BotJawY = horizonY - (int)MathF.Round((horizonY - v1BotTargetY) * clampT);
 
         int[] clampXs = [foreX, aftX];
         foreach (int cx in clampXs)
         {
             // Top hydraulic gantry column + locking pincer claw
-            int topLen = Math.Max(4, topJawY - ViewportInnerY);
+            int topLen = Math.Max(4, v1TopJawY - ViewportInnerY);
             Raylib.DrawRectangle(cx, ViewportInnerY, 12, topLen, Palette.WeatheredGunmetalMid);
             Raylib.DrawRectangleLines(cx, ViewportInnerY, 12, topLen, Palette.OutlineVoid);
             Raylib.DrawRectangle(cx + 4, ViewportInnerY, 4, topLen, Palette.WeatheredGunmetalEdge);
             // Pincer jaw head
-            Raylib.DrawRectangle(cx - 5, topJawY - 8, 22, 10, Palette.OxidizedBronzeShadow);
-            Raylib.DrawRectangleLines(cx - 5, topJawY - 8, 22, 10, Palette.OutlineVoid);
-            Raylib.DrawRectangle(cx - 3, topJawY, 6, 6, strobeCol);
-            Raylib.DrawRectangle(cx + 9, topJawY, 6, 6, strobeCol);
+            Raylib.DrawRectangle(cx - 5, v1TopJawY - 8, 22, 10, Palette.OxidizedBronzeShadow);
+            Raylib.DrawRectangleLines(cx - 5, v1TopJawY - 8, 22, 10, Palette.OutlineVoid);
+            Raylib.DrawRectangle(cx - 3, v1TopJawY, 6, 6, strobeCol);
+            Raylib.DrawRectangle(cx + 9, v1TopJawY, 6, 6, strobeCol);
 
             // Bottom hydraulic gantry column + locking pincer claw
-            int botLen = Math.Max(4, horizonY - botJawY);
-            Raylib.DrawRectangle(cx, botJawY, 12, botLen, Palette.WeatheredGunmetalMid);
-            Raylib.DrawRectangleLines(cx, botJawY, 12, botLen, Palette.OutlineVoid);
-            Raylib.DrawRectangle(cx + 4, botJawY, 4, botLen, Palette.WeatheredGunmetalEdge);
+            int botLen = Math.Max(4, horizonY - v1BotJawY);
+            Raylib.DrawRectangle(cx, v1BotJawY, 12, botLen, Palette.WeatheredGunmetalMid);
+            Raylib.DrawRectangleLines(cx, v1BotJawY, 12, botLen, Palette.OutlineVoid);
+            Raylib.DrawRectangle(cx + 4, v1BotJawY, 4, botLen, Palette.WeatheredGunmetalEdge);
             // Pincer jaw head
-            Raylib.DrawRectangle(cx - 5, botJawY - 2, 22, 10, Palette.OxidizedBronzeShadow);
-            Raylib.DrawRectangleLines(cx - 5, botJawY - 2, 22, 10, Palette.OutlineVoid);
-            Raylib.DrawRectangle(cx - 3, botJawY - 6, 6, 6, strobeCol);
-            Raylib.DrawRectangle(cx + 9, botJawY - 6, 6, 6, strobeCol);
+            Raylib.DrawRectangle(cx - 5, v1BotJawY - 2, 22, 10, Palette.OxidizedBronzeShadow);
+            Raylib.DrawRectangleLines(cx - 5, v1BotJawY - 2, 22, 10, Palette.OutlineVoid);
+            Raylib.DrawRectangle(cx - 3, v1BotJawY - 6, 6, 6, strobeCol);
+            Raylib.DrawRectangle(cx + 9, v1BotJawY - 6, 6, 6, strobeCol);
 
             // Magnetic lock beam connecting upper & lower jaws once snapped shut
             if (locked)
             {
-                Raylib.DrawLine(cx + 6, topJawY + 4, cx + 6, botJawY - 4, strobeCol);
+                Raylib.DrawLine(cx + 6, v1TopJawY + 4, cx + 6, v1BotJawY - 4, strobeCol);
                 if (_viewportImpactShakeTimer > 0f)
                 {
                     // Brief contact spark pixels
-                    Raylib.DrawPixel(cx - 7, topJawY + 2, Palette.CrtAmberPrimary);
-                    Raylib.DrawPixel(cx + 18, topJawY + 3, Palette.CrtAmberPrimary);
-                    Raylib.DrawPixel(cx - 6, botJawY - 2, Palette.CrtAmberPrimary);
-                    Raylib.DrawPixel(cx + 17, botJawY - 3, Palette.CrtAmberPrimary);
+                    Raylib.DrawPixel(cx - 7, v1TopJawY + 2, Palette.CrtAmberPrimary);
+                    Raylib.DrawPixel(cx + 18, v1TopJawY + 3, Palette.CrtAmberPrimary);
+                    Raylib.DrawPixel(cx - 6, v1BotJawY - 2, Palette.CrtAmberPrimary);
+                    Raylib.DrawPixel(cx + 17, v1BotJawY - 3, Palette.CrtAmberPrimary);
                 }
             }
         }
@@ -970,13 +1071,13 @@ public sealed partial class DeskScreen
         Raylib.DrawRectangle(SpsToggleX + 12, SpsToggleY + 9, SpsToggleW - 24, 5, ledCol);
 
         const string spsTitle = "SPS PROBE";
-        int tw = Raylib.MeasureText(spsTitle, 10);
-        Raylib.DrawText(spsTitle, SpsToggleX + (SpsToggleW - tw) / 2, SpsToggleY + 22, 10,
+        int tw = UiText.MeasureWidth(spsTitle, 10);
+        UiText.Draw(spsTitle, SpsToggleX + (SpsToggleW - tw) / 2, SpsToggleY + 22, 10,
             spsPoweredOff ? Palette.WeatheredGunmetalEdge : (_spsEnabled ? Palette.SpsShieldArcIce : Palette.CrtAmberPrimary));
 
         string spsState = spsPoweredOff ? "[ OFFLINE ]" : (_spsEnabled ? "[ ACTIVE ]" : "[ STANDBY ]");
-        int sw = Raylib.MeasureText(spsState, 10);
-        Raylib.DrawText(spsState, SpsToggleX + (SpsToggleW - sw) / 2, SpsToggleY + 38, 10,
+        int sw = UiText.MeasureWidth(spsState, 10);
+        UiText.Draw(spsState, SpsToggleX + (SpsToggleW - sw) / 2, SpsToggleY + 38, 10,
             spsPoweredOff ? Palette.WeatheredGunmetalEdge : (_spsEnabled ? Palette.SpsCommsActive : Palette.CrtAmberDimmed));
 
         // Bottom: SPS Anomaly Mini-Screen (568, 108, 104, 148)
@@ -1003,7 +1104,7 @@ public sealed partial class DeskScreen
         Raylib.DrawRectangle(SpsMiniX + 1, SpsMiniY + 1, SpsMiniW - 2, 16, Palette.OutlineVoid);
         Raylib.DrawLine(SpsMiniX + 1, SpsMiniY + 17, SpsMiniX + SpsMiniW - 1, SpsMiniY + 17, Palette.WeatheredGunmetalEdge);
         const string logHeader = "SPS LOG";
-        Raylib.DrawText(logHeader, SpsMiniX + (SpsMiniW - Raylib.MeasureText(logHeader, 10)) / 2, SpsMiniY + 4, 10,
+        UiText.Draw(logHeader, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(logHeader, 10)) / 2, SpsMiniY + 4, 10,
             spsPoweredOff ? Palette.WeatheredGunmetalEdge : (_spsEnabled || hasLogged ? Palette.SpsCommsActive : Palette.CrtAmberDimmed));
 
         if (spsPoweredOff)
@@ -1027,8 +1128,8 @@ public sealed partial class DeskScreen
                 {
                     Raylib.DrawRectangle(rx, ry, rw, rh, Palette.OutlineVoid);
                     Raylib.DrawRectangleLines(rx, ry, rw, rh, Palette.WeatheredGunmetalEdge);
-                    Raylib.DrawText("[OK] COOLED", rx + 6, ry + 4, 10, Palette.ClearanceTeal);
-                    Raylib.DrawText("WPN OFFLINE", rx + 6, ry + 16, 10, Palette.WeatheredGunmetalEdge);
+                    UiText.Draw("[OK] COOLED", rx + 6, ry + 4, 10, Palette.ClearanceTeal);
+                    UiText.Draw("WPN OFFLINE", rx + 6, ry + 16, 10, Palette.WeatheredGunmetalEdge);
                     continue;
                 }
 
@@ -1050,7 +1151,7 @@ public sealed partial class DeskScreen
 
                 string topLabel = entry.WasVerified
                     ? "[VERIFIED]"
-                    : (entry.Kind == SpsAnomalyKind.HotWeaponMount ? "[!] HOT WPN" : "[!] CARGO");
+                    : (entry.Kind == SpsAnomalyKind.HotWeaponMount ? "[!] HOT WEAPONS" : "[!] POWERED CARGO");
 
                 Raylib.DrawRectangle(rx, ry, rw, rh, rowBg);
                 Raylib.DrawRectangleLines(rx, ry, rw, rh, rowBorder);
@@ -1059,8 +1160,8 @@ public sealed partial class DeskScreen
                     DrawReviewHotspotOutline(mouse, rx, ry, rw, rh, rowSelected);
                 }
 
-                Raylib.DrawText(TruncateByPixelWidth(topLabel, 10, rw - 8), rx + 5, ry + 4, 10, topFg);
-                Raylib.DrawText(TruncateByPixelWidth(entry.Label, 10, rw - 8), rx + 5, ry + 16, 10, Palette.CrtAmberPrimary);
+                UiText.Draw(TruncateByPixelWidth(topLabel, 10, rw - 6), rx + 3, ry + 4, 10, topFg);
+                UiText.Draw(TruncateByPixelWidth(entry.Label, 10, rw - 6), rx + 3, ry + 16, 10, Palette.CrtAmberPrimary);
             }
 
             if (locking)
@@ -1075,7 +1176,7 @@ public sealed partial class DeskScreen
         else if (locking)
         {
             const string lockTxt = "LOCKING...";
-            Raylib.DrawText(lockTxt, SpsMiniX + (SpsMiniW - Raylib.MeasureText(lockTxt, 10)) / 2, SpsMiniY + 46, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(lockTxt, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(lockTxt, 10)) / 2, SpsMiniY + 46, 10, Palette.CrtAmberPrimary);
             int maxBarW = SpsMiniW - 16;
             int fillW = Math.Clamp((int)MathF.Round(maxBarW * _spsLockProgress), 1, maxBarW);
             Raylib.DrawRectangle(SpsMiniX + 8, SpsMiniY + 64, maxBarW, 10, Palette.OutlineVoid);
@@ -1088,8 +1189,8 @@ public sealed partial class DeskScreen
             {
                 const string s1 = "SHIELD";
                 const string s2 = "BLOCKED";
-                Raylib.DrawText(s1, SpsMiniX + (SpsMiniW - Raylib.MeasureText(s1, 10)) / 2, SpsMiniY + 48, 10, Palette.SpsShieldArcIce);
-                Raylib.DrawText(s2, SpsMiniX + (SpsMiniW - Raylib.MeasureText(s2, 10)) / 2, SpsMiniY + 62, 10, Palette.SpsShieldArcIce);
+                UiText.Draw(s1, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(s1, 10)) / 2, SpsMiniY + 48, 10, Palette.SpsShieldArcIce);
+                UiText.Draw(s2, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(s2, 10)) / 2, SpsMiniY + 62, 10, Palette.SpsShieldArcIce);
             }
             else if (_activeShip != null && _activeShip.GroundTruth.IsDay2GhostRouteSuspect)
             {
@@ -1098,24 +1199,24 @@ public sealed partial class DeskScreen
                 const string g1 = "PYLON WARM";
                 const string g2 = "RESIDUE HIGH";
                 const string g3 = "0 FAULTS";
-                Raylib.DrawText(g1, SpsMiniX + (SpsMiniW - Raylib.MeasureText(g1, 10)) / 2, SpsMiniY + 46, 10, Palette.CrtAmberPrimary);
-                Raylib.DrawText(g2, SpsMiniX + (SpsMiniW - Raylib.MeasureText(g2, 10)) / 2, SpsMiniY + 62, 10, Palette.CrtAmberDimmed);
-                Raylib.DrawText(g3, SpsMiniX + (SpsMiniW - Raylib.MeasureText(g3, 10)) / 2, SpsMiniY + 78, 10, Palette.ClearanceTeal);
+                UiText.Draw(g1, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(g1, 10)) / 2, SpsMiniY + 46, 10, Palette.CrtAmberPrimary);
+                UiText.Draw(g2, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(g2, 10)) / 2, SpsMiniY + 62, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(g3, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(g3, 10)) / 2, SpsMiniY + 78, 10, Palette.ClearanceTeal);
             }
             else
             {
                 const string c1 = "SCANNING";
                 const string c2 = "HOLD 0.5S";
                 const string c3 = "ON SIGNAL";
-                Raylib.DrawText(c1, SpsMiniX + (SpsMiniW - Raylib.MeasureText(c1, 10)) / 2, SpsMiniY + 48, 10, Palette.SpsCommsActive);
-                Raylib.DrawText(c2, SpsMiniX + (SpsMiniW - Raylib.MeasureText(c2, 10)) / 2, SpsMiniY + 64, 10, Palette.CrtAmberDimmed);
-                Raylib.DrawText(c3, SpsMiniX + (SpsMiniW - Raylib.MeasureText(c3, 10)) / 2, SpsMiniY + 78, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(c1, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(c1, 10)) / 2, SpsMiniY + 48, 10, Palette.SpsCommsActive);
+                UiText.Draw(c2, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(c2, 10)) / 2, SpsMiniY + 64, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(c3, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(c3, 10)) / 2, SpsMiniY + 78, 10, Palette.CrtAmberDimmed);
             }
         }
         else
         {
             const string st = "STANDBY";
-            Raylib.DrawText(st, SpsMiniX + (SpsMiniW - Raylib.MeasureText(st, 10)) / 2, SpsMiniY + 68, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw(st, SpsMiniX + (SpsMiniW - UiText.MeasureWidth(st, 10)) / 2, SpsMiniY + 68, 10, Palette.WeatheredGunmetalEdge);
         }
     }
 
@@ -1124,15 +1225,15 @@ public sealed partial class DeskScreen
     // =========================================================================
     private void GetCurrentFeedStatus(out string feedLine, out Color feedDotCol)
     {
-        if (_preShiftStage == PreShiftStage.Day1VorstLiveHail)
+        if (_preShiftStage is PreShiftStage.Day1VorstLiveHail or PreShiftStage.Day3KordaniLiveHail)
         {
             feedLine = "LIVE FEED // KDF COMMAND";
             feedDotCol = Palette.AlertCrimson;
         }
-        else if (_preShiftStage == PreShiftStage.Day3KordaniLiveHail)
+        else if (IsPreShiftBrengopHailActive)
         {
-            feedLine = "LIVE FEED // KDF SECURITY";
-            feedDotCol = Palette.AlertCrimson;
+            feedLine = "LIVE FEED // BMC LOGISTICS";
+            feedDotCol = Palette.CrtAmberPrimary;
         }
         else if (_activeShip == null || _phase == EncounterPhase.ShipGlidingIn)
         {
@@ -1161,9 +1262,10 @@ public sealed partial class DeskScreen
         float viewscreenCollapseT = Math.Clamp(ClockOutPowerDownProgress / 0.28f, 0f, 1f);
 
         // Outer Viewscreen Housing
+        Color preShiftAccentCol = IsPreShiftBrengopHailActive ? Palette.CrtAmberPrimary : Palette.AlertCrimson;
         Raylib.DrawRectangle(vs.X, vs.Y, vs.W, vs.H, Palette.OutlineVoid);
         Raylib.DrawRectangleLines(vs.X, vs.Y, vs.W, vs.H,
-            IsPreShiftTalkingHeadHailActive ? Palette.AlertCrimson : Palette.OxidizedBronzeWorn);
+            IsPreShiftTalkingHeadHailActive ? preShiftAccentCol : Palette.OxidizedBronzeWorn);
 
         if (_layout.IsTransponderSeparatePanel)
         {
@@ -1185,8 +1287,8 @@ public sealed partial class DeskScreen
                 Raylib.DrawRectangleLines(bzX, bzY, bzW, bzH, Palette.WeatheredGunmetalEdge);
 
                 const string bezelTitle = "HAILING VIEWSCREEN";
-                int btw = Raylib.MeasureText(bezelTitle, 10);
-                Raylib.DrawText(bezelTitle, vs.X + (vs.W - btw) / 2, bzY + 6, 10, Palette.CrtAmberDimmed);
+                int btw = UiText.MeasureWidth(bezelTitle, 10);
+                UiText.Draw(bezelTitle, vs.X + (vs.W - btw) / 2, bzY + 6, 10, Palette.CrtAmberDimmed);
 
                 // Subtle CRT bracket ticks flanking the 128x128 portrait
                 Raylib.DrawLine(pr.X - 6, pr.Y, pr.X - 6, pr.Y + 14, Palette.OxidizedBronzeWorn);
@@ -1202,11 +1304,14 @@ public sealed partial class DeskScreen
                 Raylib.DrawRectangle(sbX, sbY, sbW, sbH, Palette.DeepSpaceVoid);
                 Raylib.DrawRectangleLines(sbX, sbY, sbW, sbH, Palette.WeatheredGunmetalEdge);
                 Raylib.DrawRectangle(sbX + 8, sbY + 10, 6, 6, feedDotCol);
-                string shortFeed = _preShiftStage == PreShiftStage.Day1VorstLiveHail
-                    ? "LIVE FEED // VORST"
-                    : (_preShiftStage == PreShiftStage.Day3KordaniLiveHail ? "LIVE FEED // KDF" : feedLine);
-                Raylib.DrawText(TruncateByPixelWidth(shortFeed, 10, sbW - 24), sbX + 20, sbY + 8, 10,
-                    IsPreShiftTalkingHeadHailActive ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
+                string shortFeed = _preShiftStage switch
+                {
+                    PreShiftStage.Day1VorstLiveHail or PreShiftStage.Day3KordaniLiveHail => "LIVE FEED // VORST",
+                    PreShiftStage.Day2NixaLiveHail or PreShiftStage.Day8NixaLiveHail or PreShiftStage.Day15ForemanLiveHail => "LIVE FEED // NIXA",
+                    _ => feedLine
+                };
+                UiText.Draw(TruncateByPixelWidth(shortFeed, 10, sbW - 24), sbX + 20, sbY + 8, 10,
+                    IsPreShiftTalkingHeadHailActive ? preShiftAccentCol : Palette.CrtAmberPrimary);
                 if (viewscreenCollapseT > 0.001f)
                 {
                     DrawCrtPowerDownCollapse(sbX + 1, sbY + 1, sbW - 2, sbH - 2, viewscreenCollapseT);
@@ -1244,8 +1349,8 @@ public sealed partial class DeskScreen
             const string s1 = "VIEWSCREEN";
             const string s2 = "STANDBY";
             int midY = pr.Y + pr.H / 2;
-            Raylib.DrawText(s1, pr.X + (pr.W - Raylib.MeasureText(s1, 10)) / 2, midY - 12, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText(s2, pr.X + (pr.W - Raylib.MeasureText(s2, 10)) / 2, midY + 4, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw(s1, pr.X + (pr.W - UiText.MeasureWidth(s1, 10)) / 2, midY - 12, 10, Palette.CrtAmberDimmed);
+            UiText.Draw(s2, pr.X + (pr.W - UiText.MeasureWidth(s2, 10)) / 2, midY + 4, 10, Palette.WeatheredGunmetalEdge);
         }
 
         if (viewscreenCollapseT > 0.001f)
@@ -1254,7 +1359,7 @@ public sealed partial class DeskScreen
         }
 
         Raylib.DrawRectangleLines(pr.X - 1, pr.Y - 1, pr.W + 2, pr.H + 2,
-            IsPreShiftTalkingHeadHailActive ? Palette.AlertCrimson : Palette.CrtAmberDimmed);
+            IsPreShiftTalkingHeadHailActive ? preShiftAccentCol : Palette.CrtAmberDimmed);
     }
 
     private void DrawTransponderIdPanel(VirtualMouseState mouse)
@@ -1264,6 +1369,7 @@ public sealed partial class DeskScreen
         DeskRect fb = _layout.FeedBox;
         GetCurrentFeedStatus(out string feedLine, out Color feedDotCol);
         float viewscreenCollapseT = Math.Clamp(ClockOutPowerDownProgress / 0.28f, 0f, 1f);
+        Color preShiftAccentCol = IsPreShiftBrengopHailActive ? Palette.CrtAmberPrimary : Palette.AlertCrimson;
 
         bool idFault = IsTargetFaultHighlighted(ReviewTarget.VisualSignalTransponderId);
         bool idSelected = _protocolReviewModeActive && _reviewFirstSelection == ReviewTarget.VisualSignalTransponderId;
@@ -1291,30 +1397,31 @@ public sealed partial class DeskScreen
             // Dedicated B1/B2 SIGNAL / TRANSPONDER ID Readout Panel: (1052, 264, 220, 88)
             Raylib.DrawRectangle(fb.X + 1, fb.Y + 1, fb.W - 2, 20, Palette.OutlineVoid);
             Raylib.DrawRectangle(fb.X + 8, fb.Y + 8, 6, 6, feedDotCol);
-            Raylib.DrawText(TruncateByPixelWidth(feedLine, 10, fb.W - 24), fb.X + 18, fb.Y + 6, 10,
-                IsPreShiftTalkingHeadHailActive ? Palette.AlertCrimson : Palette.CrtAmberDimmed);
+            UiText.Draw(TruncateByPixelWidth(feedLine, 10, fb.W - 24), fb.X + 18, fb.Y + 6, 10,
+                IsPreShiftTalkingHeadHailActive ? preShiftAccentCol : Palette.CrtAmberDimmed);
             Raylib.DrawLine(fb.X + 2, fb.Y + 22, fb.Right - 2, fb.Y + 22, Palette.WeatheredGunmetalEdge);
 
-            Raylib.DrawText("SIGNAL / TRANSPONDER ID", fb.X + 8, fb.Y + 28, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("SIGNAL / TRANSPONDER ID", fb.X + 8, fb.Y + 28, 10, Palette.WeatheredGunmetalEdge);
         }
         else
         {
             // Classic A embedded FeedBox: (688, 184, 204, 64)
             Raylib.DrawRectangle(fb.X + 8, fb.Y + 8, 6, 6, feedDotCol);
-            Raylib.DrawText(TruncateByPixelWidth(feedLine, 10, fb.W - 24), fb.X + 18, fb.Y + 6, 10,
-                IsPreShiftTalkingHeadHailActive ? Palette.AlertCrimson : Palette.CrtAmberDimmed);
+            UiText.Draw(TruncateByPixelWidth(feedLine, 10, fb.W - 24), fb.X + 18, fb.Y + 6, 10,
+                IsPreShiftTalkingHeadHailActive ? preShiftAccentCol : Palette.CrtAmberDimmed);
             Raylib.DrawLine(fb.X + 4, fb.Y + 21, fb.Right - 4, fb.Y + 21, Palette.WeatheredGunmetalEdge);
 
-            Raylib.DrawText("TRANSPONDER ID", fb.X + 8, fb.Y + 25, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("TRANSPONDER ID", fb.X + 8, fb.Y + 25, 10, Palette.WeatheredGunmetalEdge);
         }
 
-        string rawIdText = _preShiftStage == PreShiftStage.Day1VorstLiveHail
-            ? Day2And3ScriptedDialogue.Day1VorstTransponder
-            : (_preShiftStage == PreShiftStage.Day3KordaniLiveHail
-                ? Day2And3ScriptedDialogue.Day3KordaniOfficerTransponder
-                : (_activeShip != null && _phase != EncounterPhase.ShipGlidingIn
-                    ? _activeShip.GroundTruth.RawTransponderId
-                    : "---"));
+        string rawIdText = _preShiftStage switch
+        {
+            PreShiftStage.Day1VorstLiveHail or PreShiftStage.Day3KordaniLiveHail => Day2And3ScriptedDialogue.Day1VorstTransponder,
+            PreShiftStage.Day2NixaLiveHail or PreShiftStage.Day8NixaLiveHail or PreShiftStage.Day15ForemanLiveHail => Day2And3ScriptedDialogue.RegeerNixaTransponder,
+            _ => _activeShip != null && _phase != EncounterPhase.ShipGlidingIn
+                ? _activeShip.GroundTruth.RawTransponderId
+                : "---"
+        };
 
         bool isGhostFlickering = _ghostRouteTransponderFlickerTimer > 0f &&
                                  _activeShip != null &&
@@ -1331,11 +1438,11 @@ public sealed partial class DeskScreen
                 ? Palette.CrtAmberDimmed
                 : (idSelected ? Palette.ClearanceTeal : Palette.CrtAmberPrimary));
 
-        int idFontSize = Raylib.MeasureText(rawIdText, 20) <= fb.W - 16 ? 20 : 10;
+        int idFontSize = UiText.MeasureWidth(rawIdText, 20) <= fb.W - 16 ? 20 : 10;
         int idDrawY = _layout.IsTransponderSeparatePanel
             ? (idFontSize == 20 ? fb.Y + 46 : fb.Y + 51)
             : (idFontSize == 20 ? fb.Y + 39 : fb.Y + 44);
-        Raylib.DrawText(rawIdText, fb.X + 8, idDrawY, idFontSize, idCol);
+        UiText.Draw(rawIdText, fb.X + 8, idDrawY, idFontSize, idCol);
 
         // Subtle signal carrier bar along bottom edge of B1/B2 88px Signal/Transponder panel
         if (_layout.IsTransponderSeparatePanel)
@@ -1358,7 +1465,8 @@ public sealed partial class DeskScreen
                 }
                 else if (IsPreShiftTalkingHeadHailActive)
                 {
-                    segCol = s < 10 ? Palette.AlertCrimson : Palette.OxidizedBronzeShadow;
+                    Color barCol = IsPreShiftBrengopHailActive ? Palette.CrtAmberPrimary : Palette.AlertCrimson;
+                    segCol = s < 10 ? barCol : Palette.OxidizedBronzeShadow;
                 }
                 else
                 {
@@ -1454,7 +1562,7 @@ public sealed partial class DeskScreen
 
             Raylib.DrawRectangle(px, py, pw, ph, bodyCol);
             Raylib.DrawRectangleLines(px, py, pw, ph, rimCol);
-            Raylib.DrawText(TruncateByPixelWidth(shortTag, 10, pw - 8), px + 5, py + 11, 10, rimCol);
+            UiText.Draw(TruncateByPixelWidth(shortTag, 10, pw - 8), px + 5, py + 11, 10, rimCol);
         }
 
         // Strictly One-Way Armored Data Conduit Cable: Slate Bus -> Wafer Writer
@@ -1464,11 +1572,11 @@ public sealed partial class DeskScreen
     private void DrawArmoredDataConduitCable()
     {
         // Strictly One-Way Receive-Only Conduit (Slate Bus -> Wafer Writer):
-        // - Inactive State (Days 1-6 / Wafer Writer offline): completely dark & inert, NEVER animates pulses!
-        // - Active State (Day 7+): pulses ONLY downward during incoming protocol download (RX PACKET),
-        //   NEVER during Clearance Dock encryption, Slate Bus TX CLEARANCE upload, or Detaining.
+        // - Inactive State (Days 1-11 / Wafer Writer offline): completely dark & inert, NEVER animates pulses!
+        // - Active State (Day 12+): pulses warm amber ONLY downward during incoming protocol download/demux (RX PACKET),
+        //   NEVER during Clearance Dock encryption, Slate Bus TX CLEARANCE upload, Blank Slate port-swap, or Detaining.
         bool waferOnline = IsWaferWriterOperational;
-        bool pulseRxActive = waferOnline && _phase == EncounterPhase.DownloadingProtocols;
+        bool pulseRxActive = IsConduitPulseRxActive;
 
         int startX = _layout.ConduitStartX;
         int startY = _layout.ConduitStartY;
@@ -1560,7 +1668,7 @@ public sealed partial class DeskScreen
     // =========================================================================
     // 7b. Wafer Writer (A: 680,624,220,88 | B1/B2: 752,624,220,88) + Top Wipe Feed Slot
     // =========================================================================
-    private void DrawWaferWriterModule()
+    private void DrawWaferWriterModule(VirtualMouseState mouse)
     {
         DeskRect ww = _layout.WaferWriter;
         DeskRect slot = _layout.WaferFeedSlot;
@@ -1573,32 +1681,125 @@ public sealed partial class DeskScreen
         {
             Raylib.DrawRectangle(ww.X, ww.Y, ww.W, ww.H, Palette.OutlineVoid);
             Raylib.DrawRectangle(ww.X + 1, ww.Y + 1, ww.W - 2, ww.H - 2, Palette.WeatheredGunmetalMid);
-            Raylib.DrawRectangleLines(ww.X, ww.Y, ww.W, ww.H, Palette.OxidizedBronzeWorn);
+            Color bezelBorder = _waferWriteHeadFlashTimer > 0f
+                ? new Color(196, 152, 108, 255)
+                : (_heldPendingWafer != null || _waferHopperCount == 0 ? Palette.AlertCrimson : Palette.OxidizedBronzeWorn);
+            Raylib.DrawRectangleLines(ww.X, ww.Y, ww.W, ww.H, bezelBorder);
         }
 
-        // Visible Wafer Wipe Feed Slot along TOP edge
-        Raylib.DrawRectangle(slot.X, slot.Y, slot.W, slot.H, new Color(18, 22, 28, 255));
+        // Visible Wafer Wipe Feed Slot along TOP edge (w = 196, h = 16)
+        bool wipeFlashing = IsWaferWriterOperational && _waferWipeFlashTimer > 0f;
+        Raylib.DrawRectangle(slot.X, slot.Y, slot.W, slot.H,
+            wipeFlashing ? new Color(242, 246, 252, 255) : new Color(18, 22, 28, 255));
         Raylib.DrawRectangleLines(slot.X, slot.Y, slot.W, slot.H,
-            IsWaferWriterOperational ? Palette.OxidizedBronzeWorn : new Color(48, 56, 68, 255));
-        Raylib.DrawRectangle(slot.X + 10, slot.Y + 5, slot.W - 20, 6, Palette.OutlineVoid);
+            wipeFlashing
+                ? Color.White
+                : (IsWaferWriterOperational ? Palette.OxidizedBronzeWorn : new Color(48, 56, 68, 255)));
+        Raylib.DrawRectangle(slot.X + 10, slot.Y + 5, slot.W - 20, 6,
+            wipeFlashing ? Color.White : Palette.OutlineVoid);
         Raylib.DrawLine(slot.X + 10, slot.Y + 11, slot.Right - 11, slot.Y + 11,
-            IsWaferWriterOperational ? Palette.CrtAmberDimmed : new Color(42, 49, 60, 255));
+            wipeFlashing
+                ? Palette.ClearanceTeal
+                : (IsWaferWriterOperational ? Palette.CrtAmberDimmed : new Color(42, 49, 60, 255)));
         Raylib.DrawRectangle(slot.X + 4, slot.Y + 6, 3, 4, new Color(48, 56, 68, 255));
         Raylib.DrawRectangle(slot.Right - 7, slot.Y + 6, 3, 4, new Color(48, 56, 68, 255));
 
         if (!IsWaferWriterOperational)
         {
             DrawInactiveStencilText(ww.X, ww.Y + slot.H, ww.W, ww.H - slot.H,
-                "WAFER WRITER", null);
+                "WAFER WRITER", "[PLAYTEST]");
+            return;
+        }
+
+        // Left-side ejection tray lip & muted-brown Cargo Manifest write-head flash bezel (zero punch-press arm!)
+        int trayX = ww.X + 4;
+        int trayY = ww.Y + 22;
+        int trayH = ww.H - 28;
+        Color writeHeadCol = _waferWriteHeadFlashTimer > 0f
+            ? new Color(208, 166, 122, 255)
+            : (IsConduitPulseRxActive ? new Color(138, 102, 72, 255) : new Color(54, 48, 44, 255));
+        Raylib.DrawRectangle(trayX, trayY, 8, trayH, Palette.OutlineVoid);
+        Raylib.DrawRectangle(trayX + 1, trayY + 2, 5, trayH - 4, writeHeadCol);
+        Raylib.DrawRectangleLines(trayX, trayY, 8, trayH, Palette.WeatheredGunmetalEdge);
+
+        // 3-Wafer Ceramic-Polymer Hopper Indicator Pips + Empty-Hopper Flashing Error LED
+        bool pulseLed = ((_animTick / 8) % 2) == 0;
+        int ledX = ww.Right - 14;
+        int ledY = ww.Y + 22;
+        Color hopperLedCol = (_waferHopperCount == 0 || _heldPendingWafer != null)
+            ? (pulseLed ? Palette.AlertCrimson : new Color(92, 20, 24, 255))
+            : Palette.ClearanceTeal;
+        Raylib.DrawRectangle(ledX, ledY, 8, 8, hopperLedCol);
+        Raylib.DrawRectangleLines(ledX, ledY, 8, 8, Palette.OutlineVoid);
+
+        for (int p = 0; p < MaxWaferHopperCount; p++)
+        {
+            int pipX = ww.Right - 46 + p * 10;
+            int pipY = ww.Y + 22;
+            bool hasBlank = p < _waferHopperCount;
+            Raylib.DrawRectangle(pipX, pipY, 8, 8, hasBlank ? new Color(196, 190, 176, 255) : Palette.OutlineVoid);
+            Raylib.DrawRectangleLines(pipX, pipY, 8, 8, Palette.WeatheredGunmetalEdge);
+        }
+
+        const string title = "WAFER DEMUX";
+        UiText.Draw(title, ww.X + 18, ww.Y + 21, 10, Palette.CrtAmberPrimary, denseRow: true);
+
+        bool missingPacketActive = _activeShip != null &&
+                                   _activeShip.GroundTruth.ExpectsCargoManifestWafer &&
+                                   _activeShip.GroundTruth.CargoManifestInitiallyOmitted &&
+                                   !_activeShip.GroundTruth.CargoManifestTransmitted &&
+                                   !_isTransmittingMissingWafer &&
+                                   IsShipInspectableForReview;
+
+        string statusLine;
+        Color statusCol;
+        if (_heldPendingWafer != null || _waferHopperCount == 0)
+        {
+            statusLine = _heldPendingWafer != null ? "HOPPER EMPTY // HOLD" : "HOPPER: 0/3 BLANKS";
+            statusCol = Palette.AlertCrimson;
+        }
+        else if (IsConduitPulseRxActive)
+        {
+            statusLine = "DEMUXING MANIFEST...";
+            statusCol = Palette.ClearanceTeal;
+        }
+        else if (missingPacketActive)
+        {
+            statusLine = "NO CARGO PACKET RX";
+            statusCol = Palette.AlertCrimson;
         }
         else
         {
-            bool rxActive = _phase == EncounterPhase.DownloadingProtocols;
-            const string title = "WAFER WRITER // RX DEMUX";
-            Raylib.DrawText(title, ww.X + (ww.W - Raylib.MeasureText(title, 10)) / 2, ww.Y + 28, 10, Palette.CrtAmberPrimary);
-            string st = rxActive ? "DEMUXING CERT-WAFERS..." : "WIPE FEED READY";
-            Raylib.DrawText(st, ww.X + (ww.W - Raylib.MeasureText(st, 10)) / 2, ww.Y + 48, 10,
-                rxActive ? Palette.ClearanceTeal : Palette.CrtAmberDimmed);
+            statusLine = $"BLANKS: {_waferHopperCount}/{MaxWaferHopperCount} // TOP WIPE";
+            statusCol = Palette.CrtAmberDimmed;
+        }
+
+        UiText.Draw(
+            UiText.TruncateToWidth(statusLine, 10, ww.W - 24, denseRow: true),
+            ww.X + 18,
+            ww.Y + 40,
+            10,
+            statusCol,
+            denseRow: true);
+
+        const string slotHint = "^ DROP WAFER IN TOP SLOT ^";
+        UiText.Draw(
+            UiText.TruncateToWidth(slotHint, 10, ww.W - 24, denseRow: true),
+            ww.X + 18,
+            ww.Y + 58,
+            10,
+            wipeFlashing ? Color.White : Palette.WeatheredGunmetalEdge,
+            denseRow: true);
+
+        if (IsTargetFaultHighlighted(ReviewTarget.WaferWriterModule))
+        {
+            Color col = GetFaultPulseColor();
+            Raylib.DrawRectangleLines(ww.X, ww.Y, ww.W, ww.H, col);
+            Raylib.DrawRectangleLines(ww.X - 1, ww.Y - 1, ww.W + 2, ww.H + 2, col);
+        }
+        else if (_protocolReviewModeActive && IsShipInspectableForReview && IsReviewTargetUnlocked(ReviewTarget.WaferWriterModule))
+        {
+            DrawReviewHotspotOutline(mouse, ww.X, ww.Y, ww.W, ww.H, _reviewFirstSelection == ReviewTarget.WaferWriterModule);
         }
     }
 
@@ -1609,9 +1810,9 @@ public sealed partial class DeskScreen
     {
         if (!IsSpectrometerOperational)
         {
-            // Days 1-2: Recessed inactive bays with subtle low-contrast [PLAYTEST] stencils
-            DrawInactiveHardwareBay(WarpPrinterX, WarpPrinterY, WarpPrinterW, WarpPrinterH, "WARP PRINTER", "DAY 03");
-            DrawInactiveHardwareBay(WarpRefSpotX, WarpRefSpotY, WarpRefSpotW, WarpRefSpotH, "WARP CHECKER", "DAY 03");
+            string dayTag = $"DAY {_config.DayUnlockWarpScanner:D2}";
+            DrawInactiveHardwareBay(WarpPrinterX, WarpPrinterY, WarpPrinterW, WarpPrinterH, "WARP PRINTER", dayTag);
+            DrawInactiveHardwareBay(WarpRefSpotX, WarpRefSpotY, WarpRefSpotW, WarpRefSpotH, "WARP CHECKER", dayTag);
             return;
         }
 
@@ -1626,7 +1827,7 @@ public sealed partial class DeskScreen
         Raylib.DrawRectangle(WarpPrinterX + 1, WarpPrinterY + 1, WarpHousingW - 2, WarpPrinterH - 2, Palette.WeatheredGunmetalMid);
         Raylib.DrawLine(WarpPrinterX + WarpHousingW - 1, WarpPrinterY + 1, WarpPrinterX + WarpHousingW - 1, WarpPrinterY + WarpPrinterH - 2, Palette.OutlineVoid);
         const string prnTitle = "WARP COIL";
-        Raylib.DrawText(prnTitle, WarpPrinterX + (WarpHousingW - Raylib.MeasureText(prnTitle, 10)) / 2, WarpPrinterY + 5, 10,
+        UiText.Draw(prnTitle, WarpPrinterX + (WarpHousingW - UiText.MeasureWidth(prnTitle, 10)) / 2, WarpPrinterY + 5, 10,
             warpPoweredOff ? Palette.WeatheredGunmetalEdge : Palette.ClearanceTeal);
 
         // Compact status screen inside left housing (80x32)
@@ -1644,27 +1845,27 @@ public sealed partial class DeskScreen
                 float sweep = Math.Clamp(_warpPhaseElapsed / WarpScanDurationSeconds, 0f, 1f);
                 int barW = Math.Max(1, (int)MathF.Round((scrW - 8) * sweep));
                 Raylib.DrawRectangle(scrX + 4, scrY + 6, barW, 6, Palette.ClearanceTeal);
-                Raylib.DrawText("SCANNING", scrX + 12, scrY + 18, 10, Palette.ClearanceTeal);
+                UiText.Draw("SCANNING", scrX + 12, scrY + 18, 10, Palette.ClearanceTeal);
             }
             else if (_warpPhase == WarpPrinterPhase.PrintingStrip)
             {
-                Raylib.DrawText("PRINTING", scrX + 12, scrY + 6, 10, Palette.CrtAmberPrimary);
-                Raylib.DrawText("L -> R", scrX + 20, scrY + 19, 10, Palette.CrtAmberDimmed);
+                UiText.Draw("PRINTING", scrX + 12, scrY + 6, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("L -> R", scrX + 20, scrY + 19, 10, Palette.CrtAmberDimmed);
             }
             else if (_warpPhase == WarpPrinterPhase.AnchoredReadyToTear)
             {
-                Raylib.DrawText("READY", scrX + 20, scrY + 6, 10, Palette.ClearanceTeal);
-                Raylib.DrawText("TEAR ->", scrX + 14, scrY + 19, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("READY", scrX + 20, scrY + 6, 10, Palette.ClearanceTeal);
+                UiText.Draw("TEAR ->", scrX + 14, scrY + 19, 10, Palette.CrtAmberPrimary);
             }
             else if (_warpPhase == WarpPrinterPhase.TornOffFreeDocument)
             {
-                Raylib.DrawText("COIL HOT", scrX + 12, scrY + 6, 10, Palette.ClearanceTeal);
-                Raylib.DrawText("STRIP OUT", scrX + 8, scrY + 19, 10, Palette.CrtAmberDimmed);
+                UiText.Draw("COIL HOT", scrX + 12, scrY + 6, 10, Palette.ClearanceTeal);
+                UiText.Draw("STRIP OUT", scrX + 8, scrY + 19, 10, Palette.CrtAmberDimmed);
             }
             else
             {
-                Raylib.DrawText("ONLINE", scrX + 18, scrY + 6, 10, Palette.ClearanceTeal);
-                Raylib.DrawText("READY", scrX + 20, scrY + 19, 10, Palette.CrtAmberDimmed);
+                UiText.Draw("ONLINE", scrX + 18, scrY + 6, 10, Palette.ClearanceTeal);
+                UiText.Draw("READY", scrX + 20, scrY + 19, 10, Palette.CrtAmberDimmed);
             }
         }
 
@@ -1702,8 +1903,8 @@ public sealed partial class DeskScreen
         Raylib.DrawRectangle(WarpSelectorX + 26, WarpSelectorY, WarpSelectorW - 52, WarpSelectorH, Palette.OutlineVoid);
         Raylib.DrawRectangleLines(WarpSelectorX + 26, WarpSelectorY, WarpSelectorW - 52, WarpSelectorH, Palette.OxidizedBronzeShadow);
         string sysTitle = warpPoweredOff ? "REF: OFFLINE" : $"REF: {sys.DisplayLabel}";
-        int stw = Raylib.MeasureText(sysTitle, 10);
-        Raylib.DrawText(sysTitle, WarpSelectorX + (WarpSelectorW - stw) / 2, WarpSelectorY + (WarpSelectorH - 10) / 2, 10,
+        int stw = UiText.MeasureWidth(sysTitle, 10);
+        UiText.Draw(sysTitle, WarpSelectorX + (WarpSelectorW - stw) / 2, WarpSelectorY + (WarpSelectorH - 10) / 2, 10,
             warpPoweredOff ? Palette.WeatheredGunmetalEdge : (sys.IsRestricted ? Palette.AlertCrimson : Palette.CrtAmberPrimary));
         DrawSmallButton(mouse, WarpSelectorX + WarpSelectorW - 24, WarpSelectorY, 24, WarpSelectorH, ">");
 
@@ -1752,12 +1953,13 @@ public sealed partial class DeskScreen
         bool needsSlateForClearance = _phase == EncounterPhase.AwaitingClearanceReturnToTopPort;
         bool isTransmittingClearance = _phase == EncounterPhase.TransmittingClearance;
         bool isDownloading = _phase == EncounterPhase.DownloadingProtocols;
-        // NEVER flash red RE-PLUG DATA SLATE while Blank Data Slate download is still in progress!
+        // NEVER flash red RE-PLUG DATA SLATE while Blank Data Slate download is still in progress or silent capture is active!
         bool isAborted = _phase == EncounterPhase.DownloadAborted && !_isDownloadingToBlankSlate;
+        bool isCrimsonAbortAlert = isAborted && !_silentBlankSlateCaptureMode;
 
         Color borderCol = busPoweredOff
             ? Palette.WeatheredGunmetalEdge
-            : (isAborted
+            : (isCrimsonAbortAlert
                 ? (pulse ? Palette.AlertCrimson : Palette.CrtAmberPrimary)
                 : (isTransmittingClearance || needsSlateForClearance
                     ? (pulse ? Palette.ClearanceTeal : Palette.SpsShieldArcIce)
@@ -1783,7 +1985,7 @@ public sealed partial class DeskScreen
             int px = dockedX + 14 + p * 28;
             Color pinCol = busPoweredOff
                 ? new Color(34, 38, 44, 255)
-                : (isAborted
+                : (isCrimsonAbortAlert
                     ? Palette.AlertCrimson
                     : (isTransmittingClearance || isDownloading
                         ? (pulse ? Palette.ClearanceTeal : Palette.SpsShieldArcIce)
@@ -1796,7 +1998,7 @@ public sealed partial class DeskScreen
         // Status LED
         Color ledCol = busPoweredOff
             ? new Color(24, 28, 34, 255)
-            : (isAborted
+            : (isCrimsonAbortAlert
                 ? Palette.AlertCrimson
                 : (isTransmittingClearance || isDownloading || needsSlateForClearance
                     ? Palette.ClearanceTeal
@@ -1807,8 +2009,8 @@ public sealed partial class DeskScreen
 
         if (busPoweredOff)
         {
-            Raylib.DrawText("SLATE BUS", bus.X + 26, bus.Y + 7, 10, Palette.WeatheredGunmetalEdge);
-            Raylib.DrawText("STATUS: POWERED OFF", bus.X + 26, bus.Y + 21, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("SLATE BUS", bus.X + 26, bus.Y + 7, 10, Palette.WeatheredGunmetalEdge);
+            UiText.Draw("STATUS: POWERED OFF", bus.X + 26, bus.Y + 21, 10, Palette.WeatheredGunmetalEdge);
             return;
         }
 
@@ -1824,12 +2026,12 @@ public sealed partial class DeskScreen
             Raylib.DrawRectangle(barX, barY, fillW, barH, Palette.CrtAmberPrimary);
             Raylib.DrawRectangleLines(barX, barY, barW, barH, Palette.CrtAmberPrimary);
             string txTxt = $"TX COVERT {(int)MathF.Round(txProg * 100f)}%";
-            int txW = Raylib.MeasureText(txTxt, 10);
+            int txW = UiText.MeasureWidth(txTxt, 10);
             int txtX = barX + (barW - txW) / 2;
             int txtY = barY + 4;
-            Raylib.DrawText(txTxt, txtX, txtY, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(txTxt, txtX, txtY, 10, Palette.CrtAmberPrimary);
             Raylib.BeginScissorMode(barX, barY, fillW, barH);
-            Raylib.DrawText(txTxt, txtX, txtY, 10, Palette.OutlineVoid);
+            UiText.Draw(txTxt, txtX, txtY, 10, Palette.OutlineVoid);
             Raylib.EndScissorMode();
             return;
         }
@@ -1846,12 +2048,12 @@ public sealed partial class DeskScreen
             Raylib.DrawRectangle(barX, barY, fillW, barH, Palette.ClearanceTeal);
             Raylib.DrawRectangleLines(barX, barY, barW, barH, Palette.ClearanceTeal);
             string txTxt = $"TX CLEARANCE {(int)MathF.Round(txProg * 100f)}%";
-            int txW = Raylib.MeasureText(txTxt, 10);
+            int txW = UiText.MeasureWidth(txTxt, 10);
             int txtX = barX + (barW - txW) / 2;
             int txtY = barY + 4;
-            Raylib.DrawText(txTxt, txtX, txtY, 10, Palette.ClearanceTeal);
+            UiText.Draw(txTxt, txtX, txtY, 10, Palette.ClearanceTeal);
             Raylib.BeginScissorMode(barX, barY, fillW, barH);
-            Raylib.DrawText(txTxt, txtX, txtY, 10, Palette.OutlineVoid);
+            UiText.Draw(txTxt, txtX, txtY, 10, Palette.OutlineVoid);
             Raylib.EndScissorMode();
             return;
         }
@@ -1874,9 +2076,17 @@ public sealed partial class DeskScreen
         }
         else if (isAborted)
         {
-            bool readyToReTx = IsDataSlateInSlateBus || HasValidBlankSlateInSlateBus;
-            line2 = readyToReTx ? "CLICK [RE-TRANSMIT]" : "RE-PLUG DATA SLATE";
-            line2Col = readyToReTx ? Palette.ClearanceTeal : Palette.AlertCrimson;
+            if (_silentBlankSlateCaptureMode)
+            {
+                line2 = anySlateInBus ? "STATUS: SLATE LINKED" : "STATUS: UNPLUGGED";
+                line2Col = anySlateInBus ? Palette.CrtAmberPrimary : Palette.CrtAmberDimmed;
+            }
+            else
+            {
+                bool readyToReTx = IsDataSlateInSlateBus || HasValidBlankSlateInSlateBus;
+                line2 = readyToReTx ? "CLICK [RE-TRANSMIT]" : "RE-PLUG DATA SLATE";
+                line2Col = readyToReTx ? Palette.ClearanceTeal : Palette.AlertCrimson;
+            }
         }
         else if (needsSlateForClearance)
         {
@@ -1911,25 +2121,23 @@ public sealed partial class DeskScreen
             line2Col = Palette.CrtAmberDimmed;
         }
 
-        Raylib.DrawText(line1, bus.X + 26, bus.Y + 7, 10, Palette.CrtAmberDimmed);
-        Raylib.DrawText(TruncateByPixelWidth(line2, 10, bus.W - 34), bus.X + 26, bus.Y + 21, 10, line2Col);
+        UiText.Draw(line1, bus.X + 26, bus.Y + 7, 10, Palette.CrtAmberDimmed);
+        UiText.Draw(TruncateByPixelWidth(line2, 10, bus.W - 34), bus.X + 26, bus.Y + 21, 10, line2Col);
     }
 
     private void DrawCommsCommandStrip(VirtualMouseState mouse)
     {
         DeskRect strip = _layout.CommsStrip;
         DeskRect nextBtn = _layout.NextHailBtn;
-        DeskRect shldBtn = _layout.LowerShieldsBtn;
-        DeskRect wpnBtn = _layout.PwrDownWpnBtn;
 
-        // During Day 1 Vorst / Day 3 Kordani Pre-Shift Live Hail: dedicated single acknowledge/skip button spanning CommsStrip
+        // During Day 1 Vorst / Day 4 Kordani Pre-Shift Live Hail: dedicated single acknowledge/skip button spanning CommsStrip
         if (IsPreShiftTalkingHeadHailActive)
         {
             bool finishedLines = !_commsQueue.HasPendingOrActive;
             string btnTxt = finishedLines
                 ? (_preShiftStage == PreShiftStage.Day1VorstLiveHail
                     ? "ACKNOWLEDGE HAIL -- BEGIN DAY 01 WATCH"
-                    : "ACKNOWLEDGE HAIL -- BEGIN DAY 03 WATCH")
+                    : $"ACKNOWLEDGE HAIL -- BEGIN DAY {_gameState.Day:D2} WATCH")
                 : "SKIP TRANSMISSION TEXT >>";
             DrawHardwareButton(
                 mouse,
@@ -1943,7 +2151,7 @@ public sealed partial class DeskScreen
 
         bool stripPoweredOff = ClockOutPowerDownProgress >= 0.44f;
 
-        // 1. NEXT HAIL (or RE-TRANSMIT when DownloadAborted, or [INSPECT ROUTE] on Day 2 Ghost Route ship)
+        // Full-width NEXT HAIL (or RE-TRANSMIT when DownloadAborted / premature Cert-Wafer wipe, or INSPECT ROUTE on Day 3 Ghost Route ship)
         if (_phase == EncounterPhase.DownloadAborted)
         {
             bool canReTx = !stripPoweredOff && (IsDataSlateInSlateBus || HasValidBlankSlateInSlateBus) && _pendingReTransmitRestartTimer <= 0f;
@@ -1951,8 +2159,19 @@ public sealed partial class DeskScreen
                 mouse, nextBtn.X, nextBtn.Y, nextBtn.W, nextBtn.H,
                 _pendingReTransmitRestartTimer > 0f ? "WAIT..." : "RE-TRANSMIT",
                 enabled: canReTx,
-                highlight: canReTx,
-                activeColor: Palette.ClearanceTeal);
+                highlight: canReTx && !_silentBlankSlateCaptureMode,
+                activeColor: _silentBlankSlateCaptureMode ? Palette.CrtAmberPrimary : Palette.ClearanceTeal);
+        }
+        else if (_isReTransmittingWipedWafers || CanReTransmitPrematurelyWipedWafers)
+        {
+            // Calm normal styling for premature Cert-Wafer wipe recovery (zero red alarm or emergency flashing)
+            bool canReTxWafers = !stripPoweredOff && CanReTransmitPrematurelyWipedWafers;
+            DrawHardwareButton(
+                mouse, nextBtn.X, nextBtn.Y, nextBtn.W, nextBtn.H,
+                _isReTransmittingWipedWafers ? "WAIT..." : "RE-TRANSMIT",
+                enabled: canReTxWafers,
+                highlight: false,
+                activeColor: Palette.CrtAmberPrimary);
         }
         else if (CanTriggerGhostRoutePushback)
         {
@@ -1974,37 +2193,6 @@ public sealed partial class DeskScreen
                 highlight: canHail,
                 activeColor: Palette.CrtAmberPrimary);
         }
-
-        // 2 & 3. LOWER SHIELDS & PWR DOWN WPN:
-        // Recessed inactive bays with subtle [PLAYTEST] labels on Day 1; active Day 2+
-        if (!AreCombatOrdersUnlocked)
-        {
-            DrawInactiveHardwareBay(shldBtn.X, shldBtn.Y, shldBtn.W, shldBtn.H, "SHIELDS (D02)", null);
-            DrawInactiveHardwareBay(wpnBtn.X, wpnBtn.Y, wpnBtn.W, wpnBtn.H, "WEAPONS (D02)", null);
-            return;
-        }
-
-        bool shipInteractable = !stripPoweredOff && _activeShip != null &&
-                                (_phase is EncounterPhase.OpeningGreetingDelay
-                                    or EncounterPhase.AwaitingPortForDownload
-                                    or EncounterPhase.DownloadingProtocols
-                                    or EncounterPhase.DownloadAborted
-                                    or EncounterPhase.InspectingSlateAndShip
-                                    or EncounterPhase.AwaitingClearanceReturnToTopPort);
-
-        DrawHardwareButton(
-            mouse, shldBtn.X, shldBtn.Y, shldBtn.W, shldBtn.H,
-            _pendingShieldsOrder ? "ORDERING..." : "LOWER SHIELDS",
-            enabled: shipInteractable && !_pendingShieldsOrder,
-            highlight: false,
-            activeColor: Palette.CrtAmberPrimary);
-
-        DrawHardwareButton(
-            mouse, wpnBtn.X, wpnBtn.Y, wpnBtn.W, wpnBtn.H,
-            _pendingWeaponsOrder ? "ORDERING..." : "PWR DOWN WPN",
-            enabled: shipInteractable && !_pendingWeaponsOrder,
-            highlight: false,
-            activeColor: Palette.CrtAmberPrimary);
     }
 
     private void DrawProtocolReviewButton(VirtualMouseState mouse)
@@ -2012,15 +2200,21 @@ public sealed partial class DeskScreen
         DeskRect btn = _layout.ProtocolReviewBtn;
         bool locked = _preShiftStage != PreShiftStage.None || _faultStage != FaultSequenceStage.None || ClockOutPowerDownProgress >= 0.40f;
         bool canReview = !locked && _activeShip != null && IsShipInspectableForReview;
-        bool violated = _faultStage != FaultSequenceStage.None || (_activeShip != null && _activeShip.ProtocolReviewVerified);
-        bool matchFlash = _noFaultTraceTimer > 0f && !violated;
+        bool faultTraceActive = HasActiveProtocolFaultTrace;
+        bool duplicateNoteActive = _duplicateFaultNoteTimer > 0f && !faultTraceActive;
+        bool matchFlash = _noFaultTraceTimer > 0f && !faultTraceActive && !duplicateNoteActive;
 
         string label;
         Color activeCol;
-        if (violated)
+        if (faultTraceActive)
         {
             label = "PROTOCOL VIOLATED";
             activeCol = Palette.AlertCrimson;
+        }
+        else if (duplicateNoteActive)
+        {
+            label = "MISMATCH ALREADY FOUND";
+            activeCol = Palette.CrtAmberPrimary;
         }
         else if (matchFlash)
         {
@@ -2044,7 +2238,7 @@ public sealed partial class DeskScreen
             mouse, btn.X, btn.Y, btn.W, btn.H,
             label,
             enabled: canReview,
-            highlight: _protocolReviewModeActive || violated || matchFlash,
+            highlight: _protocolReviewModeActive || faultTraceActive || duplicateNoteActive || matchFlash,
             activeColor: activeCol);
     }
 
@@ -2115,8 +2309,8 @@ public sealed partial class DeskScreen
         }
 
         const string title = "CLEARANCE DOCK";
-        int titleW = Raylib.MeasureText(title, 10);
-        Raylib.DrawText(title, dock.X + (dock.W - titleW) / 2, dock.Y + 5, 10,
+        int titleW = UiText.MeasureWidth(title, 10);
+        UiText.Draw(title, dock.X + (dock.W - titleW) / 2, dock.Y + 5, 10,
             lockedByPreShift ? Palette.WeatheredGunmetalEdge : Palette.ClearanceTeal);
 
         // 6 Connector Pins along bottom edge of header (aligned cleanly with centered 184px bay)
@@ -2161,21 +2355,21 @@ public sealed partial class DeskScreen
             if (draggingSlateOverDock)
             {
                 const string dropTxt = ">> DROP TO ENCRYPT <<";
-                int dw = Raylib.MeasureText(dropTxt, 10);
-                Raylib.DrawText(dropTxt, slot.X + (slot.W - dw) / 2, slot.Y + 100, 10, Palette.CrtAmberPrimary);
+                int dw = UiText.MeasureWidth(dropTxt, 10);
+                UiText.Draw(dropTxt, slot.X + (slot.W - dw) / 2, slot.Y + 100, 10, Palette.CrtAmberPrimary);
             }
             else if (isTransmitting)
             {
                 const string txTxt = "TX VIA SLATE BUS";
-                int tw = Raylib.MeasureText(txTxt, 10);
-                Raylib.DrawText(txTxt, slot.X + (slot.W - tw) / 2, slot.Y + 100, 10, Palette.ClearanceTeal);
+                int tw = UiText.MeasureWidth(txTxt, 10);
+                UiText.Draw(txTxt, slot.X + (slot.W - tw) / 2, slot.Y + 100, 10, Palette.ClearanceTeal);
             }
             else
             {
                 const string idle1 = "DROP LOADED";
                 const string idle2 = "DATA SLATE HERE";
-                Raylib.DrawText(idle1, slot.X + (slot.W - Raylib.MeasureText(idle1, 10)) / 2, slot.Y + 90, 10, Palette.WeatheredGunmetalEdge);
-                Raylib.DrawText(idle2, slot.X + (slot.W - Raylib.MeasureText(idle2, 10)) / 2, slot.Y + 106, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw(idle1, slot.X + (slot.W - UiText.MeasureWidth(idle1, 10)) / 2, slot.Y + 90, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw(idle2, slot.X + (slot.W - UiText.MeasureWidth(idle2, 10)) / 2, slot.Y + 106, 10, Palette.WeatheredGunmetalEdge);
             }
         }
 
@@ -2195,20 +2389,20 @@ public sealed partial class DeskScreen
             Raylib.DrawRectangle(bar.X + 2, bar.Y + 2, fillW, bar.H - 4, Palette.ClearanceTeal);
 
             string pctStr = prog >= 0.999f ? "CLEARED 100%" : $"ENCRYPTING {(int)MathF.Round(prog * 100f)}%";
-            int pw = Raylib.MeasureText(pctStr, 10);
+            int pw = UiText.MeasureWidth(pctStr, 10);
             int txtX = bar.X + (bar.W - pw) / 2;
             int txtY = bar.Y + 5;
             // Inverted-color retro CRT bar readout: teal on dark unfilled track, dark void on filled teal bar
-            Raylib.DrawText(pctStr, txtX, txtY, 10, Palette.ClearanceTeal);
+            UiText.Draw(pctStr, txtX, txtY, 10, Palette.ClearanceTeal);
             Raylib.BeginScissorMode(bar.X + 2, bar.Y + 2, fillW, bar.H - 4);
-            Raylib.DrawText(pctStr, txtX, txtY, 10, Palette.OutlineVoid);
+            UiText.Draw(pctStr, txtX, txtY, 10, Palette.OutlineVoid);
             Raylib.EndScissorMode();
         }
         else
         {
             const string barIdle = "ENCRYPTION IDLE";
-            int iw = Raylib.MeasureText(barIdle, 10);
-            Raylib.DrawText(barIdle, bar.X + (bar.W - iw) / 2, bar.Y + 5, 10, Palette.WeatheredGunmetalEdge);
+            int iw = UiText.MeasureWidth(barIdle, 10);
+            UiText.Draw(barIdle, bar.X + (bar.W - iw) / 2, bar.Y + 5, 10, Palette.WeatheredGunmetalEdge);
         }
     }
 
@@ -2287,6 +2481,12 @@ public sealed partial class DeskScreen
         }
         int rightPipX = rightWallX + Math.Max(2, (sideWallW - 2) / 2);
         Raylib.DrawRectangle(rightPipX, latchCenterY - 4, 2, 8, pipCol);
+
+        if (IsBrownoutAttenuatingPassiveSurfaces)
+        {
+            ApplyBrownoutPassiveSurfaceLighting(leftWallX, baseY, leftJawW, baseH);
+            ApplyBrownoutPassiveSurfaceLighting(rightJawX, baseY, rightJawW, baseH);
+        }
     }
 
     // =========================================================================
@@ -2325,12 +2525,12 @@ public sealed partial class DeskScreen
 
         Raylib.DrawRectangle(cx + 3, cy + 3, cw - 6, 18,
             _activeCitationStrip.IsSecurityStrike ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
-        Raylib.DrawText(TruncateByPixelWidth(_activeCitationStrip.HeaderText, 10, cw - 16), cx + 10, cy + 7, 10, Palette.OutlineVoid);
+        UiText.Draw(TruncateByPixelWidth(_activeCitationStrip.HeaderText, 10, cw - 16), cx + 10, cy + 7, 10, Palette.OutlineVoid);
 
-        Raylib.DrawText(TruncateByPixelWidth(_activeCitationStrip.ViolationReason, 10, cw - 20), cx + 10, cy + 28, 10, Palette.CrtAmberPrimary);
-        Raylib.DrawText(TruncateByPixelWidth(_activeCitationStrip.PenaltyText, 10, cw - 20), cx + 10, cy + 46, 10,
+        UiText.Draw(TruncateByPixelWidth(_activeCitationStrip.ViolationReason, 10, cw - 20), cx + 10, cy + 28, 10, Palette.CrtAmberPrimary);
+        UiText.Draw(TruncateByPixelWidth(_activeCitationStrip.PenaltyText, 10, cw - 20), cx + 10, cy + 46, 10,
             _activeCitationStrip.IsSecurityStrike ? Palette.AlertCrimson : Palette.ClearanceTeal);
-        Raylib.DrawText("[CLICK TO DISMISS CITATION]", cx + 10, cy + 66, 10, Palette.CrtAmberDimmed);
+        UiText.Draw("[CLICK TO DISMISS CITATION]", cx + 10, cy + 66, 10, Palette.CrtAmberDimmed);
     }
 
     // =========================================================================
@@ -2353,33 +2553,33 @@ public sealed partial class DeskScreen
             : $"{moduleName} -- {unlockTag} [PLAYTEST]";
 
         // If bay is wide and short (or fits cleanly on 1 centered line with generous padding), print single stencil line
-        if (h <= 40 && Raylib.MeasureText(inlineCandidate, 10) <= maxTextPx)
+        if (h <= 40 && UiText.MeasureWidth(inlineCandidate, 10) <= maxTextPx)
         {
-            int tw = Raylib.MeasureText(inlineCandidate, 10);
+            int tw = UiText.MeasureWidth(inlineCandidate, 10);
             int tx = x + (w - tw) / 2;
             int ty = y + (h - 10) / 2;
             string prefix = string.IsNullOrEmpty(unlockTag) ? $"{moduleName} -- " : $"{moduleName} -- {unlockTag} ";
-            Raylib.DrawText(prefix, tx, ty, 10, stencilNameCol);
-            Raylib.DrawText("[PLAYTEST]", tx + Raylib.MeasureText(prefix, 10), ty, 10, playtestBadgeCol);
+            UiText.Draw(prefix, tx, ty, 10, stencilNameCol);
+            UiText.Draw("[PLAYTEST]", tx + UiText.MeasureWidth(prefix, 10), ty, 10, playtestBadgeCol);
             return;
         }
 
         // Tall / compact bays: clean 2- or 3-line centered stencil
-        if (h >= 72 && !string.IsNullOrEmpty(unlockTag) && Raylib.MeasureText(moduleName, 10) <= maxTextPx)
+        if (h >= 72 && !string.IsNullOrEmpty(unlockTag) && UiText.MeasureWidth(moduleName, 10) <= maxTextPx)
         {
             string line1 = TruncateByPixelWidth(moduleName, 10, maxTextPx);
             string line2 = unlockTag;
             const string line3 = "[PLAYTEST]";
             int startY = y + (h - 36) / 2;
-            Raylib.DrawText(line1, x + (w - Raylib.MeasureText(line1, 10)) / 2, startY, 10, stencilNameCol);
-            Raylib.DrawText(line2, x + (w - Raylib.MeasureText(line2, 10)) / 2, startY + 13, 10, stencilNameCol);
-            Raylib.DrawText(line3, x + (w - Raylib.MeasureText(line3, 10)) / 2, startY + 26, 10, playtestBadgeCol);
+            UiText.Draw(line1, x + (w - UiText.MeasureWidth(line1, 10)) / 2, startY, 10, stencilNameCol);
+            UiText.Draw(line2, x + (w - UiText.MeasureWidth(line2, 10)) / 2, startY + 13, 10, stencilNameCol);
+            UiText.Draw(line3, x + (w - UiText.MeasureWidth(line3, 10)) / 2, startY + 26, 10, playtestBadgeCol);
             return;
         }
 
         string topText = string.IsNullOrEmpty(unlockTag)
             ? TruncateByPixelWidth(moduleName, 10, maxTextPx)
-            : TruncateByPixelWidth(Raylib.MeasureText($"{moduleName} -- {unlockTag}", 10) <= maxTextPx
+            : TruncateByPixelWidth(UiText.MeasureWidth($"{moduleName} -- {unlockTag}", 10) <= maxTextPx
                 ? $"{moduleName} -- {unlockTag}"
                 : moduleName, 10, maxTextPx);
         string botText = !string.IsNullOrEmpty(unlockTag) && topText == moduleName
@@ -2390,8 +2590,8 @@ public sealed partial class DeskScreen
         int lineGap = h <= 44 ? 12 : 14;
         int blockH = 10 + lineGap;
         int topY = y + Math.Max(4, (h - blockH) / 2);
-        Raylib.DrawText(topText, x + (w - Raylib.MeasureText(topText, 10)) / 2, topY, 10, stencilNameCol);
-        Raylib.DrawText(botText, x + (w - Raylib.MeasureText(botText, 10)) / 2, topY + lineGap, 10, playtestBadgeCol);
+        UiText.Draw(topText, x + (w - UiText.MeasureWidth(topText, 10)) / 2, topY, 10, stencilNameCol);
+        UiText.Draw(botText, x + (w - UiText.MeasureWidth(botText, 10)) / 2, topY + lineGap, 10, playtestBadgeCol);
     }
 
     private static void DrawBrushedMetalFillerPlate(int x, int y, int w, int h)
@@ -2536,7 +2736,7 @@ public sealed partial class DeskScreen
     private static Rectangle GetClockOutLeavePromptRect()
     {
         const int fontSize = 20;
-        int tw = Raylib.MeasureText(ClockOutLeavePromptText, fontSize);
+        int tw = UiText.MeasureWidth(ClockOutLeavePromptText, fontSize);
         int px = (Constants.VirtualWidth - tw) / 2;
         const int py = 486;
         return new Rectangle(px - 10, py - 6, tw + 20, fontSize + 12);
@@ -2547,16 +2747,16 @@ public sealed partial class DeskScreen
         // Understated clickable plain-text prompt centered over the quiet powered-down workspace
         // (strictly NOT a framed console button -- clean text with subtle hover highlight & thin underline)
         const int fontSize = 20;
-        int tw = Raylib.MeasureText(ClockOutLeavePromptText, fontSize);
+        int tw = UiText.MeasureWidth(ClockOutLeavePromptText, fontSize);
         int tx = (Constants.VirtualWidth - tw) / 2;
         const int ty = 486;
         Rectangle hitRect = GetClockOutLeavePromptRect();
         bool hovered = mouse.IsHit(hitRect);
 
         // Crisp 1px drop shadow for clean legibility over the dim crimson desk
-        Raylib.DrawText(ClockOutLeavePromptText, tx + 1, ty + 1, fontSize, Palette.OutlineVoid);
+        UiText.Draw(ClockOutLeavePromptText, tx + 1, ty + 1, fontSize, Palette.OutlineVoid);
         Color textCol = hovered ? Palette.CrtAmberPrimary : new Color(226, 206, 188, 255);
-        Raylib.DrawText(ClockOutLeavePromptText, tx, ty, fontSize, textCol);
+        UiText.Draw(ClockOutLeavePromptText, tx, ty, fontSize, textCol);
 
         if (hovered)
         {
@@ -2618,8 +2818,8 @@ public sealed partial class DeskScreen
 
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        int tw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, x + Math.Max(4, (w - tw) / 2), y + (h - 10) / 2, 10, textCol);
+        int tw = UiText.MeasureWidth(label, 10);
+        UiText.Draw(label, x + Math.Max(4, (w - tw) / 2), y + (h - 10) / 2, 10, textCol);
     }
 
     private static void DrawSmallButton(
@@ -2634,7 +2834,586 @@ public sealed partial class DeskScreen
         bool hovered = mouse.IsHit(x, y, w, h);
         Raylib.DrawRectangle(x, y, w, h, hovered ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, w, h, hovered ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
-        int tw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, x + Math.Max(4, (w - tw) / 2), y + (h - 10) / 2, 10, textOverride ?? Palette.CrtAmberPrimary);
+        int tw = UiText.MeasureWidth(label, 10);
+        UiText.Draw(label, x + Math.Max(4, (w - tw) / 2), y + (h - 10) / 2, 10, textOverride ?? Palette.CrtAmberPrimary);
+    }
+
+    // =========================================================================
+    // Day 15+ Stellar Stoker Dual-Readout Module & 3-State Brownout Lighting
+    // =========================================================================
+    private bool CanAnchorStokerMassNow() =>
+        IsStokerOperational &&
+        ClockOutPowerDownProgress < 0.58f &&
+        _preShiftStage == PreShiftStage.None &&
+        !_shiftController.IsPreShiftSequenceActive &&
+        _activeShip != null &&
+        !_activeShip.GroundTruth.ActualShieldsUp &&
+        _phase is EncounterPhase.OpeningGreetingDelay
+            or EncounterPhase.AwaitingPortForDownload
+            or EncounterPhase.DownloadingProtocols
+            or EncounterPhase.DownloadAborted
+            or EncounterPhase.InspectingSlateAndShip
+            or EncounterPhase.AwaitingClearanceReturnToTopPort;
+
+    internal void TryAnchorStokerMassForActiveShip()
+    {
+        if (!CanAnchorStokerMassNow() || _activeShip == null)
+        {
+            AudioHooks.Play("citation_buzz");
+            return;
+        }
+
+        _stokerMassAnchoredForShip = true;
+        _stokerMeasuredMass = _activeShip.GroundTruth.ActualMass;
+        RefreshStokerAnchorPreviewForActiveShip();
+        AudioHooks.Play("terminal_key_confirm");
+    }
+
+    private void RefreshStokerAnchorPreviewForActiveShip()
+    {
+        if (_activeShip == null || !_stokerMassAnchoredForShip || !IsStokerOperational)
+        {
+            _stokerPreviewShock = 0f;
+            return;
+        }
+
+        StokerCalibrationResult eval = ValidationEngine.EvaluateStokerMassCalibration(
+            _activeShip,
+            _gameState.Day,
+            _config,
+            _stokerSafeLoad,
+            _stokerShock);
+        _stokerPreviewShock = eval.PreviewShockDelta;
+        _devDebug.LiveStokerPreviewShock = _stokerPreviewShock;
+    }
+
+    private void TriggerStokerOverloadDuringShift()
+    {
+        if (_gameState.StokerOverloadedToday)
+            return;
+
+        // Overload assesses -35 SC fine at Clock-Out, triggers Sleep Sabotage Audit (+0 Security Strikes!),
+        // and schedules next-day Corridor/Booth 04 3-state power brownouts + reactive FORUM fallout.
+        _gameState.StokerOverloadedToday = true;
+        _gameState.PendingStokerBerthSearch = true;
+        _gameState.NextDayPowerBrownout = true;
+        _gameState.LastShiftStokerOverload = true;
+        _gameState.SaveToDisk();
+
+        AudioHooks.Play("detain_alarm");
+        AddSystemLogLine(
+            "[STOKER OVERLOAD] COIL STRAIN EXCEEDED 100% -- STRUCTURAL FINE & SABOTAGE AUDIT FLAGGED.",
+            CommsTextTone.AlertCrimson);
+    }
+
+    private void DrawStellarStokerModule(VirtualMouseState mouse)
+    {
+        if (!IsStokerOperational)
+        {
+            DrawInactiveHardwareBay(StokerDialX, StokerDialY, StokerDialW, StokerDialH, "STOKER DIAL", $"DAY {_config.DayUnlockStoker:D2}");
+            return;
+        }
+
+        bool stokerPoweredOff = ClockOutPowerDownProgress >= 0.58f;
+        bool overloaded = _gameState.StokerOverloadedToday || (_stokerSafeLoad + _stokerShock) > 100.0f;
+        bool pulse = ((_animTick / 8) % 2) == 0;
+
+        // Scuffed, sickly-yellow Brengop industrial housing at exact (8, 264, 96, 88) beneath Detain Lever
+        Color housingBase = new(82, 74, 22, 255);      // Sickly-olive yellow industrial chassis
+        Color housingMid = new(118, 106, 32, 255);     // Worn Brengop yellow faceplate
+        Color housingBevel = new(168, 152, 48, 255);   // Scuffed yellow top/left highlight
+        Color scuffDark = new(46, 42, 14, 255);        // Grease & abrasion scuffs
+        Color borderCol = stokerPoweredOff
+            ? Palette.WeatheredGunmetalEdge
+            : (overloaded && pulse ? Palette.AlertCrimson : housingBevel);
+
+        Raylib.DrawRectangle(StokerDialX, StokerDialY, StokerDialW, StokerDialH, Palette.OutlineVoid);
+        Raylib.DrawRectangle(StokerDialX + 1, StokerDialY + 1, StokerDialW - 2, StokerDialH - 2, housingBase);
+        Raylib.DrawRectangle(StokerDialX + 2, StokerDialY + 2, StokerDialW - 4, StokerDialH - 4, housingMid);
+        Raylib.DrawLine(StokerDialX + 1, StokerDialY + 1, StokerDialX + StokerDialW - 2, StokerDialY + 1, housingBevel);
+        Raylib.DrawLine(StokerDialX + 1, StokerDialY + 1, StokerDialX + 1, StokerDialY + StokerDialH - 2, housingBevel);
+
+        // Industrial wear scuffs & corner rivets
+        Raylib.DrawRectangle(StokerDialX + 6, StokerDialY + 31, 18, 2, scuffDark);
+        Raylib.DrawRectangle(StokerDialX + StokerDialW - 22, StokerDialY + 64, 16, 2, scuffDark);
+        Raylib.DrawPixel(StokerDialX + 3, StokerDialY + 3, Palette.OutlineVoid);
+        Raylib.DrawPixel(StokerDialX + StokerDialW - 4, StokerDialY + 3, Palette.OutlineVoid);
+        Raylib.DrawPixel(StokerDialX + 3, StokerDialY + StokerDialH - 4, Palette.OutlineVoid);
+        Raylib.DrawPixel(StokerDialX + StokerDialW - 4, StokerDialY + StokerDialH - 4, Palette.OutlineVoid);
+        Raylib.DrawRectangleLines(StokerDialX, StokerDialY, StokerDialW, StokerDialH, borderCol);
+
+        // 1. 2-Line Stacked Digital LED Readout (12, 268, 88, 26)
+        DrawStokerDigitalLedBox(mouse);
+
+        // 2. Analog Strain Dial (0% to 100%; 0-65% normal band, 65-100% redline danger band) at (12, 296, 88, 32)
+        DrawStokerAnalogStrainDial(stokerPoweredOff, overloaded);
+
+        // 3. Clickable [ANCHOR] (ANCHOR MASS) trigger at (12, 330, 88, 18)
+        bool canAnchor = CanAnchorStokerMassNow();
+        bool anchorHover = canAnchor && mouse.IsHit(StokerAnchorBtnX, StokerAnchorBtnY, StokerAnchorBtnW, StokerAnchorBtnH);
+        Color btnBg = !canAnchor
+            ? new Color(28, 26, 14, 255)
+            : (anchorHover ? new Color(92, 76, 20, 255) : new Color(44, 40, 14, 255));
+        Color btnBorder = !canAnchor
+            ? new Color(76, 70, 32, 255)
+            : (anchorHover
+                ? Palette.CrtAmberPrimary
+                : (_stokerMassAnchoredForShip ? Palette.ClearanceTeal : housingBevel));
+        Color btnTextCol = !canAnchor
+            ? new Color(92, 86, 48, 255)
+            : (_stokerMassAnchoredForShip ? Palette.ClearanceTeal : Palette.CrtAmberPrimary);
+
+        Raylib.DrawRectangle(StokerAnchorBtnX, StokerAnchorBtnY, StokerAnchorBtnW, StokerAnchorBtnH, btnBg);
+        Raylib.DrawRectangleLines(StokerAnchorBtnX, StokerAnchorBtnY, StokerAnchorBtnW, StokerAnchorBtnH, btnBorder);
+        string anchorLabel = _stokerMassAnchoredForShip ? "ANCHORED" : "[ANCHOR]";
+        string safeAnchorLabel = UiText.TruncateToWidth(anchorLabel, 10, StokerAnchorBtnW - 6, denseRow: true);
+        int aw = UiText.MeasureWidth(safeAnchorLabel, 10, denseRow: true);
+        UiText.Draw(
+            safeAnchorLabel,
+            StokerAnchorBtnX + Math.Max(2, (StokerAnchorBtnW - aw) / 2),
+            StokerAnchorBtnY + 4,
+            10,
+            btnTextCol,
+            denseRow: true);
+    }
+
+    private void DrawStokerDigitalLedBox(VirtualMouseState mouse)
+    {
+        bool stokerPoweredOff = ClockOutPowerDownProgress >= 0.58f;
+        bool ledFault = IsTargetFaultHighlighted(ReviewTarget.StokerMeasuredMassLed);
+        bool ledSelected = _protocolReviewModeActive && _reviewFirstSelection == ReviewTarget.StokerMeasuredMassLed;
+
+        Color ledBg = stokerPoweredOff
+            ? new Color(8, 10, 14, 255)
+            : (ledFault ? Palette.BrownDwarfGlowDeep : (ledSelected ? Palette.OxidizedBronzeShadow : Palette.DeepSpaceVoid));
+        Color ledBorder = stokerPoweredOff
+            ? Palette.WeatheredGunmetalEdge
+            : (ledFault
+                ? GetFaultPulseColor()
+                : (ledSelected ? Palette.ClearanceTeal : new Color(168, 152, 48, 255)));
+
+        Raylib.DrawRectangle(StokerLedX, StokerLedY, StokerLedW, StokerLedH, ledBg);
+        Raylib.DrawRectangleLines(StokerLedX, StokerLedY, StokerLedW, StokerLedH, ledBorder);
+
+        if (!stokerPoweredOff)
+        {
+            const int maxTextW = StokerLedW - 6; // 82px inside 88px LED cavity (fits 96px bezel cleanly at +3 offset)
+            string topRow = UiText.TruncateToWidth("MEASURED", 10, maxTextW, denseRow: true);
+            string botRaw = (_stokerMassAnchoredForShip && _activeShip != null)
+                ? $"{_stokerMeasuredMass:N0} T"
+                : "---- T";
+            string botRow = UiText.TruncateToWidth(botRaw, 10, maxTextW, denseRow: true);
+
+            int topW = UiText.MeasureWidth(topRow, 10, denseRow: true);
+            int botW = UiText.MeasureWidth(botRow, 10, denseRow: true);
+            Color botCol = ledFault
+                ? GetFaultPulseColor()
+                : ((_stokerMassAnchoredForShip && _activeShip != null) ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
+
+            UiText.Draw(topRow, StokerLedX + Math.Max(2, (StokerLedW - topW) / 2), StokerLedY + 2, 10, Palette.CrtAmberDimmed, denseRow: true);
+            UiText.Draw(botRow, StokerLedX + Math.Max(2, (StokerLedW - botW) / 2), StokerLedY + 13, 10, botCol, denseRow: true);
+
+            if (ledFault)
+            {
+                Raylib.DrawRectangleLines(StokerLedX - 1, StokerLedY - 1, StokerLedW + 2, StokerLedH + 2, GetFaultPulseColor());
+            }
+            else if (_protocolReviewModeActive &&
+                     IsShipInspectableForReview &&
+                     _stokerMassAnchoredForShip &&
+                     IsReviewTargetUnlocked(ReviewTarget.StokerMeasuredMassLed))
+            {
+                DrawReviewHotspotOutline(mouse, StokerLedX, StokerLedY, StokerLedW, StokerLedH, ledSelected);
+            }
+        }
+    }
+
+    private void DrawStokerAnalogStrainDial(bool stokerPoweredOff, bool overloaded)
+    {
+        Raylib.DrawRectangle(StokerGaugeX, StokerGaugeY, StokerGaugeW, StokerGaugeH, new Color(18, 20, 16, 255));
+        Raylib.DrawRectangleLines(StokerGaugeX, StokerGaugeY, StokerGaugeW, StokerGaugeH, new Color(68, 62, 24, 255));
+
+        int cx = StokerGaugeX + StokerGaugeW / 2; // 56
+        int cy = StokerGaugeY + StokerGaugeH - 5; // 323
+        const int radius = 23;
+        float safeCapFrac = Math.Clamp(_config.StokerSafeLoadCap / 100.0f, 0.30f, 0.90f);
+
+        // Semicircular analog strain scale: 0..65% normal operating band, 65..100% redline danger band
+        const int arcSteps = 28;
+        int prevOuterX = 0, prevOuterY = 0, prevInnerX = 0, prevInnerY = 0;
+        for (int s = 0; s <= arcSteps; s++)
+        {
+            float frac = s / (float)arcSteps;
+            float rad = MathF.PI * (1.0f - frac);
+            int ox = cx + (int)MathF.Round(MathF.Cos(rad) * radius);
+            int oy = cy - (int)MathF.Round(MathF.Sin(rad) * radius);
+            int ix = cx + (int)MathF.Round(MathF.Cos(rad) * (radius - 4));
+            int iy = cy - (int)MathF.Round(MathF.Sin(rad) * (radius - 4));
+
+            if (s > 0)
+            {
+                bool inRedline = frac > safeCapFrac;
+                Color bandOuter = stokerPoweredOff
+                    ? Palette.WeatheredGunmetalEdge
+                    : (inRedline ? Palette.AlertCrimson : new Color(92, 176, 118, 255));
+                Color bandInner = stokerPoweredOff
+                    ? Palette.WeatheredGunmetalMid
+                    : (inRedline ? Palette.BrownDwarfGlowDeep : new Color(46, 94, 64, 255));
+                Raylib.DrawLine(prevOuterX, prevOuterY, ox, oy, bandOuter);
+                Raylib.DrawLine(prevInnerX, prevInnerY, ix, iy, bandInner);
+            }
+
+            prevOuterX = ox;
+            prevOuterY = oy;
+            prevInnerX = ix;
+            prevInnerY = iy;
+        }
+
+        // Crisp 65% redline threshold tick mark
+        float capRad = MathF.PI * (1.0f - safeCapFrac);
+        int capX0 = cx + (int)MathF.Round(MathF.Cos(capRad) * (radius - 6));
+        int capY0 = cy - (int)MathF.Round(MathF.Sin(capRad) * (radius - 6));
+        int capX1 = cx + (int)MathF.Round(MathF.Cos(capRad) * (radius + 1));
+        int capY1 = cy - (int)MathF.Round(MathF.Sin(capRad) * (radius + 1));
+        Raylib.DrawLine(capX0, capY0, capX1, capY1, Palette.CrtAmberPrimary);
+
+        float committedFrac = Math.Clamp((_stokerSafeLoad + _stokerShock) / 100.0f, 0f, 1.08f);
+        float previewFrac = Math.Clamp((_stokerSafeLoad + _stokerShock + _stokerPreviewShock) / 100.0f, 0f, 1.08f);
+
+        // If [ANCHOR] is previewing an uncalibrated +33% spike, show subtle base needle + jumping preview needle
+        if (_stokerPreviewShock > 0.01f && !stokerPoweredOff)
+        {
+            float baseRad = MathF.PI * (1.0f - Math.Min(1.0f, committedFrac));
+            int bx = cx + (int)MathF.Round(MathF.Cos(baseRad) * (radius - 5));
+            int by = cy - (int)MathF.Round(MathF.Sin(baseRad) * (radius - 5));
+            Raylib.DrawLine(cx, cy, bx, by, Palette.CrtAmberDimmed);
+        }
+
+        float needleFrac = Math.Min(1.04f, previewFrac);
+        float needleRad = MathF.PI * (1.0f - needleFrac);
+        int nx = cx + (int)MathF.Round(MathF.Cos(needleRad) * (radius - 2));
+        int ny = cy - (int)MathF.Round(MathF.Sin(needleRad) * (radius - 2));
+        Color needleCol = stokerPoweredOff
+            ? Palette.WeatheredGunmetalEdge
+            : ((overloaded || previewFrac > safeCapFrac) ? Palette.AlertCrimson : new Color(242, 224, 138, 255));
+        Raylib.DrawLine(cx, cy, nx, ny, needleCol);
+        Raylib.DrawRectangle(cx - 2, cy - 2, 5, 4, new Color(168, 152, 48, 255));
+    }
+
+    // =========================================================================
+    // 3-State Next-Day Booth 04 & Viewport Power Brownout Machine
+    // =========================================================================
+    private void InitializeBrownoutStateForShift()
+    {
+        int seed = (_gameState.RunSeed != 0 ? _gameState.RunSeed : 2026) ^ (_gameState.Day * 104729);
+        _brownoutRng = new Random(seed);
+        _brownoutState = BoothBrownoutState.On;
+        _brownoutTriggerCount = 0;
+        _brownoutCycleElapsed = 0f;
+        _brownoutActiveHoldElapsed = 0f;
+        _brownoutEnteredThisCycle = false;
+        _forcedOffElapsed = 0f;
+        _lastAppliedBrownoutForceMode = _devDebug.BrownoutForceMode;
+        RollNextBrownoutCycleParameters();
+    }
+
+    private float SampleBrownoutRange(float min, float max) =>
+        min + (float)_brownoutRng.NextDouble() * (max - min);
+
+    private void RollNextBrownoutCycleParameters()
+    {
+        float shiftScale = Math.Max(0.25f, _shiftController.ActiveShiftDurationSeconds / (float)Constants.ShiftDurationSeconds);
+        _brownoutCycleDuration = SampleBrownoutRange(45.0f, 55.0f) * shiftScale;
+        // Alternate with deterministic variety so both DIM and OFF states occur reliably across a shift
+        _brownoutNextTargetState = ((_brownoutTriggerCount % 2) == 0)
+            ? (_brownoutRng.NextDouble() < 0.65 ? BoothBrownoutState.Dim : BoothBrownoutState.Off)
+            : (_brownoutRng.NextDouble() < 0.75 ? BoothBrownoutState.Off : BoothBrownoutState.Dim);
+    }
+
+    private void UpdateBrownoutLightingState(float deltaTime)
+    {
+        // F1 Dev Override: FORCE ON / FORCE DIM / FORCE OFF
+        if (_devDebug.BrownoutForceMode != _lastAppliedBrownoutForceMode)
+        {
+            _lastAppliedBrownoutForceMode = _devDebug.BrownoutForceMode;
+            if (_devDebug.BrownoutForceMode == DebugBrownoutForceMode.ForceOff)
+            {
+                _forcedOffElapsed = 0f;
+            }
+        }
+
+        switch (_devDebug.BrownoutForceMode)
+        {
+            case DebugBrownoutForceMode.ForceOn:
+                _brownoutState = BoothBrownoutState.On;
+                return;
+            case DebugBrownoutForceMode.ForceDim:
+                _brownoutState = BoothBrownoutState.Dim;
+                return;
+            case DebugBrownoutForceMode.ForceOff:
+                _brownoutState = BoothBrownoutState.Off;
+                _forcedOffElapsed += Math.Max(0f, deltaTime);
+                return;
+        }
+
+        if (!_gameState.NextDayPowerBrownout ||
+            _preShiftStage != PreShiftStage.None ||
+            !_shiftController.HasShiftTimerStarted)
+        {
+            _brownoutState = BoothBrownoutState.On;
+            return;
+        }
+
+        AdvanceAutoBrownoutCycle(deltaTime);
+    }
+
+    internal void SmokeAdvanceBrownoutTimer(float seconds)
+    {
+        if (seconds <= 0f)
+            return;
+        _shiftController.NotifyFirstHailTriggered();
+        AdvanceAutoBrownoutCycle(seconds);
+        PowerIndicatorBrightness = ComputeActiveWatchPowerLedBrightness();
+    }
+
+    private void AdvanceAutoBrownoutCycle(float deltaTime)
+    {
+        if (deltaTime <= 0f)
+            return;
+
+        float shiftScale = Math.Max(0.25f, _shiftController.ActiveShiftDurationSeconds / (float)Constants.ShiftDurationSeconds);
+        float holdSeconds = BrownoutBaseHoldSeconds * shiftScale;
+
+        float rem = deltaTime;
+        while (rem > 0f)
+        {
+            if (_brownoutTriggerCount >= MaxBrownoutTriggersPerShift && !_brownoutEnteredThisCycle)
+            {
+                _brownoutState = BoothBrownoutState.On;
+                _brownoutActiveHoldElapsed = 0f;
+                return;
+            }
+
+            float onDuration = Math.Max(5.0f * shiftScale, _brownoutCycleDuration - holdSeconds);
+            float nextBoundary = !_brownoutEnteredThisCycle
+                ? Math.Max(0.0001f, onDuration - _brownoutCycleElapsed)
+                : Math.Max(0.0001f, _brownoutCycleDuration - _brownoutCycleElapsed);
+            float step = Math.Min(rem, nextBoundary);
+            _brownoutCycleElapsed += step;
+            rem -= step;
+
+            if (!_brownoutEnteredThisCycle && _brownoutCycleElapsed + 0.00005f >= onDuration)
+            {
+                _brownoutEnteredThisCycle = true;
+                _brownoutTriggerCount++;
+                _brownoutState = _brownoutNextTargetState;
+                _brownoutActiveHoldElapsed = Math.Max(0f, _brownoutCycleElapsed - onDuration);
+                AudioHooks.Play("terminal_key_click");
+            }
+            else if (_brownoutEnteredThisCycle)
+            {
+                _brownoutActiveHoldElapsed = Math.Max(0f, _brownoutCycleElapsed - onDuration);
+                if (_brownoutCycleElapsed + 0.00005f >= _brownoutCycleDuration)
+                {
+                    _brownoutCycleElapsed = Math.Max(0f, _brownoutCycleElapsed - _brownoutCycleDuration);
+                    _brownoutEnteredThisCycle = false;
+                    _brownoutState = BoothBrownoutState.On;
+                    _brownoutActiveHoldElapsed = 0f;
+                    if (_brownoutTriggerCount < MaxBrownoutTriggersPerShift)
+                    {
+                        RollNextBrownoutCycleParameters();
+                    }
+                }
+            }
+            else
+            {
+                _brownoutState = BoothBrownoutState.On;
+                _brownoutActiveHoldElapsed = 0f;
+            }
+        }
+    }
+
+    private float GetEffectiveBrownoutOffElapsed() =>
+        _devDebug.BrownoutForceMode == DebugBrownoutForceMode.ForceOff
+            ? _forcedOffElapsed
+            : _brownoutActiveHoldElapsed;
+
+    private bool IsOffFlickerMomentarilyOn()
+    {
+        // Crisp 6-step flicker transition at the start of OFF: ON -> OFF -> ON -> OFF -> ON -> OFF (0.10s per step)
+        float offT = GetEffectiveBrownoutOffElapsed();
+        if (offT >= BrownoutOffFlickerTotalSeconds)
+            return false;
+
+        int stepIdx = Math.Clamp((int)(offT / BrownoutOffFlickerStepSeconds), 0, 5);
+        return (stepIdx % 2) == 0;
+    }
+
+    private float ComputeBrownoutAmbientFactor()
+    {
+        return _brownoutState switch
+        {
+            BoothBrownoutState.Dim => 0.58f,
+            BoothBrownoutState.Off => IsOffFlickerMomentarilyOn() ? 1.0f : 0.24f,
+            _ => 1.0f
+        };
+    }
+
+    private float ComputeBrownoutSpillFactor()
+    {
+        return _brownoutState switch
+        {
+            BoothBrownoutState.Dim => 0.28f,
+            BoothBrownoutState.Off => IsOffFlickerMomentarilyOn() ? 0.0f : 1.0f,
+            _ => 0.0f
+        };
+    }
+
+    private float ComputeActiveWatchPowerLedBrightness()
+    {
+        return _brownoutState switch
+        {
+            BoothBrownoutState.Dim => 0.42f,
+            BoothBrownoutState.Off => IsOffFlickerMomentarilyOn() ? 1.0f : 0.08f,
+            _ => 1.0f
+        };
+    }
+
+    private void ApplyBrownoutPassiveSurfaceLighting(int rx, int ry, int rw, int rh)
+    {
+        if (rw <= 0 || rh <= 0)
+            return;
+
+        float ambient = BrownoutAmbientFactor;
+        if (ambient >= 0.999f)
+            return;
+
+        float spill = BrownoutSpillFactor;
+        int clipX = Math.Max(0, rx);
+        int clipY = Math.Max(TopBarH, ry);
+        int clipR = Math.Min(Constants.VirtualWidth, rx + rw);
+        int clipB = Math.Min(Constants.VirtualHeight, ry + rh);
+        int clipW = clipR - clipX;
+        int clipH = clipB - clipY;
+        if (clipW <= 0 || clipH <= 0)
+            return;
+
+        Raylib.BeginScissorMode(clipX, clipY, clipW, clipH);
+
+        // 1. Opaque-safe multiplicative ambient attenuation on passive surfaces (preserves alpha == 255)
+        byte mulR = (byte)Math.Clamp((int)MathF.Round(255f * ambient), 48, 255);
+        byte mulG = (byte)Math.Clamp((int)MathF.Round(255f * (ambient * 0.98f)), 46, 255);
+        byte mulB = (byte)Math.Clamp((int)MathF.Round(255f * Math.Min(1f, ambient * 1.04f)), 52, 255);
+        Raylib.BeginBlendMode(BlendMode.Multiplied);
+        Raylib.DrawRectangle(clipX, clipY, clipW, clipH, new Color(mulR, mulG, mulB, (byte)255));
+        Raylib.EndBlendMode();
+
+        // 2. Reddish Brown Dwarf viewport spill + yellowish CRT & Glowing Warp Checker spill across passive metal/ceramic
+        if (spill > 0.01f)
+        {
+            float vpCx = ViewportX + ViewportW * 0.52f;
+            float vpCy = ViewportY + ViewportH - 14f;
+            float trCx = _layout.Transcript.X + _layout.Transcript.W * 0.5f;
+            float trCy = _layout.Transcript.Y + _layout.Transcript.H * 0.5f;
+            float vsCx = _layout.Viewscreen.X + _layout.Viewscreen.W * 0.5f;
+            float vsCy = _layout.Viewscreen.Y + _layout.Viewscreen.H * 0.5f;
+            float warpCx = WarpGlassX + WarpGlassW * 0.5f;
+            float warpCy = WarpGlassY + WarpGlassH * 0.5f;
+            bool warpBacklit = IsSpectrometerOperational;
+
+            int startX = (clipX / 16) * 16;
+            int startY = (clipY / 16) * 16;
+
+            Raylib.BeginBlendMode(BlendMode.Additive);
+            for (int y = startY; y < clipB; y += 16)
+            {
+                float cy = y + 8f;
+                for (int x = startX; x < clipR; x += 16)
+                {
+                    float cx = x + 8f;
+
+                    // Reddish Brown Dwarf glow radiating downward/outward from armored viewport
+                    float vdx = (cx - vpCx) * 0.85f;
+                    float vdy = (cy - vpCy) * (cy < vpCy ? 1.35f : 0.88f);
+                    float vpDist = MathF.Sqrt(vdx * vdx + vdy * vdy);
+                    float vpNorm = Math.Clamp(1.0f - vpDist / 520.0f, 0f, 1f);
+                    float redGlow = vpNorm * vpNorm * spill;
+
+                    // Yellowish glow from CRT Comms Log, Hailing Viewscreen, and backlit Glowing Warp Checker
+                    float tDist = MathF.Sqrt((cx - trCx) * (cx - trCx) + (cy - trCy) * (cy - trCy));
+                    float vScrDist = MathF.Sqrt((cx - vsCx) * (cx - vsCx) + (cy - vsCy) * (cy - vsCy));
+                    float tNorm = Math.Clamp(1.0f - tDist / 320.0f, 0f, 1f);
+                    float vsNorm = Math.Clamp(1.0f - vScrDist / 260.0f, 0f, 1f);
+                    float wNorm = 0f;
+                    if (warpBacklit)
+                    {
+                        float wDist = MathF.Sqrt((cx - warpCx) * (cx - warpCx) + (cy - warpCy) * (cy - warpCy));
+                        wNorm = Math.Clamp(1.0f - wDist / 250.0f, 0f, 1f);
+                    }
+                    float yellowGlow = Math.Max(tNorm * tNorm, Math.Max(vsNorm * vsNorm * 0.85f, wNorm * wNorm * 0.95f)) * spill;
+
+                    byte addR = (byte)Math.Clamp((int)MathF.Round(redGlow * 54f + yellowGlow * 42f), 0, 88);
+                    byte addG = (byte)Math.Clamp((int)MathF.Round(redGlow * 10f + yellowGlow * 30f), 0, 56);
+                    byte addB = (byte)Math.Clamp((int)MathF.Round(redGlow * 9f + yellowGlow * 7f), 0, 22);
+                    if (addR > 0 || addG > 0)
+                    {
+                        Raylib.DrawRectangle(x, y, 16, 16, new Color(addR, addG, addB, (byte)255));
+                    }
+                }
+            }
+            Raylib.EndBlendMode();
+        }
+
+        Raylib.EndScissorMode();
+    }
+
+    private void RedrawEmissiveHardwareScreensUnattenuated(VirtualMouseState mouse)
+    {
+        // Keep emissive CRTs, Stoker Digital LED, and backlit Glowing Warp Checker 100% unattenuated during brownouts!
+        DrawCrtCommsDialogueLog(mouse);
+        DrawTransponderIdPanel(mouse);
+        DrawHailingViewscreenEmissiveInterior();
+
+        if (IsSpsUnlocked)
+        {
+            Raylib.BeginScissorMode(SpsMiniX, SpsMiniY, SpsMiniW, SpsMiniH);
+            DrawSpsControlColumn(mouse);
+            Raylib.EndScissorMode();
+        }
+
+        if (IsStokerOperational)
+        {
+            DrawStokerDigitalLedBox(mouse);
+        }
+
+        if (IsSpectrometerOperational)
+        {
+            // Unattenuated Warp Coil mini-CRT + backlit Glowing Warp Checker waveform glass
+            Raylib.BeginScissorMode(WarpPrinterX + 4, WarpPrinterY + 18, WarpHousingW - 8, 34);
+            DrawWarpResiduePrinterAndRefSpot(mouse);
+            Raylib.EndScissorMode();
+
+            Raylib.BeginScissorMode(WarpGlassX, WarpGlassY, WarpGlassW, WarpGlassH);
+            DrawWarpResiduePrinterAndRefSpot(mouse);
+            Raylib.EndScissorMode();
+        }
+    }
+
+    private void DrawHailingViewscreenEmissiveInterior()
+    {
+        DeskRect vs = _layout.Viewscreen;
+        DeskRect pr = _layout.Portrait;
+        Raylib.BeginScissorMode(pr.X - 1, pr.Y - 1, pr.W + 2, pr.H + 2);
+        DrawHailingViewscreen(default);
+        Raylib.EndScissorMode();
+
+        if (_layout.IsTransponderSeparatePanel && !_layout.Use3xPortrait)
+        {
+            int sbX = vs.X + 20;
+            int sbY = pr.Bottom + 12;
+            int sbW = vs.W - 40;
+            Raylib.BeginScissorMode(sbX, sbY, sbW, 26);
+            DrawHailingViewscreen(default);
+            Raylib.EndScissorMode();
+        }
     }
 }

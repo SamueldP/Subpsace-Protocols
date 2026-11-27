@@ -182,6 +182,9 @@ public sealed partial class DeskScreen
             if (id == DeskItemId.ReferenceManual && TryHandleReferenceManualInternalClick(mouse, item))
                 return true;
 
+            if (id == DeskItemId.FieldBooklet && TryHandleFieldBookletInternalClick(mouse, item))
+                return true;
+
             if (id == DeskItemId.DataSlate && _phase == EncounterPhase.DetainClamping)
             {
                 AudioHooks.Play("citation_buzz");
@@ -223,55 +226,169 @@ public sealed partial class DeskScreen
         return false;
     }
 
+    private void SyncManualSelectionToDirectoryIndex(int dirIdx)
+    {
+        _manualDirectoryIndex = Math.Clamp(dirIdx, 0, ManualPrefixDirectory.Length - 1);
+        ShipFaction targetFaction = ManualPrefixDirectory[_manualDirectoryIndex].VisualFaction;
+        for (int f = 0; f < ShipRenderer.AllFactions.Count; f++)
+        {
+            if (ShipRenderer.AllFactions[f] == targetFaction)
+            {
+                _manualFactionIndex = f;
+                break;
+            }
+        }
+        _manualClassIndex = 0;
+    }
+
     private bool TryHandleReferenceManualInternalClick(VirtualMouseState mouse, DraggableDeskItem manual)
     {
+        if (!IsManualUnlocked)
+            return false;
+
         int mx = manual.X;
         int my = manual.Y;
+        int w = manual.Width;
+        bool hullsUnlocked = IsManualHullsEnforced;
+        bool cargoUnlocked = IsCargoManualTabUnlocked;
 
-        // Only 2 tabs: 1. PREFIXES & 2. HULLS (PING RELAY & 3. STARS completely removed!)
-        if (mouse.IsHit(mx + 6, my + 20, 132, 16))
+        if (!hullsUnlocked)
         {
-            _manualActiveTab = 0;
-            AudioHooks.Play("terminal_key_tab");
-            return true;
+            // Days 8-9: ONLY 2 tabs — SHIP & SPECIES (inside 280px tablet width)
+            int halfW = (w - 12) / 2;
+            if (mouse.IsHit(mx + 4, my + 20, halfW, 16))
+            {
+                _manualActiveTab = 0;
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(mx + 8 + halfW, my + 20, halfW, 16))
+            {
+                _manualActiveTab = 1;
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (_manualActiveTab > 1)
+                _manualActiveTab = 1;
         }
-        if (mouse.IsHit(mx + 142, my + 20, 132, 16))
+        else if (!cargoUnlocked)
         {
-            _manualActiveTab = 1;
-            AudioHooks.Play("terminal_key_tab");
-            RebuildManualSilhouetteTexture();
-            return true;
+            // Days 10-11: 3 tabs — SHIP | SPECIES | HULLS (inside 280px tablet width)
+            if (mouse.IsHit(mx + 4, my + 20, 84, 16))
+            {
+                _manualActiveTab = 0;
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(mx + 90, my + 20, 100, 16))
+            {
+                _manualActiveTab = 1;
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(mx + 192, my + 20, w - 196, 16))
+            {
+                _manualActiveTab = 2;
+                AudioHooks.Play("terminal_key_tab");
+                RebuildManualSilhouetteTexture();
+                return true;
+            }
+        }
+        else
+        {
+            // Day 12+: 4 compact tabs — SHIP | SPECIES | HULLS | CARGO (fits cleanly inside 280px; STARS permanently absent)
+            if (mouse.IsHit(mx + 4, my + 20, 58, 16))
+            {
+                _manualActiveTab = 0;
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(mx + 64, my + 20, 80, 16))
+            {
+                _manualActiveTab = 1;
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(mx + 146, my + 20, 64, 16))
+            {
+                _manualActiveTab = 2;
+                AudioHooks.Play("terminal_key_tab");
+                RebuildManualSilhouetteTexture();
+                return true;
+            }
+            if (mouse.IsHit(mx + 212, my + 20, w - 216, 16))
+            {
+                _manualActiveTab = 3;
+                PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
         }
 
         if (_manualActiveTab == 0)
         {
             int rowStartY = my + 39;
-            if (mouse.X >= mx + 6 && mouse.X <= mx + manual.Width - 6 &&
+            if (mouse.X >= mx + 6 && mouse.X <= mx + w - 6 &&
                 mouse.Y >= rowStartY && mouse.Y < rowStartY + ManualPrefixDirectory.Length * 12)
             {
                 int clickedIdx = (mouse.Y - rowStartY) / 12;
                 if (clickedIdx >= 0 && clickedIdx < ManualPrefixDirectory.Length)
                 {
-                    ShipFaction targetFaction = ManualPrefixDirectory[clickedIdx].VisualFaction;
-                    for (int f = 0; f < ShipRenderer.AllFactions.Count; f++)
-                    {
-                        if (ShipRenderer.AllFactions[f] == targetFaction)
-                        {
-                            _manualFactionIndex = f;
-                            break;
-                        }
-                    }
-                    _manualClassIndex = 0;
+                    SyncManualSelectionToDirectoryIndex(clickedIdx);
                     _manualActiveTab = 1;
+                    PixelBuffer.UnloadTexture(ref _cachedManualShipTex);
                     AudioHooks.Play("terminal_key_click");
-                    RebuildManualSilhouetteTexture();
                     return true;
                 }
             }
         }
         else if (_manualActiveTab == 1)
         {
+            int dirCount = ManualPrefixDirectory.Length;
+            int btnRightX = mx + w - 82;
+            int devSyncX = mx + (w - 76) / 2;
+
+            if (mouse.IsHit(mx + 6, my + 40, 76, 16))
+            {
+                SyncManualSelectionToDirectoryIndex((_manualDirectoryIndex - 1 + dirCount) % dirCount);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (_devDebug.DevManualSyncEnabled && mouse.IsHit(devSyncX, my + 40, 76, 16))
+            {
+                if (_activeShip != null)
+                {
+                    for (int d = 0; d < dirCount; d++)
+                    {
+                        if (ManualPrefixDirectory[d].Prefix.Equals(_activeShip.Slate.DeclaredPrefix, StringComparison.OrdinalIgnoreCase))
+                        {
+                            SyncManualSelectionToDirectoryIndex(d);
+                            break;
+                        }
+                    }
+                    AudioHooks.Play("terminal_key_confirm");
+                }
+                return true;
+            }
+            if (mouse.IsHit(btnRightX, my + 40, 76, 16))
+            {
+                SyncManualSelectionToDirectoryIndex((_manualDirectoryIndex + 1) % dirCount);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+        }
+        else if (_manualActiveTab == 2 && hullsUnlocked)
+        {
             int factionCount = ShipRenderer.AllFactions.Count;
+            int btnRightX = mx + w - 82;
+            int devSyncX = mx + (w - 76) / 2;
+
             if (mouse.IsHit(mx + 6, my + 40, 76, 16))
             {
                 _manualFactionIndex = (_manualFactionIndex - 1 + factionCount) % factionCount;
@@ -280,7 +397,7 @@ public sealed partial class DeskScreen
                 RebuildManualSilhouetteTexture();
                 return true;
             }
-            if (_devDebug.DevManualSyncEnabled && mouse.IsHit(mx + 102, my + 40, 76, 16))
+            if (_devDebug.DevManualSyncEnabled && mouse.IsHit(devSyncX, my + 40, 76, 16))
             {
                 if (_activeShip != null)
                 {
@@ -308,7 +425,7 @@ public sealed partial class DeskScreen
                 }
                 return true;
             }
-            if (mouse.IsHit(mx + 198, my + 40, 76, 16))
+            if (mouse.IsHit(btnRightX, my + 40, 76, 16))
             {
                 _manualFactionIndex = (_manualFactionIndex + 1) % factionCount;
                 _manualClassIndex = 0;
@@ -319,19 +436,35 @@ public sealed partial class DeskScreen
 
             ShipFaction currentFaction = ShipRenderer.AllFactions[_manualFactionIndex];
             IReadOnlyList<ShipClass> allowed = ShipRenderer.GetAllowedClasses(currentFaction);
-            if (mouse.IsHit(mx + 6, my + 144, 62, 16))
+            if (mouse.IsHit(mx + 6, my + 150, 62, 16))
             {
                 _manualClassIndex = (_manualClassIndex - 1 + allowed.Count) % allowed.Count;
                 AudioHooks.Play("terminal_key_click");
                 RebuildManualSilhouetteTexture();
                 return true;
             }
-            if (mouse.IsHit(mx + 212, my + 144, 62, 16))
+            if (mouse.IsHit(mx + w - 68, my + 150, 62, 16))
             {
                 _manualClassIndex = (_manualClassIndex + 1) % allowed.Count;
                 AudioHooks.Play("terminal_key_click");
                 RebuildManualSilhouetteTexture();
                 return true;
+            }
+        }
+        else if (_manualActiveTab == 3 && cargoUnlocked)
+        {
+            IReadOnlyList<BannedCargoEntry> banned = CargoCatalog.Load().BannedCargoList;
+            int listStartY = my + 54;
+            if (mouse.X >= mx + 6 && mouse.X <= mx + w - 6 &&
+                mouse.Y >= listStartY && mouse.Y < listStartY + banned.Count * 20)
+            {
+                int idx = (mouse.Y - listStartY) / 20;
+                if (idx >= 0 && idx < banned.Count)
+                {
+                    _selectedManualBannedCargoIndex = idx;
+                    AudioHooks.Play("terminal_key_click");
+                    return true;
+                }
             }
         }
 
@@ -473,6 +606,7 @@ public sealed partial class DeskScreen
             {
                 DeskItemId.WarpStrip => WarpRefSpotY,
                 DeskItemId.ReferenceManual => _layout.FreeDeskRestMinY,
+                DeskItemId.FieldBooklet => _layout.FreeDeskRestMinY,
                 _ => bounds.Y
             };
             int maxDragX = item.Id == DeskItemId.DataSlate
@@ -655,7 +789,8 @@ public sealed partial class DeskScreen
                             {
                                 BeginBlankSlateInterceptDownload(triggeredByReTransmit: false);
                             }
-                            else if (_phase == EncounterPhase.InspectingSlateAndShip)
+                            else if (_phase == EncounterPhase.InspectingSlateAndShip ||
+                                     _phase == EncounterPhase.AwaitingClearanceReturnToTopPort)
                             {
                                 BeginBlankSlateInterceptDownload(triggeredByReTransmit: true);
                             }
@@ -691,10 +826,63 @@ public sealed partial class DeskScreen
                 int minRestY = item.Id == DeskItemId.WarpStrip ? WarpRefSpotY : restMinY;
                 item.X = Math.Clamp(item.X, bounds.X, bounds.Right - item.Width);
                 item.Y = Math.Clamp(item.Y, minRestY, bounds.Bottom - item.Height);
+
+                if (item.Id == DeskItemId.FieldBooklet && !_fieldBooklet.IsOpen)
+                {
+                    int dx = mouse.X - _dragStartMouseX;
+                    int dy = mouse.Y - _dragStartMouseY;
+                    if (dx * dx + dy * dy <= 25)
+                    {
+                        _fieldBooklet.IsOpen = true;
+                        _fieldBooklet.SyncWithGameState(_gameState, _config, jumpToNewestOnNewUnlock: true);
+                        SyncFieldBookletItemSize();
+                        BringDeskItemToFront(DeskItemId.FieldBooklet);
+                        AudioHooks.Play("terminal_key_tab");
+                    }
+                }
             }
 
             _draggingItemId = null;
         }
+    }
+
+    private bool TryHandleFieldBookletInternalClick(VirtualMouseState mouse, DraggableDeskItem booklet)
+    {
+        if (!_fieldBooklet.HandleInternalClick(mouse, booklet.X, booklet.Y, _gameState, _config))
+            return false;
+
+        SyncFieldBookletItemSize();
+        BringDeskItemToFront(DeskItemId.FieldBooklet);
+        return true;
+    }
+
+    private void SyncFieldBookletItemSize()
+    {
+        if (!_deskItems.TryGetValue(DeskItemId.FieldBooklet, out DraggableDeskItem? item))
+            return;
+
+        item.Width = _fieldBooklet.CurrentWidth;
+        item.Height = _fieldBooklet.CurrentHeight;
+        DeskRect bounds = _layout.FreeDragBounds;
+        item.X = Math.Clamp(item.X, bounds.X, bounds.Right - item.Width);
+        item.Y = Math.Clamp(item.Y, _layout.FreeDeskRestMinY, bounds.Bottom - item.Height);
+    }
+
+    internal void TryAutoUnfoldBookletForCurrentDay()
+    {
+        string? unlockTag = FieldBookletWidget.GetUnlockTagForDay(_gameState.Day, _config);
+        if (string.IsNullOrEmpty(unlockTag))
+            return;
+
+        if (_gameState.AutoUnfoldedBookletTags.Contains(unlockTag, StringComparer.OrdinalIgnoreCase))
+            return;
+
+        _gameState.AutoUnfoldedBookletTags.Add(unlockTag);
+        _fieldBooklet.IsOpen = true;
+        _fieldBooklet.SelectPageByTag(unlockTag, _gameState, _config);
+        SyncFieldBookletItemSize();
+        BringDeskItemToFront(DeskItemId.FieldBooklet);
+        _gameState.SaveToDisk();
     }
 
     private void BringDeskItemToFront(DeskItemId id)
@@ -808,7 +996,7 @@ public sealed partial class DeskScreen
             : (isMission
                 ? "COVERT MISSION SLATE"
                 : (isCopied ? "CAPTURED PACKET" : "UNMARKED BLANK SLATE"));
-        Raylib.DrawText(TruncateByPixelWidth(hdr, 10, w - 20), x + 10, y + 14, 10, headerCol);
+        UiText.Draw(TruncateByPixelWidth(hdr, 10, w - 20), x + 10, y + 14, 10, headerCol);
 
         // Identical segmented progress bar directly below header during Blank Slate 1.80s download
         if (isBlankRx)
@@ -829,7 +1017,7 @@ public sealed partial class DeskScreen
         {
             // Identical packet-stream download animation matching Primary Data Slate's 1.80s RX readout
             int pct = (int)MathF.Round(rxProg * 100f);
-            Raylib.DrawText("CARRIER: LOCKED", x + 14, y + 44, 10, Palette.ClearanceTeal);
+            UiText.Draw("CARRIER: LOCKED", x + 14, y + 44, 10, Palette.ClearanceTeal);
 
             int barX = x + 14;
             int barY = y + 60;
@@ -845,48 +1033,48 @@ public sealed partial class DeskScreen
             // Progressive packet stream rows revealing smoothly across the 1.80s duration
             int frameShift = (_animTick / 4) & 0xFF;
             if (rxProg >= 0.15f)
-                Raylib.DrawText($"HDR: 0x{(0x4A + frameShift) & 0xFF:X2} {(0x91 + frameShift * 3) & 0xFF:X2} SYNC", x + 14, y + 78, 10, Palette.CrtAmberPrimary);
+                UiText.Draw($"HDR: 0x{(0x4A + frameShift) & 0xFF:X2} {(0x91 + frameShift * 3) & 0xFF:X2} SYNC", x + 14, y + 78, 10, Palette.CrtAmberPrimary);
             if (rxProg >= 0.40f)
             {
                 string pfxHint = _activeShip != null ? _activeShip.Slate.DeclaredPrefix : "---";
-                Raylib.DrawText($"BUS: {pfxHint} STREAM", x + 14, y + 94, 10, Palette.ClearanceTeal);
+                UiText.Draw($"BUS: {pfxHint} STREAM", x + 14, y + 94, 10, Palette.ClearanceTeal);
             }
             if (rxProg >= 0.65f)
-                Raylib.DrawText($"CHK: 0x{(0xC0 + frameShift * 5) & 0xFF:X2}F{(frameShift & 0xF):X1} OK", x + 14, y + 110, 10, Palette.CrtAmberDimmed);
+                UiText.Draw($"CHK: 0x{(0xC0 + frameShift * 5) & 0xFF:X2}F{(frameShift & 0xF):X1} OK", x + 14, y + 110, 10, Palette.CrtAmberDimmed);
             if (rxProg >= 0.85f)
-                Raylib.DrawText("SEALING BUFFER...", x + 14, y + 126, 10, Palette.ClearanceTeal);
+                UiText.Draw("SEALING BUFFER...", x + 14, y + 126, 10, Palette.ClearanceTeal);
             else
-                Raylib.DrawText($"PACKET STREAM {pct:D2}%", x + 14, y + 126, 10, Palette.CrtAmberDimmed);
+                UiText.Draw($"PACKET STREAM {pct:D2}%", x + 14, y + 126, 10, Palette.CrtAmberDimmed);
         }
         else if (isMission)
         {
-            Raylib.DrawText(_activeDeskContrabandItem.DisplayName, x + 14, y + 46, 10, Palette.CrtAmberPrimary);
-            Raylib.DrawText($"TGT: {_activeDeskContrabandItem.MissionTargetReg}", x + 14, y + 66, 10, Palette.ClearanceTeal);
-            Raylib.DrawText("SEALED ONE-TIME USE", x + 14, y + 86, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("SLOT INTO SLATE BUS", x + 14, y + 104, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("AVOID KDF- / BMC-!", x + 14, y + 128, 10, Palette.AlertCrimson);
+            UiText.Draw(_activeDeskContrabandItem.DisplayName, x + 14, y + 46, 10, Palette.CrtAmberPrimary);
+            UiText.Draw($"TGT: {_activeDeskContrabandItem.MissionTargetReg}", x + 14, y + 66, 10, Palette.ClearanceTeal);
+            UiText.Draw("SEALED ONE-TIME USE", x + 14, y + 86, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("SLOT INTO SLATE BUS", x + 14, y + 104, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("AVOID KDF- / BMC-!", x + 14, y + 128, 10, Palette.AlertCrimson);
         }
         else if (isCopied)
         {
-            Raylib.DrawText($"REG: {_activeDeskContrabandItem.TargetShipRegistration}", x + 14, y + 48, 10, Palette.ClearanceTeal);
-            Raylib.DrawText($"PFX: {_activeDeskContrabandItem.TargetShipPrefix}", x + 14, y + 66, 10, Palette.CrtAmberPrimary);
-            Raylib.DrawText(TruncateByPixelWidth($"ORG: {_activeDeskContrabandItem.OriginStarSystem}", 10, w - 28), x + 14, y + 84, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("STOW IN LAP POCKET", x + 14, y + 114, 10, Palette.ClearanceTeal);
-            Raylib.DrawText("SEND VIA CRYPTO.", x + 14, y + 128, 10, Palette.CrtAmberDimmed);
+            UiText.Draw($"REG: {_activeDeskContrabandItem.TargetShipRegistration}", x + 14, y + 48, 10, Palette.ClearanceTeal);
+            UiText.Draw($"PFX: {_activeDeskContrabandItem.TargetShipPrefix}", x + 14, y + 66, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(TruncateByPixelWidth($"ORG: {_activeDeskContrabandItem.OriginStarSystem}", 10, w - 28), x + 14, y + 84, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("STOW IN LAP POCKET", x + 14, y + 114, 10, Palette.ClearanceTeal);
+            UiText.Draw("SEND VIA CRYPTO.", x + 14, y + 128, 10, Palette.CrtAmberDimmed);
         }
         else
         {
-            Raylib.DrawText("BUFFER: [EMPTY]", x + 14, y + 48, 10, Palette.CrtAmberPrimary);
-            Raylib.DrawText("UNPLUG PRIMARY SLATE", x + 14, y + 74, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("& SLOT THIS INTO", x + 14, y + 88, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("SLATE BUS TO COPY", x + 14, y + 102, 10, Palette.CrtAmberDimmed);
-            Raylib.DrawText("INCOMING PROTOCOLS.", x + 14, y + 116, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("BUFFER: [EMPTY]", x + 14, y + 48, 10, Palette.CrtAmberPrimary);
+            UiText.Draw("UNPLUG PRIMARY SLATE", x + 14, y + 74, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("& SLOT THIS INTO", x + 14, y + 88, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("SLATE BUS TO COPY", x + 14, y + 102, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("INCOMING PROTOCOLS.", x + 14, y + 116, 10, Palette.CrtAmberDimmed);
         }
 
         string foot = isBlankRx
             ? "HOLD IN SLATE BUS"
             : (_contrabandSlateInSlateBus ? "[LINKED IN BUS]" : "DRAG -> BUS / POCKET");
-        Raylib.DrawText(TruncateByPixelWidth(foot, 10, w - 16), x + 10, y + h - 22, 10,
+        UiText.Draw(TruncateByPixelWidth(foot, 10, w - 16), x + 10, y + h - 22, 10,
             isBlankRx ? Palette.ClearanceTeal : Palette.WeatheredGunmetalEdge);
     }
 
@@ -912,7 +1100,7 @@ public sealed partial class DeskScreen
 
         // Dead header strip
         Raylib.DrawRectangle(x + 6, y + 8, w - 12, 22, new Color(12, 13, 15, 255));
-        Raylib.DrawText("CRYSTAL BURNT", x + 10, y + 14, 10, new Color(110, 114, 122, 255));
+        UiText.Draw("CRYSTAL BURNT", x + 10, y + 14, 10, new Color(110, 114, 122, 255));
 
         // Dark charred glass face with crisp diagonal crystal-fracture cracks
         int gx = x + 8;
@@ -945,11 +1133,11 @@ public sealed partial class DeskScreen
         Raylib.DrawRectangle(gx + 6, gy + 42, gw - 12, 34, new Color(10, 11, 13, 218));
         const string b1 = "CRYSTAL BURNT";
         const string b2 = "// ONE-TIME USE";
-        Raylib.DrawText(b1, gx + (gw - Raylib.MeasureText(b1, 10)) / 2, gy + 47, 10, dimReadout);
-        Raylib.DrawText(b2, gx + (gw - Raylib.MeasureText(b2, 10)) / 2, gy + 61, 10, new Color(76, 80, 88, 255));
+        UiText.Draw(b1, gx + (gw - UiText.MeasureWidth(b1, 10)) / 2, gy + 47, 10, dimReadout);
+        UiText.Draw(b2, gx + (gw - UiText.MeasureWidth(b2, 10)) / 2, gy + 61, 10, new Color(76, 80, 88, 255));
 
         string foot = inBus ? "UNPLUG TO FREE BUS" : "SPENT -- LEAVE ON DESK";
-        Raylib.DrawText(TruncateByPixelWidth(foot, 10, w - 16), x + 10, y + h - 22, 10, new Color(82, 86, 94, 255));
+        UiText.Draw(TruncateByPixelWidth(foot, 10, w - 16), x + 10, y + h - 22, 10, new Color(82, 86, 94, 255));
     }
 
     // =========================================================================
@@ -1029,7 +1217,7 @@ public sealed partial class DeskScreen
         Color headerFg = isAborted || isDetainWiping
             ? Palette.AlertCrimson
             : (isDownloading || isCleared || isTransmitting ? Palette.ClearanceTeal : Palette.CrtAmberPrimary);
-        Raylib.DrawText(TruncateByPixelWidth(slateHeader, 10, w - 12), x + 6, y + 5, 10, headerFg);
+        UiText.Draw(TruncateByPixelWidth(slateHeader, 10, w - 12), x + 6, y + 5, 10, headerFg);
 
         // Empty / Wiped / Aborted Screen
         if (!hasShipData || _activeShip == null)
@@ -1043,27 +1231,27 @@ public sealed partial class DeskScreen
                 const string a1 = "LINK SEVERED";
                 const string a2 = "RE-PLUG IN SLATE BUS";
                 const string a3 = "CLICK [RE-TRANSMIT]";
-                Raylib.DrawText(a1, x + (w - Raylib.MeasureText(a1, 10)) / 2, y + 66, 10, Palette.AlertCrimson);
-                Raylib.DrawText(a2, x + (w - Raylib.MeasureText(a2, 10)) / 2, y + 92, 10, Palette.ClearanceTeal);
-                Raylib.DrawText(a3, x + (w - Raylib.MeasureText(a3, 10)) / 2, y + 110, 10, Palette.ClearanceTeal);
+                UiText.Draw(a1, x + (w - UiText.MeasureWidth(a1, 10)) / 2, y + 66, 10, Palette.AlertCrimson);
+                UiText.Draw(a2, x + (w - UiText.MeasureWidth(a2, 10)) / 2, y + 92, 10, Palette.ClearanceTeal);
+                UiText.Draw(a3, x + (w - UiText.MeasureWidth(a3, 10)) / 2, y + 110, 10, Palette.ClearanceTeal);
             }
             else if (_slateWipeFlashTimer > 0f)
             {
                 const string w1 = "CLAMPS ENGAGED";
                 const string w2 = "TELEMETRY WIPED";
                 const string w3 = "BUFFER CLEAN";
-                Raylib.DrawText(w1, x + (w - Raylib.MeasureText(w1, 10)) / 2, y + 74, 10, Palette.AlertCrimson);
-                Raylib.DrawText(w2, x + (w - Raylib.MeasureText(w2, 10)) / 2, y + 94, 10, Palette.CrtAmberPrimary);
-                Raylib.DrawText(w3, x + (w - Raylib.MeasureText(w3, 10)) / 2, y + 114, 10, Palette.ClearanceTeal);
+                UiText.Draw(w1, x + (w - UiText.MeasureWidth(w1, 10)) / 2, y + 74, 10, Palette.AlertCrimson);
+                UiText.Draw(w2, x + (w - UiText.MeasureWidth(w2, 10)) / 2, y + 94, 10, Palette.CrtAmberPrimary);
+                UiText.Draw(w3, x + (w - UiText.MeasureWidth(w3, 10)) / 2, y + 114, 10, Palette.ClearanceTeal);
             }
             else
             {
                 const string e1 = "PRIMARY DATA SLATE";
                 const string e2 = "BUFFER: EMPTY";
                 string hint = IsDataSlateInSlateBus ? "READY IN SLATE BUS" : "PLUG INTO SLATE BUS";
-                Raylib.DrawText(e1, x + (w - Raylib.MeasureText(e1, 10)) / 2, y + 74, 10, Palette.CrtAmberDimmed);
-                Raylib.DrawText(e2, x + (w - Raylib.MeasureText(e2, 10)) / 2, y + 96, 10, Palette.CrtAmberPrimary);
-                Raylib.DrawText(hint, x + (w - Raylib.MeasureText(hint, 10)) / 2, y + 118, 10,
+                UiText.Draw(e1, x + (w - UiText.MeasureWidth(e1, 10)) / 2, y + 74, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(e2, x + (w - UiText.MeasureWidth(e2, 10)) / 2, y + 96, 10, Palette.CrtAmberPrimary);
+                UiText.Draw(hint, x + (w - UiText.MeasureWidth(hint, 10)) / 2, y + 118, 10,
                     IsDataSlateInSlateBus ? Palette.ClearanceTeal : Palette.CrtAmberDimmed);
             }
 
@@ -1121,43 +1309,43 @@ public sealed partial class DeskScreen
                 Raylib.DrawRectangle(x + 73, y + 22, w - 78, 30, Palette.OutlineVoid);
                 Raylib.DrawRectangleLines(x + 73, y + 22, w - 78, 30, Palette.OxidizedBronzeWorn);
                 DrawSlateFieldHighlight(mouse, x + 73, y + 22, w - 78, 30, ReviewTarget.DataSlatePrefix);
-                Raylib.DrawText("REG CODE", rightColX + 1, y + 25, 10, Palette.CrtAmberDimmed);
-                Raylib.DrawText(TruncateByPixelWidth(slate.RegistrationCode, 10, rightColMaxPx - 4), rightColX + 1, y + 38, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("REG CODE", rightColX + 1, y + 25, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(TruncateByPixelWidth(slate.RegistrationCode, 10, rightColMaxPx - 4), rightColX + 1, y + 38, 10, Palette.CrtAmberPrimary);
             }
             if (dl >= 0.35f)
             {
-                Raylib.DrawText("PREFIX:", rightColX, y + 57, 10, Palette.WeatheredGunmetalEdge);
-                Raylib.DrawText(slate.DeclaredPrefix, rightColX, y + 69, 10, Palette.CrtAmberDimmed);
+                UiText.Draw("PREFIX:", rightColX, y + 57, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw(slate.DeclaredPrefix, rightColX, y + 69, 10, Palette.CrtAmberDimmed);
             }
 
             Raylib.DrawLine(x + 6, y + 89, x + w - 6, y + 89, Palette.WeatheredGunmetalEdge);
 
             if (dl >= 0.45f)
             {
-                Raylib.DrawText("VESSEL", fieldX, y + 94, 10, Palette.WeatheredGunmetalEdge);
-                Raylib.DrawText(TruncateByPixelWidth(slate.ShipName, 10, fieldMaxPx), fieldX, y + 105, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("VESSEL", fieldX, y + 94, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw(TruncateByPixelWidth(slate.ShipName, 10, fieldMaxPx), fieldX, y + 105, 10, Palette.CrtAmberPrimary);
             }
             if (dl >= 0.60f)
             {
-                Raylib.DrawText("REGISTRY", fieldX, y + 120, 10, Palette.WeatheredGunmetalEdge);
-                Raylib.DrawText(TruncateByPixelWidth(slate.DeclaredFactionName, 10, fieldMaxPx), fieldX, y + 131, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("REGISTRY", fieldX, y + 120, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw(TruncateByPixelWidth(slate.DeclaredFactionName, 10, fieldMaxPx), fieldX, y + 131, 10, Palette.CrtAmberPrimary);
             }
             if (dl >= 0.75f)
             {
-                Raylib.DrawText("CAPTAIN", fieldX, y + 146, 10, Palette.WeatheredGunmetalEdge);
-                Raylib.DrawText(TruncateByPixelWidth(slate.DeclaredCaptainName, 10, fieldMaxPx), fieldX, y + 157, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("CAPTAIN", fieldX, y + 146, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw(TruncateByPixelWidth(slate.DeclaredCaptainName, 10, fieldMaxPx), fieldX, y + 157, 10, Palette.CrtAmberPrimary);
             }
             if (dl >= 0.88f)
             {
-                Raylib.DrawText("ROUTE", fieldX, y + 172, 10, Palette.WeatheredGunmetalEdge);
-                Raylib.DrawText(TruncateByPixelWidth($"{slate.OriginSystem} -> {slate.DestinationSystem}", 10, fieldMaxPx),
+                UiText.Draw("ROUTE", fieldX, y + 172, 10, Palette.WeatheredGunmetalEdge);
+                UiText.Draw(TruncateByPixelWidth($"{slate.OriginSystem} -> {slate.DestinationSystem}", 10, fieldMaxPx),
                     fieldX, y + 183, 10, Palette.CrtAmberDimmed);
             }
         }
-        else if (_gameState.Day == 2)
+        else if (_gameState.Day < _config.DayUnlockWarpScanner)
         {
             // =================================================================
-            // DAY 2 DATA SLATE (REG CODE + WPN Highlightable in Protocol Review!)
+            // DAY 2-3 PRE-WARP DATA SLATE (REG CODE + WPN Highlightable in Protocol Review!)
             // =================================================================
             bool wpnFault = IsTargetFaultHighlighted(ReviewTarget.DataSlateWeapons);
             DrawSlateFieldHighlight(mouse, x + 73, y + 21, w - 78, 26, ReviewTarget.DataSlatePrefix);
@@ -1165,29 +1353,29 @@ public sealed partial class DeskScreen
 
             if (dl >= 0.15f)
             {
-                Raylib.DrawText("REG CODE:", rightColX, y + 22, 10, Palette.CrtAmberDimmed);
-                Raylib.DrawText(TruncateByPixelWidth(slate.RegistrationCode, 10, rightColMaxPx), rightColX, y + 34, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("REG CODE:", rightColX, y + 22, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(TruncateByPixelWidth(slate.RegistrationCode, 10, rightColMaxPx), rightColX, y + 34, 10, Palette.CrtAmberPrimary);
             }
             if (dl >= 0.30f)
             {
-                Raylib.DrawText(TruncateByPixelWidth($"WPN: {slate.DeclaredWeaponsStatus}", 10, rightColMaxPx), rightColX, y + 52, 10,
+                UiText.Draw(TruncateByPixelWidth($"WPN: {slate.DeclaredWeaponsStatus}", 10, rightColMaxPx), rightColX, y + 52, 10,
                     wpnFault ? GetFaultPulseColor() : Palette.CrtAmberPrimary);
-                Raylib.DrawText(TruncateByPixelWidth($"SHLD: {slate.DeclaredShieldsStatus}", 10, rightColMaxPx), rightColX, y + 68, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(TruncateByPixelWidth($"SHLD: {slate.DeclaredShieldsStatus}", 10, rightColMaxPx), rightColX, y + 68, 10, Palette.CrtAmberDimmed);
             }
 
             Raylib.DrawLine(x + 6, y + 89, x + w - 6, y + 89, Palette.WeatheredGunmetalEdge);
 
-            if (dl >= 0.45f) Raylib.DrawText(TruncateByPixelWidth($"SHIP: {slate.ShipName}", 10, fieldMaxPx), fieldX, y + 94, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.58f) Raylib.DrawText(TruncateByPixelWidth($"ORG:  {slate.DeclaredFactionName}", 10, fieldMaxPx), fieldX, y + 108, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.70f) Raylib.DrawText(TruncateByPixelWidth($"CAPT: {slate.DeclaredCaptainName}", 10, fieldMaxPx), fieldX, y + 122, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.80f) Raylib.DrawText(TruncateByPixelWidth($"ORIG: {slate.OriginSystem}", 10, fieldMaxPx), fieldX, y + 136, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.88f) Raylib.DrawText(TruncateByPixelWidth($"DEST: {slate.DestinationSystem}", 10, fieldMaxPx), fieldX, y + 150, 10, Palette.CrtAmberDimmed);
+            if (dl >= 0.45f) UiText.Draw(TruncateByPixelWidth($"SHIP: {slate.ShipName}", 10, fieldMaxPx), fieldX, y + 94, 10, Palette.CrtAmberPrimary);
+            if (dl >= 0.58f) UiText.Draw(TruncateByPixelWidth($"ORG:  {slate.DeclaredFactionName}", 10, fieldMaxPx), fieldX, y + 108, 10, Palette.CrtAmberPrimary);
+            if (dl >= 0.70f) UiText.Draw(TruncateByPixelWidth($"CAPT: {slate.DeclaredCaptainName}", 10, fieldMaxPx), fieldX, y + 122, 10, Palette.CrtAmberPrimary);
+            if (dl >= 0.80f) UiText.Draw(TruncateByPixelWidth($"ORIG: {slate.OriginSystem}", 10, fieldMaxPx), fieldX, y + 136, 10, Palette.CrtAmberPrimary);
+            if (dl >= 0.88f) UiText.Draw(TruncateByPixelWidth($"DEST: {slate.DestinationSystem}", 10, fieldMaxPx), fieldX, y + 150, 10, Palette.CrtAmberDimmed);
             if (dl >= 0.94f)
             {
                 List<string> cargoLines = WrapTextByPixelWidth($"CARGO: {slate.CargoManifest}", 10, fieldMaxPx, maxLines: 2);
                 for (int c = 0; c < cargoLines.Count; c++)
                 {
-                    Raylib.DrawText(cargoLines[c], fieldX, y + 164 + c * 13, 10, Palette.CrtAmberDimmed);
+                    UiText.Draw(cargoLines[c], fieldX, y + 164 + c * 13, 10, Palette.CrtAmberDimmed);
                 }
             }
         }
@@ -1202,6 +1390,7 @@ public sealed partial class DeskScreen
             DrawSlateFieldHighlight(mouse, x + 73, y + 21, rightHotW, 22, ReviewTarget.DataSlatePrefix);
             DrawSlateFieldHighlight(mouse, x + 73, y + 44, rightHotW, 13, ReviewTarget.DataSlateClass);
             DrawSlateFieldHighlight(mouse, x + 73, y + 58, rightHotW, 13, ReviewTarget.DataSlateWeapons);
+            DrawSlateFieldHighlight(mouse, x + 73, y + 72, rightHotW, 13, ReviewTarget.DataSlateMass);
             DrawSlateFieldHighlight(mouse, x + 4, y + 103, rowW, 12, ReviewTarget.DataSlateOrg);
             DrawSlateFieldHighlight(mouse, x + 4, y + 115, rowW, 12, ReviewTarget.DataSlateExpiry);
             DrawSlateFieldHighlight(mouse, x + 4, y + 139, rowW, 12, ReviewTarget.DataSlateSpecies);
@@ -1210,37 +1399,38 @@ public sealed partial class DeskScreen
 
             if (dl >= 0.12f)
             {
-                Raylib.DrawText("REG CODE:", rightColX, y + 22, 10, Palette.CrtAmberDimmed);
-                Raylib.DrawText(TruncateByPixelWidth(slate.RegistrationCode, 10, rightColMaxPx), rightColX, y + 32, 10, Palette.CrtAmberPrimary);
+                UiText.Draw("REG CODE:", rightColX, y + 22, 10, Palette.CrtAmberDimmed, denseRow: true);
+                UiText.Draw(TruncateByPixelWidth(slate.RegistrationCode, 10, rightColMaxPx, denseRow: true), rightColX, y + 32, 10, Palette.CrtAmberPrimary, denseRow: true);
             }
             if (dl >= 0.22f)
             {
-                Raylib.DrawText(TruncateByPixelWidth($"CLASS: {ShortClass(slate.DeclaredShipClass)}", 10, rightColMaxPx), rightColX, y + 45, 10, Palette.CrtAmberPrimary);
+                UiText.Draw(TruncateByPixelWidth($"CLASS: {ShortClass(slate.DeclaredShipClass)}", 10, rightColMaxPx, denseRow: true), rightColX, y + 45, 10, Palette.CrtAmberPrimary, denseRow: true);
             }
             if (dl >= 0.32f)
             {
-                Raylib.DrawText(TruncateByPixelWidth($"WPN: {slate.DeclaredWeaponsStatus}", 10, rightColMaxPx), rightColX, y + 59, 10, Palette.CrtAmberPrimary);
-                Raylib.DrawText(TruncateByPixelWidth($"MASS: {slate.DeclaredTonnage} T", 10, rightColMaxPx), rightColX, y + 73, 10, Palette.CrtAmberDimmed);
+                UiText.Draw(TruncateByPixelWidth($"WPN: {slate.DeclaredWeaponsStatus}", 10, rightColMaxPx, denseRow: true), rightColX, y + 59, 10, Palette.CrtAmberPrimary, denseRow: true);
+                Color massTextCol = IsStokerOperational ? Palette.CrtAmberPrimary : Palette.CrtAmberDimmed;
+                UiText.Draw(TruncateByPixelWidth($"MASS: {slate.DeclaredTonnage} T", 10, rightColMaxPx, denseRow: true), rightColX, y + 73, 10, massTextCol, denseRow: true);
             }
 
             Raylib.DrawLine(x + 4, y + 89, x + w - 4, y + 89, Palette.WeatheredGunmetalEdge);
             int fieldY = y + 92;
             const int lineStep = 12;
 
-            if (dl >= 0.42f) Raylib.DrawText(TruncateByPixelWidth($"SHIP: {slate.ShipName}", 10, fieldMaxPx), fieldX, fieldY, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.50f) Raylib.DrawText(TruncateByPixelWidth($"ORG:  {slate.DeclaredFactionName}", 10, fieldMaxPx), fieldX, fieldY + lineStep, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.58f) Raylib.DrawText(TruncateByPixelWidth($"EXP:  {slate.RegistrationExpiryDisplay}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 2, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.66f) Raylib.DrawText(TruncateByPixelWidth($"CAPT: {slate.DeclaredCaptainName}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 3, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.74f) Raylib.DrawText(TruncateByPixelWidth($"SPEC: {slate.DeclaredCaptainSpecies.ToString().ToUpperInvariant()}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 4, 10, Palette.CrtAmberDimmed);
-            if (dl >= 0.82f) Raylib.DrawText(TruncateByPixelWidth($"ORIG: {slate.OriginSystem}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 5, 10, Palette.CrtAmberPrimary);
-            if (dl >= 0.88f) Raylib.DrawText(TruncateByPixelWidth($"DEST: {slate.DestinationSystem}", 10, fieldMaxPx), fieldX, fieldY + lineStep * 6, 10, Palette.CrtAmberDimmed);
+            if (dl >= 0.42f) UiText.Draw(TruncateByPixelWidth($"SHIP: {slate.ShipName}", 10, fieldMaxPx, denseRow: true), fieldX, fieldY, 10, Palette.CrtAmberPrimary, denseRow: true);
+            if (dl >= 0.50f) UiText.Draw(TruncateByPixelWidth($"ORG:  {slate.DeclaredFactionName}", 10, fieldMaxPx, denseRow: true), fieldX, fieldY + lineStep, 10, Palette.CrtAmberPrimary, denseRow: true);
+            if (dl >= 0.58f) UiText.Draw(TruncateByPixelWidth($"EXP:  {slate.RegistrationExpiryDisplay}", 10, fieldMaxPx, denseRow: true), fieldX, fieldY + lineStep * 2, 10, Palette.CrtAmberPrimary, denseRow: true);
+            if (dl >= 0.66f) UiText.Draw(TruncateByPixelWidth($"CAPT: {slate.DeclaredCaptainName}", 10, fieldMaxPx, denseRow: true), fieldX, fieldY + lineStep * 3, 10, Palette.CrtAmberPrimary, denseRow: true);
+            if (dl >= 0.74f) UiText.Draw(TruncateByPixelWidth($"SPEC: {slate.DeclaredCaptainSpecies.ToString().ToUpperInvariant()}", 10, fieldMaxPx, denseRow: true), fieldX, fieldY + lineStep * 4, 10, Palette.CrtAmberDimmed, denseRow: true);
+            if (dl >= 0.82f) UiText.Draw(TruncateByPixelWidth($"ORIG: {slate.OriginSystem}", 10, fieldMaxPx, denseRow: true), fieldX, fieldY + lineStep * 5, 10, Palette.CrtAmberPrimary, denseRow: true);
+            if (dl >= 0.88f) UiText.Draw(TruncateByPixelWidth($"DEST: {slate.DestinationSystem}", 10, fieldMaxPx, denseRow: true), fieldX, fieldY + lineStep * 6, 10, Palette.CrtAmberDimmed, denseRow: true);
             if (dl >= 0.94f)
             {
-                List<string> cargoLines = WrapTextByPixelWidth($"CARGO: {slate.CargoManifest}", 10, fieldMaxPx, maxLines: 2);
+                List<string> cargoLines = WrapTextByPixelWidth($"CARGO: {slate.CargoManifest}", 10, fieldMaxPx, maxLines: 2, denseRow: true);
                 int cargoBaseY = fieldY + lineStep * 7;
                 for (int c = 0; c < cargoLines.Count; c++)
                 {
-                    Raylib.DrawText(cargoLines[c], fieldX, cargoBaseY + c * 12, 10, Palette.CrtAmberPrimary);
+                    UiText.Draw(cargoLines[c], fieldX, cargoBaseY + c * 12, 10, Palette.CrtAmberPrimary, denseRow: true);
                 }
             }
         }
@@ -1250,7 +1440,7 @@ public sealed partial class DeskScreen
         {
             Raylib.DrawRectangle(x + 3, y + h - 15, w - 6, 13, Palette.AlertCrimson);
             const string msg = "WIPING TELEMETRY...";
-            Raylib.DrawText(msg, x + (w - Raylib.MeasureText(msg, 10)) / 2, y + h - 14, 10, Palette.OutlineVoid);
+            UiText.Draw(msg, x + (w - UiText.MeasureWidth(msg, 10)) / 2, y + h - 14, 10, Palette.OutlineVoid);
         }
         else if (isUploading)
         {
@@ -1259,25 +1449,25 @@ public sealed partial class DeskScreen
             {
                 Raylib.DrawRectangle(x + 3, y + h - 15, w - 6, 13, Palette.OxidizedBronzeShadow);
                 const string msg = "DRAG OUT TO ABORT";
-                Raylib.DrawText(msg, x + (w - Raylib.MeasureText(msg, 10)) / 2, y + h - 14, 10, Palette.CrtAmberPrimary);
+                UiText.Draw(msg, x + (w - UiText.MeasureWidth(msg, 10)) / 2, y + h - 14, 10, Palette.CrtAmberPrimary);
             }
         }
         else if (isCleared)
         {
             Raylib.DrawRectangle(x + 3, y + h - 15, w - 6, 13, Palette.ClearanceTeal);
             const string msg = ">> DRAG TO SLATE BUS <<";
-            Raylib.DrawText(msg, x + (w - Raylib.MeasureText(msg, 10)) / 2, y + h - 14, 10, Palette.OutlineVoid);
+            UiText.Draw(msg, x + (w - UiText.MeasureWidth(msg, 10)) / 2, y + h - 14, 10, Palette.OutlineVoid);
         }
         else if (isTransmitting)
         {
             Raylib.DrawRectangle(x + 3, y + h - 15, w - 6, 13, Palette.ClearanceTeal);
             const string msg = "TX -- DRAG TO ABORT";
-            Raylib.DrawText(msg, x + (w - Raylib.MeasureText(msg, 10)) / 2, y + h - 14, 10, Palette.OutlineVoid);
+            UiText.Draw(msg, x + (w - UiText.MeasureWidth(msg, 10)) / 2, y + h - 14, 10, Palette.OutlineVoid);
         }
         else if (isDownloading)
         {
             const string msg = "HOLD IN SLATE BUS";
-            Raylib.DrawText(msg, x + (w - Raylib.MeasureText(msg, 10)) / 2, y + h - 14, 10, Palette.ClearanceTeal);
+            UiText.Draw(msg, x + (w - UiText.MeasureWidth(msg, 10)) / 2, y + h - 14, 10, Palette.ClearanceTeal);
         }
 
         // Stamp bold framed CLEARED text seal directly over the face of the Data Slate from 100% encryption through Slate Bus TX
@@ -1318,20 +1508,20 @@ public sealed partial class DeskScreen
 
         // Bold 2x integer-pixel-scale "CLEARED" stamp + crisp "TO DOCK" sub-label
         const string primaryText = "CLEARED";
-        int primaryW = Raylib.MeasureText(primaryText, 20);
+        int primaryW = UiText.MeasureWidth(primaryText, 20);
         int primaryX = boxX + (sealW - primaryW) / 2;
         int primaryY = boxY + 8;
-        Raylib.DrawText(primaryText, primaryX + 1, primaryY + 1, 20, Palette.OutlineVoid);
-        Raylib.DrawText(primaryText, primaryX, primaryY, 20, Palette.ClearanceTeal);
+        UiText.Draw(primaryText, primaryX + 1, primaryY + 1, 20, Palette.OutlineVoid);
+        UiText.Draw(primaryText, primaryX, primaryY, 20, Palette.ClearanceTeal);
 
         Raylib.DrawLine(boxX + 12, boxY + 30, boxX + sealW - 13, boxY + 30, new Color(45, 212, 191, 150));
 
         const string subText = "TO DOCK";
-        int subW = Raylib.MeasureText(subText, 10);
+        int subW = UiText.MeasureWidth(subText, 10);
         int subX = boxX + (sealW - subW) / 2;
         int subY = boxY + 33;
-        Raylib.DrawText(subText, subX + 1, subY + 1, 10, Palette.OutlineVoid);
-        Raylib.DrawText(subText, subX, subY, 10, Palette.SpsShieldArcIce);
+        UiText.Draw(subText, subX + 1, subY + 1, 10, Palette.OutlineVoid);
+        UiText.Draw(subText, subX, subY, 10, Palette.SpsShieldArcIce);
     }
 
     private void DrawSlateFieldHighlight(VirtualMouseState mouse, int rx, int ry, int rw, int rh, ReviewTarget target)
@@ -1353,7 +1543,9 @@ public sealed partial class DeskScreen
     }
 
     // =========================================================================
-    // Day 4+ Movable Desk Reference Manual (1. PREFIXES & 2. HULLS ONLY; tightened 280x192 layout)
+    // Day 8+ Brengop Reference Manual (Consortium Registry Tablet)
+    // Days 8-9: 2 tabs ONLY (SHIP REGISTRAR | SPECIES REGISTRAR) -- NO Hulls
+    // Day 10+:  3 tabs (SHIP REGISTRAR | SPECIES REGISTRAR | HULLS)
     // =========================================================================
     private void DrawDeskReferenceManual(VirtualMouseState mouse, DraggableDeskItem item, bool isTopmost)
     {
@@ -1361,77 +1553,944 @@ public sealed partial class DeskScreen
         int y = item.Y;
         int w = item.Width;
         int h = item.Height;
-
-        if (_manualActiveTab != 0)
-            _manualActiveTab = 1;
+        bool hullsUnlocked = IsManualHullsEnforced;
+        bool cargoUnlocked = IsCargoManualTabUnlocked;
+        int maxTab = cargoUnlocked ? 3 : (hullsUnlocked ? 2 : 1);
+        _manualActiveTab = Math.Clamp(_manualActiveTab, 0, maxTab);
 
         Color borderCol = isTopmost ? Palette.CrtAmberPrimary : Palette.CrtAmberDimmed;
         Raylib.DrawRectangle(x, y, w, h, Palette.OutlineVoid);
         Raylib.DrawRectangleLines(x, y, w, h, borderCol);
 
         Raylib.DrawRectangle(x + 1, y + 1, w - 2, 16, Palette.OxidizedBronzeShadow);
-        Raylib.DrawText("DESK REFERENCE MANUAL", x + 8, y + 4, 10, Palette.CrtAmberPrimary);
+        UiText.Draw(UiText.TruncateToWidth("BRENGOP REFERENCE MANUAL", 10, w - 14, denseRow: true), x + 7, y + 4, 10, Palette.CrtAmberPrimary, denseRow: true);
 
-        DrawManualTabButton(mouse, x + 6, y + 20, 132, 16, "1. PREFIXES", _manualActiveTab == 0);
-        DrawManualTabButton(mouse, x + 142, y + 20, 132, 16, "2. HULLS", _manualActiveTab == 1);
+        if (!hullsUnlocked)
+        {
+            int halfW = (w - 12) / 2;
+            DrawManualTabButton(mouse, x + 4, y + 20, halfW, 16, "SHIP", _manualActiveTab == 0);
+            DrawManualTabButton(mouse, x + 8 + halfW, y + 20, halfW, 16, "SPECIES", _manualActiveTab == 1);
+        }
+        else if (!cargoUnlocked)
+        {
+            DrawManualTabButton(mouse, x + 4, y + 20, 84, 16, "SHIP", _manualActiveTab == 0);
+            DrawManualTabButton(mouse, x + 90, y + 20, 100, 16, "SPECIES", _manualActiveTab == 1);
+            DrawManualTabButton(mouse, x + 192, y + 20, w - 196, 16, "HULLS", _manualActiveTab == 2);
+        }
+        else
+        {
+            DrawManualTabButton(mouse, x + 4, y + 20, 58, 16, "SHIP", _manualActiveTab == 0);
+            DrawManualTabButton(mouse, x + 64, y + 20, 80, 16, "SPECIES", _manualActiveTab == 1);
+            DrawManualTabButton(mouse, x + 146, y + 20, 64, 16, "HULLS", _manualActiveTab == 2);
+            DrawManualTabButton(mouse, x + 212, y + 20, w - 216, 16, "CARGO", _manualActiveTab == 3);
+        }
 
         if (_manualActiveTab == 0)
         {
             int ry = y + 39;
+            int listH = ManualPrefixDirectory.Length * 12;
             for (int i = 0; i < ManualPrefixDirectory.Length; i++)
             {
                 var entry = ManualPrefixDirectory[i];
                 bool rowHovered = mouse.IsHit(x + 6, ry, w - 12, 12);
-                if (rowHovered)
+                bool rowActive = i == _manualDirectoryIndex;
+                if (rowHovered || rowActive)
                 {
                     Raylib.DrawRectangle(x + 6, ry, w - 12, 12, Palette.OxidizedBronzeShadow);
                 }
                 string rowText = $"{entry.Prefix}  {entry.OrgName}";
-                Raylib.DrawText(TruncateByPixelWidth(rowText, 10, w - 18), x + 10, ry + 1, 10,
-                    rowHovered ? Palette.ClearanceTeal : Palette.CrtAmberPrimary);
+                UiText.Draw(TruncateByPixelWidth(rowText, 10, w - 18, denseRow: true), x + 10, ry + 1, 10,
+                    rowHovered ? Palette.ClearanceTeal : (rowActive ? Palette.CrtAmberPrimary : Palette.CrtAmberDimmed),
+                    denseRow: true);
                 ry += 12;
             }
+
+            if (IsTargetFaultHighlighted(ReviewTarget.ReferenceManualPrefixEntry))
+            {
+                Color col = GetFaultPulseColor();
+                Raylib.DrawRectangleLines(x + 6, y + 39, w - 12, listH, col);
+            }
+            else if (_protocolReviewModeActive && IsShipInspectableForReview && IsReviewTargetUnlocked(ReviewTarget.ReferenceManualPrefixEntry))
+            {
+                DrawReviewHotspotOutline(mouse, x + 6, y + 39, w - 12, listH, _reviewFirstSelection == ReviewTarget.ReferenceManualPrefixEntry);
+            }
         }
-        else
+        else if (_manualActiveTab == 1)
+        {
+            var dirEntry = ManualPrefixDirectory[Math.Clamp(_manualDirectoryIndex, 0, ManualPrefixDirectory.Length - 1)];
+            int btnRightX = x + w - 82;
+            int devSyncX = x + (w - 76) / 2;
+
+            DrawSmallButton(mouse, x + 6, y + 40, 76, 16, "< FACTION");
+            if (_devDebug.DevManualSyncEnabled)
+            {
+                DrawSmallButton(mouse, devSyncX, y + 40, 76, 16, "DEV SYNC", Palette.ClearanceTeal);
+            }
+            DrawSmallButton(mouse, btnRightX, y + 40, 76, 16, "FACTION >");
+
+            int cardX = x + 6;
+            int cardY = y + 60;
+            int cardW = w - 12;
+            int cardH = h - 66;
+            Raylib.DrawRectangle(cardX, cardY, cardW, cardH, Palette.DeepSpaceVoid);
+            Raylib.DrawRectangleLines(cardX, cardY, cardW, cardH, Palette.WeatheredGunmetalEdge);
+
+            UiText.Draw($"PREFIX: {dirEntry.Prefix}", cardX + 8, cardY + 8, 10, Palette.ClearanceTeal);
+            UiText.Draw(TruncateByPixelWidth($"ORGANIZATION: {dirEntry.OrgName}", 10, cardW - 16), cardX + 8, cardY + 26, 10, Palette.CrtAmberPrimary);
+
+            Raylib.DrawLine(cardX + 6, cardY + 44, cardX + cardW - 6, cardY + 44, Palette.WeatheredGunmetalEdge);
+
+            string speciesRule = GetAuthorizedSpeciesRuleLine(dirEntry.Prefix);
+            UiText.Draw("AUTHORIZED CAPTAIN SPECIES:", cardX + 8, cardY + 52, 10, Palette.CrtAmberDimmed);
+            UiText.Draw(TruncateByPixelWidth(speciesRule, 10, cardW - 16), cardX + 8, cardY + 68, 10, Palette.ClearanceTeal);
+
+            string expiryHint = "REG. EXPIRY: MUST MATCH/EXCEED CYC";
+            UiText.Draw(TruncateByPixelWidth(expiryHint, 10, cardW - 16), cardX + 8, cardY + 92, 10, Palette.CrtAmberPrimary);
+            UiText.Draw("SOURCE: CONSORTIUM REGISTRY TABLET", cardX + 8, cardY + 110, 10, Palette.CrtAmberDimmed);
+
+            if (IsTargetFaultHighlighted(ReviewTarget.ReferenceManualSpeciesEntry))
+            {
+                Color col = GetFaultPulseColor();
+                Raylib.DrawRectangleLines(cardX, cardY, cardW, cardH, col);
+                Raylib.DrawRectangleLines(cardX - 1, cardY - 1, cardW + 2, cardH + 2, col);
+            }
+            else if (_protocolReviewModeActive && IsShipInspectableForReview && IsReviewTargetUnlocked(ReviewTarget.ReferenceManualSpeciesEntry))
+            {
+                DrawReviewHotspotOutline(mouse, cardX, cardY, cardW, cardH, _reviewFirstSelection == ReviewTarget.ReferenceManualSpeciesEntry);
+            }
+        }
+        else if (_manualActiveTab == 2 && hullsUnlocked)
         {
             ShipFaction faction = ShipRenderer.AllFactions[_manualFactionIndex];
             IReadOnlyList<ShipClass> allowedClasses = ShipRenderer.GetAllowedClasses(faction);
             ShipClass selectedClass = allowedClasses[Math.Clamp(_manualClassIndex, 0, allowedClasses.Count - 1)];
 
+            int btnRightX = x + w - 82;
+            int devSyncX = x + (w - 76) / 2;
             DrawSmallButton(mouse, x + 6, y + 40, 76, 16, "< FACTION");
             if (_devDebug.DevManualSyncEnabled)
             {
-                DrawSmallButton(mouse, x + 102, y + 40, 76, 16, "DEV SYNC", Palette.ClearanceTeal);
+                DrawSmallButton(mouse, devSyncX, y + 40, 76, 16, "DEV SYNC", Palette.ClearanceTeal);
             }
-            DrawSmallButton(mouse, x + 198, y + 40, 76, 16, "FACTION >");
+            DrawSmallButton(mouse, btnRightX, y + 40, 76, 16, "FACTION >");
+
+            int hullBoxX = x + 6;
+            int hullBoxY = y + 60;
+            int hullBoxW = w - 12;
+            int hullBoxH = 88;
+            Raylib.DrawRectangle(hullBoxX, hullBoxY, hullBoxW, hullBoxH, Palette.DeepSpaceVoid);
+            Raylib.DrawRectangleLines(hullBoxX, hullBoxY, hullBoxW, hullBoxH, Palette.WeatheredGunmetalEdge);
 
             string factionTitle = ShipRenderer.GetFactionDisplayName(faction);
-            Raylib.DrawText(TruncateByPixelWidth(factionTitle, 10, w - 16), x + 8, y + 59, 10, Palette.CrtAmberPrimary);
-
-            string crewLine = ShipGenerator.GetAllowedCrewSummary(faction);
-            Raylib.DrawText(TruncateByPixelWidth(crewLine, 10, w - 16), x + 8, y + 71, 10, Palette.ClearanceTeal);
+            UiText.Draw(TruncateByPixelWidth(factionTitle, 10, hullBoxW - 12), hullBoxX + 6, hullBoxY + 4, 10, Palette.CrtAmberPrimary);
 
             int chartX = x + (w - Constants.ShipWidth) / 2;
-            int chartY = y + 84;
+            int chartY = hullBoxY + 18;
             if (_cachedManualShipTex.Id != 0)
             {
                 Raylib.DrawTexture(_cachedManualShipTex, chartX, chartY, Color.White);
             }
             Raylib.DrawRectangleLines(chartX - 1, chartY - 1, Constants.ShipWidth + 2, Constants.ShipHeight + 2, Palette.CrtAmberDimmed);
 
-            DrawSmallButton(mouse, x + 6, y + 144, 62, 16, "< PREV");
+            if (IsTargetFaultHighlighted(ReviewTarget.ReferenceManualHullEntry))
+            {
+                Color col = GetFaultPulseColor();
+                Raylib.DrawRectangleLines(hullBoxX, hullBoxY, hullBoxW, hullBoxH, col);
+                Raylib.DrawRectangleLines(hullBoxX - 1, hullBoxY - 1, hullBoxW + 2, hullBoxH + 2, col);
+            }
+            else if (_protocolReviewModeActive && IsShipInspectableForReview && IsReviewTargetUnlocked(ReviewTarget.ReferenceManualHullEntry))
+            {
+                DrawReviewHotspotOutline(mouse, hullBoxX, hullBoxY, hullBoxW, hullBoxH, _reviewFirstSelection == ReviewTarget.ReferenceManualHullEntry);
+            }
+
+            DrawSmallButton(mouse, x + 6, y + 150, 62, 16, "< PREV");
             string classCaption = $"{ShortClass(selectedClass)} ({_manualClassIndex + 1}/{allowedClasses.Count})";
-            int capW = Raylib.MeasureText(classCaption, 10);
-            Raylib.DrawText(classCaption, x + (w - capW) / 2, y + 147, 10, Palette.ClearanceTeal);
-            DrawSmallButton(mouse, x + 212, y + 144, 62, 16, "NEXT >");
+            int capW = UiText.MeasureWidth(classCaption, 10);
+            UiText.Draw(classCaption, x + (w - capW) / 2, y + 153, 10, Palette.ClearanceTeal);
+            DrawSmallButton(mouse, x + w - 68, y + 150, 62, 16, "NEXT >");
 
             string allowedList = string.Join("/", allowedClasses.Select(ShortClass));
             string subNote = faction == ShipFaction.FreeTraders
                 ? $"CLASSES: {allowedList} (SHARED FTV/HBR)"
                 : $"ALLOWED CLASSES: {allowedList}";
-            Raylib.DrawText(TruncateByPixelWidth(subNote, 10, w - 16), x + 8, y + 168, 10, Palette.CrtAmberDimmed);
+            UiText.Draw(TruncateByPixelWidth(subNote, 10, w - 16, denseRow: true), x + 8, y + 172, 10, Palette.CrtAmberDimmed, denseRow: true);
+        }
+        else if (_manualActiveTab == 3 && cargoUnlocked)
+        {
+            CargoCatalog catalog = CargoCatalog.Load();
+            UiText.Draw(
+                UiText.TruncateToWidth("PERMANENT BANNED CARGO (0 EXCEPTIONS):", 10, w - 14, denseRow: true),
+                x + 7,
+                y + 40,
+                10,
+                Palette.AlertCrimson,
+                denseRow: true);
+
+            int listX = x + 6;
+            int listY = y + 54;
+            int listW = w - 12;
+            int listH = catalog.BannedCargoList.Count * 20;
+
+            for (int i = 0; i < catalog.BannedCargoList.Count; i++)
+            {
+                BannedCargoEntry bEntry = catalog.BannedCargoList[i];
+                int ry = listY + i * 20;
+                bool hovered = mouse.IsHit(listX, ry, listW, 19);
+                bool selected = i == _selectedManualBannedCargoIndex;
+
+                Raylib.DrawRectangle(listX, ry, listW, 19,
+                    hovered || selected ? Palette.OxidizedBronzeShadow : Palette.DeepSpaceVoid);
+                Raylib.DrawRectangleLines(listX, ry, listW, 19,
+                    hovered ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
+
+                Color tagCol = bEntry.SpsViolet
+                    ? Palette.FromHex("#c084fc")
+                    : (bEntry.BannedBio ? Palette.AlertCrimson : Palette.CrtAmberPrimary);
+                string leftText = $"{i + 1}. {bEntry.Name.ToUpperInvariant()}";
+                string rightTag = bEntry.SpsViolet ? "[VIOLET]" : (bEntry.DenseMass ? "[MASS]" : "[BIO]");
+                int tagW = UiText.MeasureWidth(rightTag, 10, denseRow: true);
+                UiText.Draw(
+                    UiText.TruncateToWidth(leftText, 10, listW - tagW - 14, denseRow: true),
+                    listX + 5,
+                    ry + 4,
+                    10,
+                    Palette.CrtAmberPrimary,
+                    denseRow: true);
+                UiText.Draw(rightTag, listX + listW - tagW - 5, ry + 4, 10, tagCol, denseRow: true);
+            }
+
+            if (IsTargetFaultHighlighted(ReviewTarget.ReferenceManualCargoBannedEntry))
+            {
+                Color col = GetFaultPulseColor();
+                Raylib.DrawRectangleLines(listX, listY, listW, listH, col);
+                Raylib.DrawRectangleLines(listX - 1, listY - 1, listW + 2, listH + 2, col);
+            }
+            else if (_protocolReviewModeActive && IsShipInspectableForReview && IsReviewTargetUnlocked(ReviewTarget.ReferenceManualCargoBannedEntry))
+            {
+                DrawReviewHotspotOutline(mouse, listX, listY, listW, listH, _reviewFirstSelection == ReviewTarget.ReferenceManualCargoBannedEntry);
+            }
+
+            UiText.Draw(
+                UiText.TruncateToWidth("INERT & REG. BIO LEGAL W/ MANIFEST.", 10, w - 14, denseRow: true),
+                x + 7,
+                y + 158,
+                10,
+                Palette.ClearanceTeal,
+                denseRow: true);
+            UiText.Draw(
+                UiText.TruncateToWidth("PAIR BANNED ITEM -> DETAIN IMMEDIATELY.", 10, w - 14, denseRow: true),
+                x + 7,
+                y + 172,
+                10,
+                Palette.CrtAmberDimmed,
+                denseRow: true);
         }
     }
+
+    // =========================================================================
+    // Day 12+ Ceramic-Polymer Cert-Wafers, 3-Wafer Hopper, Top Wipe & Scoop Modes
+    // =========================================================================
+    internal (int X, int Y) ComputeWaferLeftFanTarget(int slotIndex, DeskLayoutRects? layoutOverride = null)
+    {
+        DeskLayoutRects lay = layoutOverride ?? _layout;
+        DeskRect bounds = lay.FreeDragBounds;
+        int fanRight = lay.WaferWriter.X - 16;
+        const int fanStepX = 88;
+        int minSafeLeft = Math.Max(ManualDefaultX + ManualW + 8, 8 + FieldBookletWidget.OpenW + 8); // 332
+
+        int idx = Math.Clamp(slotIndex, 0, 2);
+        int targetX = Math.Clamp(fanRight - WaferCardW - idx * fanStepX, minSafeLeft, fanRight - WaferCardW);
+        int targetY = Math.Clamp(540 - idx * 8, lay.FreeDeskRestMinY, bounds.Bottom - WaferCardH);
+        return (targetX, targetY);
+    }
+
+    private void ReconcileDeskWafersForLayout(DeskLayoutRects layout)
+    {
+        DeskRect bounds = layout.FreeDragBounds;
+        int maxRight = layout.WaferWriter.X - 16;
+        int minLeft = Math.Max(bounds.X, Math.Max(ManualDefaultX + ManualW + 8, 8 + FieldBookletWidget.OpenW + 8));
+
+        for (int i = 0; i < _deskWafers.Count; i++)
+        {
+            CertWaferCard w = _deskWafers[i];
+            if (_draggedWaferIds.Contains(w.InstanceId))
+                continue;
+
+            if (w.IsEjecting || w.X + WaferCardW > maxRight || w.X < bounds.X)
+            {
+                var (tx, ty) = ComputeWaferLeftFanTarget(i, layout);
+                w.EjectTargetX = tx;
+                w.EjectTargetY = ty;
+                if (!w.IsEjecting)
+                {
+                    w.X = Math.Clamp(w.X, minLeft, maxRight - WaferCardW);
+                    w.Y = Math.Clamp(w.Y, layout.FreeDeskRestMinY, bounds.Bottom - WaferCardH);
+                }
+            }
+            else
+            {
+                w.X = Math.Clamp(w.X, bounds.X, maxRight - WaferCardW);
+                w.Y = Math.Clamp(w.Y, layout.FreeDeskRestMinY, bounds.Bottom - WaferCardH);
+            }
+        }
+    }
+
+    internal void QueueOrEjectCargoManifestWafer(ShipSpec ship)
+    {
+        if (!IsWaferWriterOperational)
+            return;
+
+        CertWaferCard card = BuildCargoManifestWaferCard(ship);
+
+        if (_waferHopperCount <= 0)
+        {
+            _heldPendingWafer = card;
+            AudioHooks.Play("citation_buzz");
+            if (!_emptyHopperReminderLoggedForHeldWafer)
+            {
+                _emptyHopperReminderLoggedForHeldWafer = true;
+                AddSystemLogLine("[WAFER WRITER] HOPPER EMPTY (0/3) -- PRINT HELD. WIPE A WAFER IN TOP SLOT.", CommsTextTone.AlertCrimson);
+                // TODO: USER DIALOGUE PASS — Empty Hopper Reminder line
+                AddSystemLogLine("NOTE: \"Oh yes, don't forget to wipe the wafers clean\u2014we only gave you enough for what you need.\"", CommsTextTone.AmberPrimary);
+            }
+            return;
+        }
+
+        EjectWaferFromHopper(card);
+    }
+
+    private CertWaferCard BuildCargoManifestWaferCard(ShipSpec ship)
+    {
+        string primaryCargo = string.IsNullOrWhiteSpace(ship.GroundTruth.WaferCargoManifestItem)
+            ? ship.Slate.CargoManifest
+            : ship.GroundTruth.WaferCargoManifestItem;
+        string secondaryNote = string.IsNullOrWhiteSpace(ship.GroundTruth.WaferCargoSecondaryNote)
+            ? "STAGE-2 CARGO MANIFEST"
+            : ship.GroundTruth.WaferCargoSecondaryNote;
+
+        return new CertWaferCard
+        {
+            InstanceId = _nextWaferInstanceId++,
+            WaferType = CertWaferType.CargoManifest,
+            ShipRegistration = ship.Slate.RegistrationCode,
+            PrimaryCargoItem = primaryCargo,
+            SecondaryNote = secondaryNote
+        };
+    }
+
+    private void EjectWaferFromHopper(CertWaferCard card)
+    {
+        _waferHopperCount = Math.Max(0, _waferHopperCount - 1);
+        if (card.WaferType == CertWaferType.CargoManifest)
+        {
+            _cargoWaferPrintedForActiveShip = true;
+        }
+        if (_activeShip != null &&
+            string.Equals(card.ShipRegistration, _activeShip.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase))
+        {
+            _demuxedWafersForActiveShip.Add(card.WaferType);
+            _prematurelyWipedWafersForActiveShip.Remove(card.WaferType);
+        }
+        _waferWriteHeadFlashTimer = 0.42f;
+        AudioHooks.Play("subspace_transfer");
+
+        var (targetX, targetY) = ComputeWaferLeftFanTarget(_deskWafers.Count);
+        card.EjectStartX = _layout.WaferWriter.X + 8;
+        card.EjectStartY = Math.Max(_layout.FreeDeskRestMinY, _layout.WaferWriter.Y - WaferCardH + 40);
+        card.EjectTargetX = targetX;
+        card.EjectTargetY = targetY;
+        card.X = card.EjectStartX;
+        card.Y = card.EjectStartY;
+        card.EjectElapsed = 0f;
+        card.IsEjecting = true;
+
+        _deskWafers.Add(card);
+    }
+
+    private void TriggerPrematurelyWipedWaferReTransmit()
+    {
+        if (!CanReTransmitPrematurelyWipedWafers || _activeShip == null)
+            return;
+
+        _isReTransmittingWipedWafers = true;
+        _reTransmitWipedWaferElapsed = 0f;
+        AudioHooks.Play("terminal_key_confirm");
+        EnqueueOfficerLine("Re-transmit auxiliary certificates.", CommsTextTone.ClearanceTeal);
+        // TODO: USER DIALOGUE PASS
+        EnqueueCaptainLine(
+            "CAPT: \"Already sent them. Sending again.\"",
+            CommsTextTone.AmberPrimary,
+            preDelaySeconds: 0.16f,
+            showReceivingIndicatorDuringPreDelay: true,
+            suppressAutoReceivingLag: true);
+    }
+
+    private void ReDemuxPrematurelyWipedWafers(ShipSpec ship)
+    {
+        if (!IsWaferWriterOperational || _prematurelyWipedWafersForActiveShip.Count == 0)
+            return;
+
+        CertWaferType[] toReprint = _prematurelyWipedWafersForActiveShip
+            .OrderBy(static t => (int)t)
+            .ToArray();
+
+        foreach (CertWaferType waferType in toReprint)
+        {
+            if (!_demuxedWafersForActiveShip.Contains(waferType))
+            {
+                _prematurelyWipedWafersForActiveShip.Remove(waferType);
+                continue;
+            }
+
+            bool alreadyOnDesk = _deskWafers.Any(w =>
+                w.WaferType == waferType &&
+                string.Equals(w.ShipRegistration, ship.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase));
+            if (alreadyOnDesk)
+            {
+                _prematurelyWipedWafersForActiveShip.Remove(waferType);
+                continue;
+            }
+
+            if (_waferHopperCount <= 0)
+            {
+                break;
+            }
+
+            switch (waferType)
+            {
+                case CertWaferType.CargoManifest:
+                    EjectWaferFromHopper(BuildCargoManifestWaferCard(ship));
+                    break;
+            }
+        }
+    }
+
+    internal void ForceEmptyWaferHopperForDebug()
+    {
+        _waferHopperCount = 0;
+        if (IsWaferWriterOperational)
+        {
+            while (_deskWafers.Count < MaxWaferHopperCount)
+            {
+                var (tx, ty) = ComputeWaferLeftFanTarget(_deskWafers.Count);
+                _deskWafers.Add(new CertWaferCard
+                {
+                    InstanceId = _nextWaferInstanceId++,
+                    ShipRegistration = _activeShip?.Slate.RegistrationCode ?? $"FTV-{100 + _deskWafers.Count}-D",
+                    PrimaryCargoItem = "Hull Plating",
+                    SecondaryNote = "SPENT CERAMIC WAFER",
+                    X = tx,
+                    Y = ty,
+                    EjectTargetX = tx,
+                    EjectTargetY = ty,
+                    IsEjecting = false
+                });
+            }
+        }
+        AddSystemLogLine("[DEV] WAFER HOPPER FORCED EMPTY (0/3 BLANKS).", CommsTextTone.AlertCrimson);
+    }
+
+    private void UpdateWaferWriterAndWafers(float deltaTime, float animDt)
+    {
+        if (_waferWriteHeadFlashTimer > 0f)
+        {
+            _waferWriteHeadFlashTimer = Math.Max(0f, _waferWriteHeadFlashTimer - deltaTime);
+        }
+
+        if (_waferWipeFlashTimer > 0f)
+        {
+            _waferWipeFlashTimer = Math.Max(0f, _waferWipeFlashTimer - deltaTime);
+        }
+
+        if (_pendingSequentialWipeFlashes > 0)
+        {
+            _sequentialWipeStepTimer -= deltaTime;
+            if (_sequentialWipeStepTimer <= 0f)
+            {
+                _pendingSequentialWipeFlashes--;
+                _sequentialWipeStepTimer = WaferWipeSequentialStepSeconds;
+                _waferWipeFlashTimer = 0.20f;
+                AudioHooks.Play("wafer_wipe");
+            }
+        }
+
+        if (_isTransmittingMissingWafer && _activeShip != null)
+        {
+            _missingWaferTransmitElapsed += animDt;
+            if (_missingWaferTransmitElapsed >= MissingWaferTransmitDurationSeconds)
+            {
+                _isTransmittingMissingWafer = false;
+                _missingWaferTransmitElapsed = 0f;
+                _activeShip.GroundTruth.CargoManifestTransmitted = true;
+                QueueOrEjectCargoManifestWafer(_activeShip);
+                if (_stokerMassAnchoredForShip && IsStokerOperational)
+                {
+                    RefreshStokerAnchorPreviewForActiveShip();
+                }
+            }
+        }
+
+        if (_isReTransmittingWipedWafers && _activeShip != null)
+        {
+            _reTransmitWipedWaferElapsed += animDt;
+            if (_reTransmitWipedWaferElapsed >= MissingWaferTransmitDurationSeconds)
+            {
+                _isReTransmittingWipedWafers = false;
+                _reTransmitWipedWaferElapsed = 0f;
+                ReDemuxPrematurelyWipedWafers(_activeShip);
+            }
+        }
+
+        for (int i = 0; i < _deskWafers.Count; i++)
+        {
+            CertWaferCard w = _deskWafers[i];
+            if (!w.IsEjecting)
+                continue;
+
+            w.EjectElapsed += animDt;
+            float t = Math.Clamp(w.EjectElapsed / WaferEjectDurationSeconds, 0f, 1f);
+            float eased = 1f - MathF.Pow(1f - t, 3f);
+            w.X = (int)MathF.Round(w.EjectStartX + (w.EjectTargetX - w.EjectStartX) * eased);
+            w.Y = (int)MathF.Round(w.EjectStartY + (w.EjectTargetY - w.EjectStartY) * eased);
+            if (t >= 1f)
+            {
+                w.X = w.EjectTargetX;
+                w.Y = w.EjectTargetY;
+                w.IsEjecting = false;
+            }
+        }
+    }
+
+    private bool TryHandleDeskWafersMousePress(VirtualMouseState mouse)
+    {
+        if (!IsWaferWriterOperational || _deskWafers.Count == 0)
+            return false;
+
+        for (int i = _deskWafers.Count - 1; i >= 0; i--)
+        {
+            CertWaferCard clicked = _deskWafers[i];
+            if (!mouse.IsHit(clicked.X, clicked.Y, WaferCardW, WaferCardH))
+                continue;
+
+            clicked.IsEjecting = false;
+            _deskWafers.RemoveAt(i);
+            _deskWafers.Add(clicked);
+
+            _draggedWaferIds.Clear();
+            _draggedWaferIds.Add(clicked.InstanceId);
+            _waferDragOffsetX = mouse.X - clicked.X;
+            _waferDragOffsetY = mouse.Y - clicked.Y;
+            _waferScoopGestureActive = _config.WaferScoopMode switch
+            {
+                WaferScoopMode.PostVerdictAutoScoop => IsEncounterPostVerdictForWaferScoop,
+                WaferScoopMode.CenterSwipeScoop => true,
+                WaferScoopMode.ModifierScoop => Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.RightShift),
+                _ => false
+            };
+
+            AudioHooks.Play("terminal_key_click");
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryHandleWaferRightMouseInput(VirtualMouseState mouse)
+    {
+        if (!IsWaferWriterOperational || _deskWafers.Count == 0)
+            return false;
+
+        if (!Raylib.IsMouseButtonPressed(MouseButton.Right))
+            return false;
+
+        if (_config.WaferScoopMode == WaferScoopMode.ModifierScoop)
+        {
+            for (int i = _deskWafers.Count - 1; i >= 0; i--)
+            {
+                CertWaferCard clicked = _deskWafers[i];
+                if (!mouse.IsHit(clicked.X, clicked.Y, WaferCardW, WaferCardH))
+                    continue;
+
+                clicked.IsEjecting = false;
+                _deskWafers.RemoveAt(i);
+                _deskWafers.Add(clicked);
+                _draggedWaferIds.Clear();
+                _draggedWaferIds.Add(clicked.InstanceId);
+                _waferDragOffsetX = mouse.X - clicked.X;
+                _waferDragOffsetY = mouse.Y - clicked.Y;
+                _waferScoopGestureActive = true;
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+        }
+        else if (_config.WaferScoopMode == WaferScoopMode.CenterSwipeScoop && _deskWafers.Count >= 2)
+        {
+            // Right-clicking overlapping wafers on desk fans them neatly into left-fan slots
+            for (int i = _deskWafers.Count - 1; i >= 0; i--)
+            {
+                CertWaferCard w = _deskWafers[i];
+                if (mouse.IsHit(w.X, w.Y, WaferCardW, WaferCardH))
+                {
+                    for (int k = 0; k < _deskWafers.Count; k++)
+                    {
+                        var (fx, fy) = ComputeWaferLeftFanTarget(k);
+                        _deskWafers[k].X = fx;
+                        _deskWafers[k].Y = fy;
+                        _deskWafers[k].IsEjecting = false;
+                    }
+                    AudioHooks.Play("terminal_key_click");
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void UpdateActiveWaferDrag(VirtualMouseState mouse)
+    {
+        if (_draggedWaferIds.Count == 0)
+            return;
+
+        CertWaferCard? lead = _deskWafers.FirstOrDefault(w => w.InstanceId == _draggedWaferIds[0]);
+        if (lead == null)
+        {
+            _draggedWaferIds.Clear();
+            return;
+        }
+
+        bool stillHolding = mouse.LeftDown ||
+                            (_config.WaferScoopMode == WaferScoopMode.ModifierScoop &&
+                             _waferScoopGestureActive &&
+                             Raylib.IsMouseButtonDown(MouseButton.Right));
+
+        // CenterSwipeScoop: right-click while holding a multi-wafer stack drops the top/last scooped wafer onto desk
+        if (stillHolding &&
+            _config.WaferScoopMode == WaferScoopMode.CenterSwipeScoop &&
+            _draggedWaferIds.Count > 1 &&
+            Raylib.IsMouseButtonPressed(MouseButton.Right))
+        {
+            int droppedId = _draggedWaferIds[^1];
+            _draggedWaferIds.RemoveAt(_draggedWaferIds.Count - 1);
+            CertWaferCard? dropped = _deskWafers.FirstOrDefault(w => w.InstanceId == droppedId);
+            if (dropped != null)
+            {
+                DeskRect b = _layout.FreeDragBounds;
+                dropped.X = Math.Clamp(lead.X - 20, b.X, b.Right - WaferCardW);
+                dropped.Y = Math.Clamp(lead.Y + 12, _layout.FreeDeskRestMinY, b.Bottom - WaferCardH);
+            }
+            AudioHooks.Play("terminal_key_click");
+        }
+
+        if (stillHolding)
+        {
+            // Refresh scoop eligibility dynamically (e.g. Shift held mid-drag in ModifierScoop, or verdict reached in PostVerdictAutoScoop)
+            bool canScoopNow = _config.WaferScoopMode switch
+            {
+                WaferScoopMode.PostVerdictAutoScoop => IsEncounterPostVerdictForWaferScoop,
+                WaferScoopMode.CenterSwipeScoop => true,
+                WaferScoopMode.ModifierScoop => _waferScoopGestureActive || Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.RightShift),
+                _ => false
+            };
+
+            DeskRect bounds = _layout.FreeDragBounds;
+            int maxDragX = Math.Max(bounds.Right - WaferCardW, _layout.WaferFeedSlot.Right - WaferCardW / 2);
+            lead.X = Math.Clamp(mouse.X - _waferDragOffsetX, bounds.X, maxDragX);
+            lead.Y = Math.Clamp(mouse.Y - _waferDragOffsetY, _layout.FreeDeskRestMinY, bounds.Bottom - WaferCardH + 24);
+
+            if (canScoopNow)
+            {
+                TryScoopCrossedWafersIntoStack(lead, mouse);
+            }
+
+            // Position scooped followers in a crisp staggered card stack (+8px, +8px per card)
+            for (int s = 1; s < _draggedWaferIds.Count; s++)
+            {
+                CertWaferCard? follower = _deskWafers.FirstOrDefault(w => w.InstanceId == _draggedWaferIds[s]);
+                if (follower != null)
+                {
+                    follower.IsEjecting = false;
+                    follower.X = lead.X + s * 8;
+                    follower.Y = lead.Y + s * 8;
+                }
+            }
+            return;
+        }
+
+        // Released drag: check if dropped into the top-edge Wafer Wipe Feed Slot!
+        if (IsWaferOverTopWipeFeedSlot(mouse, lead))
+        {
+            WipeWafersInFeedSlot(_draggedWaferIds);
+            _draggedWaferIds.Clear();
+            _waferScoopGestureActive = false;
+            return;
+        }
+
+        DeskRect restBounds = _layout.FreeDragBounds;
+        for (int s = 0; s < _draggedWaferIds.Count; s++)
+        {
+            CertWaferCard? card = _deskWafers.FirstOrDefault(w => w.InstanceId == _draggedWaferIds[s]);
+            if (card != null)
+            {
+                card.X = Math.Clamp(lead.X + s * 10, restBounds.X, restBounds.Right - WaferCardW);
+                card.Y = Math.Clamp(lead.Y + s * 8, _layout.FreeDeskRestMinY, restBounds.Bottom - WaferCardH);
+            }
+        }
+
+        _draggedWaferIds.Clear();
+        _waferScoopGestureActive = false;
+    }
+
+    internal void TryScoopCrossedWafersIntoStack(CertWaferCard lead, VirtualMouseState mouse)
+    {
+        for (int i = 0; i < _deskWafers.Count; i++)
+        {
+            CertWaferCard other = _deskWafers[i];
+            if (_draggedWaferIds.Contains(other.InstanceId))
+                continue;
+
+            bool hit;
+            if (_config.WaferScoopMode == WaferScoopMode.CenterSwipeScoop)
+            {
+                int cx = other.X + WaferCardW / 2;
+                int cy = other.Y + WaferCardH / 2;
+                hit = mouse.IsHit(cx - 28, cy - 28, 56, 56) ||
+                      (Math.Abs((lead.X + WaferCardW / 2) - cx) <= 28 && Math.Abs((lead.Y + WaferCardH / 2) - cy) <= 28);
+            }
+            else
+            {
+                hit = lead.X < other.X + WaferCardW - 12 &&
+                      lead.X + WaferCardW > other.X + 12 &&
+                      lead.Y < other.Y + WaferCardH - 12 &&
+                      lead.Y + WaferCardH > other.Y + 12;
+            }
+
+            if (hit)
+            {
+                other.IsEjecting = false;
+                _draggedWaferIds.Add(other.InstanceId);
+                AudioHooks.Play("terminal_key_click");
+            }
+        }
+    }
+
+    private bool IsWaferOverTopWipeFeedSlot(VirtualMouseState mouse, CertWaferCard lead)
+    {
+        DeskRect slot = _layout.WaferFeedSlot;
+        if (mouse.IsHit(slot.X - 10, slot.Y - 18, slot.W + 20, slot.H + 34))
+            return true;
+
+        return lead.X + WaferCardW > slot.X + 8 &&
+               lead.X < slot.Right - 8 &&
+               lead.Y + WaferCardH >= slot.Y - 6 &&
+               lead.Y <= slot.Bottom + 24;
+    }
+
+    internal int WipeWafersInFeedSlot(IReadOnlyList<int> waferIdsToWipe)
+    {
+        int wiped = 0;
+        List<CertWaferCard> wipedCards = [];
+        for (int i = 0; i < waferIdsToWipe.Count; i++)
+        {
+            int id = waferIdsToWipe[i];
+            int idx = _deskWafers.FindIndex(w => w.InstanceId == id);
+            if (idx >= 0)
+            {
+                wipedCards.Add(_deskWafers[idx]);
+                _deskWafers.RemoveAt(idx);
+                wiped++;
+            }
+        }
+
+        if (wiped <= 0)
+            return 0;
+
+        // Track prematurely wiped Cert-Wafer types that had already demuxed for the active docked ship
+        // (never tracking certificates that were never transmitted/demuxed, and never tracking post-detain cleanup).
+        if (_activeShip != null &&
+            !_detainLeverPulled &&
+            _phase is EncounterPhase.InspectingSlateAndShip
+                or EncounterPhase.UploadingClearance
+                or EncounterPhase.AwaitingClearanceReturnToTopPort)
+        {
+            for (int i = 0; i < wipedCards.Count; i++)
+            {
+                CertWaferCard wipedCard = wipedCards[i];
+                if (!string.Equals(wipedCard.ShipRegistration, _activeShip.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!_demuxedWafersForActiveShip.Contains(wipedCard.WaferType))
+                    continue;
+
+                bool anotherStillOnDesk = _deskWafers.Any(w =>
+                    w.WaferType == wipedCard.WaferType &&
+                    string.Equals(w.ShipRegistration, _activeShip.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase));
+                if (!anotherStillOnDesk)
+                {
+                    _prematurelyWipedWafersForActiveShip.Add(wipedCard.WaferType);
+                }
+            }
+        }
+
+        _waferHopperCount = Math.Min(MaxWaferHopperCount, _waferHopperCount + wiped);
+        _waferWipeFlashTimer = 0.24f;
+        AudioHooks.Play("wafer_wipe");
+
+        if (wiped > 1)
+        {
+            _pendingSequentialWipeFlashes += (wiped - 1);
+            _sequentialWipeStepTimer = WaferWipeSequentialStepSeconds;
+        }
+
+        AddSystemLogLine(
+            wiped == 1
+                ? $"[WAFER WRITER] CERT-WAFER WIPED BLANK ({_waferHopperCount}/{MaxWaferHopperCount} IN HOPPER)."
+                : $"[WAFER WRITER] WIPED {wiped} STACKED CERT-WAFERS ({_waferHopperCount}/{MaxWaferHopperCount} IN HOPPER).",
+            CommsTextTone.ClearanceTeal);
+
+        // If a pending Cargo Manifest print was held due to an empty hopper, release and eject it immediately!
+        if (_heldPendingWafer != null && _waferHopperCount > 0)
+        {
+            CertWaferCard held = _heldPendingWafer;
+            _heldPendingWafer = null;
+            _emptyHopperReminderLoggedForHeldWafer = false;
+            EjectWaferFromHopper(held);
+        }
+
+        return wiped;
+    }
+
+    private void DrawDeskCertWafers(VirtualMouseState mouse)
+    {
+        for (int i = 0; i < _deskWafers.Count; i++)
+        {
+            CertWaferCard card = _deskWafers[i];
+            bool isTopmost = i == _deskWafers.Count - 1;
+            DrawSingleCertWaferCard(mouse, card, isTopmost);
+        }
+    }
+
+    private void DrawSingleCertWaferCard(VirtualMouseState mouse, CertWaferCard card, bool isTopmost)
+    {
+        int x = card.X;
+        int y = card.Y;
+        const int w = WaferCardW;
+        const int h = WaferCardH;
+
+        // Air-gapped matte ceramic-polymer Cargo Manifest Cert-Wafer (muted brown & charcoal dull-grey, zero glow/backlight!)
+        Color ceramicBody = new(56, 59, 64, 255);       // Dull charcoal-grey ceramic polymer
+        Color ceramicBevel = new(78, 82, 88, 255);
+        Color cargoHeaderBand = new(94, 71, 54, 255);   // Muted brown Cargo Manifest band
+        Color matteEInkPaper = new(198, 191, 176, 255); // Unlit ceramic e-ink plate
+        Color eInkRule = new(156, 148, 134, 255);
+        Color inkDark = new(28, 26, 24, 255);
+        Color inkSubtle = new(82, 66, 54, 255);
+
+        Raylib.DrawRectangle(x + 2, y + 2, w, h, new Color(6, 8, 12, 165));
+        Raylib.DrawRectangle(x, y, w, h, ceramicBody);
+        Raylib.DrawRectangleLines(x, y, w, h, isTopmost ? new Color(156, 134, 112, 255) : Palette.OutlineVoid);
+        Raylib.DrawLine(x + 1, y + 1, x + w - 2, y + 1, ceramicBevel);
+
+        // Top-right corner orientation notch (air-gapped zero-pins ceramic token)
+        Raylib.DrawRectangle(x + w - 7, y, 7, 7, Palette.OutlineVoid);
+
+        // Muted brown Cargo Manifest header strip
+        Raylib.DrawRectangle(x + 4, y + 4, w - 12, 18, cargoHeaderBand);
+        UiText.Draw(
+            UiText.TruncateToWidth("CARGO MANIFEST", 10, w - 18, denseRow: true),
+            x + 8,
+            y + 7,
+            10,
+            new Color(232, 224, 210, 255),
+            denseRow: true);
+
+        // Unlit matte e-ink recess
+        int ex = x + 6;
+        int ey = y + 26;
+        int ew = w - 12;
+        int eh = h - 46;
+        Raylib.DrawRectangle(ex, ey, ew, eh, matteEInkPaper);
+        Raylib.DrawRectangleLines(ex, ey, ew, eh, new Color(40, 42, 46, 255));
+
+        UiText.Draw(
+            UiText.TruncateToWidth($"VESSEL: {card.ShipRegistration}", 10, ew - 8, denseRow: true),
+            ex + 4,
+            ey + 5,
+            10,
+            inkSubtle,
+            denseRow: true);
+        Raylib.DrawLine(ex + 4, ey + 19, ex + ew - 5, ey + 19, eInkRule);
+
+        UiText.Draw("DECLARED HOLD:", ex + 4, ey + 24, 10, inkSubtle, denseRow: true);
+
+        List<string> itemLines = WrapTextByPixelWidth(card.PrimaryCargoItem.ToUpperInvariant(), 10, ew - 10, maxLines: 2, denseRow: true);
+        for (int l = 0; l < itemLines.Count; l++)
+        {
+            UiText.Draw(itemLines[l], ex + 5, ey + 38 + l * 13, 10, inkDark, denseRow: true);
+        }
+
+        Raylib.DrawLine(ex + 4, ey + 68, ex + ew - 5, ey + 68, eInkRule);
+        UiText.Draw(
+            UiText.TruncateToWidth(card.SecondaryNote, 10, ew - 8, denseRow: true),
+            ex + 4,
+            ey + 74,
+            10,
+            inkSubtle,
+            denseRow: true);
+        UiText.Draw(
+            UiText.TruncateToWidth("STAGE-2 E-INK WAFER", 10, ew - 8, denseRow: true),
+            ex + 4,
+            ey + 90,
+            10,
+            inkSubtle,
+            denseRow: true);
+
+        string foot = _draggedWaferIds.Count > 1 && _draggedWaferIds[0] == card.InstanceId
+            ? $"STACK ({_draggedWaferIds.Count}) -> TOP WIPE"
+            : "WIPE IN TOP SLOT";
+        UiText.Draw(
+            UiText.TruncateToWidth(foot, 10, w - 12, denseRow: true),
+            x + 6,
+            y + h - 16,
+            10,
+            new Color(172, 166, 154, 255),
+            denseRow: true);
+
+        // Matte ceramic-polymer e-ink has zero backlight: attenuate cleanly with Booth 04 brownout lighting!
+        if (IsBrownoutAttenuatingPassiveSurfaces)
+        {
+            ApplyBrownoutPassiveSurfaceLighting(x, y, w, h);
+        }
+
+        bool isActiveShipWafer = _activeShip != null &&
+                                 string.Equals(card.ShipRegistration, _activeShip.Slate.RegistrationCode, StringComparison.OrdinalIgnoreCase);
+        if (isActiveShipWafer && IsTargetFaultHighlighted(ReviewTarget.CargoManifestWafer))
+        {
+            Color col = GetFaultPulseColor();
+            Raylib.DrawRectangleLines(x, y, w, h, col);
+            Raylib.DrawRectangleLines(x - 1, y - 1, w + 2, h + 2, col);
+        }
+        else if (isActiveShipWafer &&
+                 _protocolReviewModeActive &&
+                 IsShipInspectableForReview &&
+                 IsReviewTargetUnlocked(ReviewTarget.CargoManifestWafer))
+        {
+            DrawReviewHotspotOutline(mouse, x, y, w, h, _reviewFirstSelection == ReviewTarget.CargoManifestWafer);
+        }
+    }
+
+    private static string GetAuthorizedSpeciesRuleLine(string prefix) =>
+        prefix.ToUpperInvariant() switch
+        {
+            "KDF-" => "KORDANI ONLY",
+            "BMC-" => "BRENGOP ONLY",
+            "KRW-" => "KRUSHVAK ONLY",
+            "ORN-" => "ORUN ONLY",
+            "TLV-" => "TOLVAK ONLY",
+            "PRJ-" => "PRUNJUN ONLY",
+            "HBR-" => "HUN-BORIAN ONLY",
+            "GUV-" => "GU MEMBERS (HUM / HEL / KLA / THN / VEL)",
+            _ => "MULTI-SPECIES PERMITTED"
+        };
 
     private static void DrawManualTabButton(
         VirtualMouseState mouse,
@@ -1449,7 +2508,9 @@ public sealed partial class DeskScreen
 
         Raylib.DrawRectangle(x, y, w, h, bg);
         Raylib.DrawRectangleLines(x, y, w, h, border);
-        Raylib.DrawText(label, x + 6, y + 4, 10, fg);
+        string clipped = UiText.TruncateToWidth(label, 10, Math.Max(8, w - 8), denseRow: true);
+        int tw = UiText.MeasureWidth(clipped, 10, denseRow: true);
+        UiText.Draw(clipped, x + Math.Max(4, (w - tw) / 2), y + 4, 10, fg, denseRow: true);
     }
 
     // =========================================================================
@@ -1648,7 +2709,7 @@ public sealed partial class DeskScreen
         if (w >= 64)
         {
             string gripLeft = $"WARP: {_warpStripShipReg}";
-            Raylib.DrawText(TruncateByPixelWidth(gripLeft, 10, Math.Max(20, w - 76)), x + 6, gripY + 1, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(TruncateByPixelWidth(gripLeft, 10, Math.Max(20, w - 76)), x + 6, gripY + 1, 10, Palette.CrtAmberPrimary);
         }
         if (w >= 156)
         {
@@ -1658,8 +2719,8 @@ public sealed partial class DeskScreen
             Color rightCol = !isTornOff
                 ? (printProgress >= 1.0f ? Palette.ClearanceTeal : Palette.CrtAmberDimmed)
                 : (hasSubstantialOverlap ? Palette.CrtAmberPrimary : Palette.CrtAmberDimmed);
-            int rw = Raylib.MeasureText(gripRight, 10);
-            Raylib.DrawText(gripRight, x + w - rw - 5, gripY + 1, 10, rightCol);
+            int rw = UiText.MeasureWidth(gripRight, 10);
+            UiText.Draw(gripRight, x + w - rw - 5, gripY + 1, 10, rightCol);
         }
 
         // Outer Frame Border (shows subtle optical rim feedback when aligned/mismatching over checker)
@@ -1676,6 +2737,11 @@ public sealed partial class DeskScreen
         for (int ty = y + 3; ty < y + h - 3; ty += 6)
         {
             Raylib.DrawLine(x + 1, ty, x + 1, ty + 3, Palette.CrtAmberDimmed);
+        }
+
+        if (IsBrownoutAttenuatingPassiveSurfaces && !hasBacklightOverlap)
+        {
+            ApplyBrownoutPassiveSurfaceLighting(x, y, w, h);
         }
     }
 }

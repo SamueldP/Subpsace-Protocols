@@ -19,8 +19,10 @@ public sealed class DebugOverlay
 {
     private const int PanelX = 16;
     private const int PanelY = 40;
-    private const int PanelW = 468;
-    private const int PanelH = 522;
+    private const int PanelW = 656;
+    private const int PanelH = 674;
+
+    private int MaxJumpDay => Math.Max(Constants.MaxCampaignDay, _config.CampaignFinalDay);
 
     private readonly ScreenManager _screenManager;
     private readonly GameState _gameState;
@@ -54,7 +56,7 @@ public sealed class DebugOverlay
     {
         int shiftSec = _config.GetShiftDurationSeconds(_gameState.Day);
         string shiftTag = $"{shiftSec}s/{shiftSec / 60}m{shiftSec % 60:D2}s";
-        return $"VM:({mouse.X},{mouse.Y}) | D{_gameState.Day:D2} ({shiftTag}) | {_gameState.PactScrip} SC | W:{_gameState.ClericalWarningsThisShift}/2 | S:{_gameState.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}";
+        return $"VM:{mouse.X},{mouse.Y} D{_gameState.Day:D2}({shiftTag}) {_gameState.PactScrip}SC W:{_gameState.ClericalWarningsThisShift}/2 S:{_gameState.SecurityStrikes}/{_config.MaxStrikesBeforeAudit}";
     }
 
     public bool HandleInput(VirtualMouseState mouse)
@@ -192,7 +194,7 @@ public sealed class DebugOverlay
                 return true;
             }
 
-            // Row 6 (y = PanelY + 214): Day Jump 1..25 ([- DAY] [DAY >] [LOAD DAY XX] [D1] [D2] [D3])
+            // Row 6 (y = PanelY + 214): Day Jump 1..28 ([- DAY] [DAY >] [LOAD DAY XX] [D1] [D3] [D4])
             if (mouse.IsHit(PanelX + 8, PanelY + 214, 58, 20))
             {
                 _selectedJumpDay = Math.Max(1, _selectedJumpDay - 1);
@@ -201,7 +203,7 @@ public sealed class DebugOverlay
             }
             if (mouse.IsHit(PanelX + 70, PanelY + 214, 58, 20))
             {
-                _selectedJumpDay = Math.Min(Constants.MaxCampaignDay, _selectedJumpDay + 1);
+                _selectedJumpDay = Math.Min(MaxJumpDay, _selectedJumpDay + 1);
                 AudioHooks.Play("terminal_key_click");
                 return true;
             }
@@ -218,14 +220,14 @@ public sealed class DebugOverlay
             }
             if (mouse.IsHit(PanelX + 346, PanelY + 214, 54, 20))
             {
-                _selectedJumpDay = 2;
-                JumpToDay(2);
+                _selectedJumpDay = 3;
+                JumpToDay(3);
                 return true;
             }
             if (mouse.IsHit(PanelX + 404, PanelY + 214, 56, 20))
             {
-                _selectedJumpDay = 3;
-                JumpToDay(3);
+                _selectedJumpDay = _config.DayUnlockWarpScanner;
+                JumpToDay(_selectedJumpDay);
                 return true;
             }
 
@@ -424,11 +426,14 @@ public sealed class DebugOverlay
             if (mouse.IsHit(PanelX + 236, PanelY + 392, 224, 20))
             {
                 EnsureSandboxedIfLeavingMainMenu();
+                Simulation.ShipGenerator.EnsureDay6IntroTargetAssigned(_gameState);
                 _gameState.TerminalHackedUnlocked = false;
                 _gameState.Day6UnsolicitedDropDelivered = false;
                 _gameState.Emails.RemoveAll(e =>
                     e.IsTerminalHackEmail ||
-                    e.EmailId.Equals(Simulation.EconomyEngine.Day6HackEmailId, StringComparison.OrdinalIgnoreCase));
+                    e.EmailId.Equals(Simulation.EconomyEngine.Day6HackEmailId, StringComparison.OrdinalIgnoreCase) ||
+                    e.EmailId.Equals("morning_roster_day_06", StringComparison.OrdinalIgnoreCase));
+                _gameState.TodayMorningRoster.Clear();
                 _gameState.ServiceChuteItems.RemoveAll(i =>
                     i.ItemId.StartsWith("d6_chute_blank", StringComparison.OrdinalIgnoreCase));
                 _gameState.AdvanceToDay(6);
@@ -439,7 +444,7 @@ public sealed class DebugOverlay
                 return true;
             }
 
-            // Row 14 (y = PanelY + 416): Live Booth 04 Layout Switcher (A / B1 / B2) & Portrait (B) 3x / 2x Toggle
+            // Row 14 (y = PanelY + 416): Live Booth 04 Layout Switcher (A / B1 / B2), Portrait (B) 3x/2x & Ships V1/V2 Toggle
             if (mouse.IsHit(PanelX + 8, PanelY + 416, 70, 20))
             {
                 DevDebugState.SetDeskUpperLayoutMode(DeskUpperLayoutMode.OptionA_Classic, _config);
@@ -458,10 +463,18 @@ public sealed class DebugOverlay
                 AudioHooks.Play("terminal_key_tab");
                 return true;
             }
-            if (mouse.IsHit(PanelX + 236, PanelY + 416, 224, 20))
+            if (mouse.IsHit(PanelX + 236, PanelY + 416, 114, 20))
             {
                 _devDebug.TogglePortraitScaleB();
                 AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 354, PanelY + 416, 106, 20))
+            {
+                _config.ShipArtVersion = _config.ShipArtVersion == ShipArtVersion.V1_Classic
+                    ? ShipArtVersion.V2_HiBit
+                    : ShipArtVersion.V1_Classic;
+                AudioHooks.Play("terminal_key_tab");
                 return true;
             }
 
@@ -484,6 +497,215 @@ public sealed class DebugOverlay
             if (mouse.IsHit(PanelX + 432, PanelY + 440, 28, 20))
             {
                 _config.IndependentPassageFundTarget = Math.Min(5000, _config.IndependentPassageFundTarget + 100);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+
+            // Row 16 (y = PanelY + 464): Invalid Ship Rate Tuners (D1-5 & D6+)
+            if (mouse.IsHit(PanelX + 8, PanelY + 464, 28, 20))
+            {
+                _config.InvalidShipRateEarly = Math.Clamp(_config.InvalidShipRateEarly - 0.05f, 0.0f, 1.0f);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 202, PanelY + 464, 28, 20))
+            {
+                _config.InvalidShipRateEarly = Math.Clamp(_config.InvalidShipRateEarly + 0.05f, 0.0f, 1.0f);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 236, PanelY + 464, 28, 20))
+            {
+                _config.InvalidShipRateMid = Math.Clamp(_config.InvalidShipRateMid - 0.05f, 0.0f, 1.0f);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 432, PanelY + 464, 28, 20))
+            {
+                _config.InvalidShipRateMid = Math.Clamp(_config.InvalidShipRateMid + 0.05f, 0.0f, 1.0f);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+
+            // Row 17 (y = PanelY + 488): Live Font Preset Cycler (<, center readout, >)
+            if (mouse.IsHit(PanelX + 8, PanelY + 488, 28, 20))
+            {
+                FontManager.CyclePreset(-1);
+                _config.UiFontPreset = FontManager.ActivePresetName;
+                _config.TryPersistUiFontPreset(_gameState.SuppressDiskPersistence);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 38, PanelY + 488, 392, 20) ||
+                mouse.IsHit(PanelX + 432, PanelY + 488, 28, 20))
+            {
+                FontManager.CyclePreset(1);
+                _config.UiFontPreset = FontManager.ActivePresetName;
+                _config.TryPersistUiFontPreset(_gameState.SuppressDiskPersistence);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+
+            // Row 18 (y = PanelY + 512): Live Font Size Offset (-2 .. +3) & Intro Skip toggle
+            if (mouse.IsHit(PanelX + 8, PanelY + 512, 28, 20))
+            {
+                _config.UiFontSizeOffset = FontManager.StepFontSizeOffset(-1);
+                _config.TryPersistUiFontSizeOffset(_gameState.SuppressDiskPersistence);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 38, PanelY + 512, 260, 20))
+            {
+                int nextOffset = FontManager.FontSizeOffset >= FontManager.MaxFontSizeOffset
+                    ? FontManager.MinFontSizeOffset
+                    : FontManager.FontSizeOffset + 1;
+                _config.UiFontSizeOffset = FontManager.SetFontSizeOffset(nextOffset);
+                _config.TryPersistUiFontSizeOffset(_gameState.SuppressDiskPersistence);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 300, PanelY + 512, 28, 20))
+            {
+                _config.UiFontSizeOffset = FontManager.StepFontSizeOffset(1);
+                _config.TryPersistUiFontSizeOffset(_gameState.SuppressDiskPersistence);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 334, PanelY + 512, 126, 20))
+            {
+                _devDebug.SkipIntroSequence = !_devDebug.SkipIntroSequence;
+                if (_devDebug.SkipIntroSequence && _screenManager.CurrentScreenId == ScreenId.Intro)
+                {
+                    _screenManager.SwitchTo(ScreenId.Quarters);
+                }
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+
+            // Row 19 (y = PanelY + 536): WaferScoopMode Cycler, Force Empty Wafer Hopper, Spawn Test Mission Slate / Chute Drop
+            if (mouse.IsHit(PanelX + 8, PanelY + 536, 152, 20))
+            {
+                DevDebugState.CycleWaferScoopMode(_config);
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 164, PanelY + 536, 136, 20))
+            {
+                _devDebug.PendingForceEmptyWaferHopper = true;
+                AudioHooks.Play("terminal_key_confirm");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 304, PanelY + 536, 156, 20))
+            {
+                SpawnTestMissionSlateAndChuteDrop();
+                AudioHooks.Play("terminal_key_confirm");
+                return true;
+            }
+
+            // Row 20 (y = PanelY + 578): StokerSafeLoadCap (65%) & StokerUncalibratedShock (33%) live steppers
+            if (mouse.IsHit(PanelX + 8, PanelY + 578, 28, 20))
+            {
+                _config.StokerSafeLoadCap = Math.Clamp(_config.StokerSafeLoadCap - 5.0f, 20.0f, 95.0f);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 202, PanelY + 578, 28, 20))
+            {
+                _config.StokerSafeLoadCap = Math.Clamp(_config.StokerSafeLoadCap + 5.0f, 20.0f, 95.0f);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 236, PanelY + 578, 28, 20))
+            {
+                _config.StokerUncalibratedShock = Math.Clamp(_config.StokerUncalibratedShock - 1.0f, 5.0f, 100.0f);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 432, PanelY + 578, 28, 20))
+            {
+                _config.StokerUncalibratedShock = Math.Clamp(_config.StokerUncalibratedShock + 1.0f, 5.0f, 100.0f);
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+
+            // Row 21 (y = PanelY + 600): RESET STRAIN (15%) & FORCE STOKER OVL
+            if (mouse.IsHit(PanelX + 8, PanelY + 600, 222, 20))
+            {
+                _devDebug.PendingResetStokerStrain = true;
+                _devDebug.LiveStokerSafeLoad = _config.StokerIdleBaseline;
+                _devDebug.LiveStokerShock = 0f;
+                _devDebug.LiveStokerPreviewShock = 0f;
+                _gameState.StokerOverloadedToday = false;
+                _gameState.PendingStokerBerthSearch = false;
+                _gameState.NextDayPowerBrownout = false;
+                _gameState.LastShiftStokerOverload = false;
+                _gameState.SaveToDisk();
+                AudioHooks.Play("terminal_key_confirm");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 236, PanelY + 600, 224, 20))
+            {
+                _devDebug.PendingForceStokerOverload = true;
+                _devDebug.LiveStokerShock = Math.Max(_devDebug.LiveStokerShock, 105.0f - _devDebug.LiveStokerSafeLoad);
+                _gameState.StokerOverloadedToday = true;
+                _gameState.PendingStokerBerthSearch = true;
+                _gameState.NextDayPowerBrownout = true;
+                _gameState.LastShiftStokerOverload = true;
+                _gameState.SaveToDisk();
+                AudioHooks.Play("detain_alarm");
+                return true;
+            }
+
+            // Row 22 (y = PanelY + 622): Live Brownout Lighting test triggers (AUTO / FORCE ON / FORCE DIM / FORCE OFF)
+            if (mouse.IsHit(PanelX + 8, PanelY + 622, 98, 20))
+            {
+                _devDebug.BrownoutForceMode = DebugBrownoutForceMode.Auto;
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 110, PanelY + 622, 112, 20))
+            {
+                _devDebug.BrownoutForceMode = _devDebug.BrownoutForceMode == DebugBrownoutForceMode.ForceOn
+                    ? DebugBrownoutForceMode.Auto
+                    : DebugBrownoutForceMode.ForceOn;
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 226, PanelY + 622, 116, 20))
+            {
+                _devDebug.BrownoutForceMode = _devDebug.BrownoutForceMode == DebugBrownoutForceMode.ForceDim
+                    ? DebugBrownoutForceMode.Auto
+                    : DebugBrownoutForceMode.ForceDim;
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 346, PanelY + 622, 114, 20))
+            {
+                _devDebug.BrownoutForceMode = _devDebug.BrownoutForceMode == DebugBrownoutForceMode.ForceOff
+                    ? DebugBrownoutForceMode.Auto
+                    : DebugBrownoutForceMode.ForceOff;
+                AudioHooks.Play("terminal_key_tab");
+                return true;
+            }
+
+            // Row 23 (y = PanelY + 644): Live EnableStokerDial toggle & POCKET CAP (1 / 2 / 3) stepper
+            if (mouse.IsHit(PanelX + 8, PanelY + 644, 222, 20))
+            {
+                _config.EnableStokerDial = !_config.EnableStokerDial;
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 236, PanelY + 644, 28, 20))
+            {
+                _gameState.PocketCapacity = Math.Clamp(_gameState.PocketCapacity - 1, 1, 3);
+                _gameState.SaveToDisk();
+                AudioHooks.Play("terminal_key_click");
+                return true;
+            }
+            if (mouse.IsHit(PanelX + 432, PanelY + 644, 28, 20))
+            {
+                _gameState.PocketCapacity = Math.Clamp(_gameState.PocketCapacity + 1, 1, 3);
+                _gameState.SaveToDisk();
                 AudioHooks.Play("terminal_key_click");
                 return true;
             }
@@ -551,7 +773,7 @@ public sealed class DebugOverlay
     private void JumpToDay(int targetDay)
     {
         EnsureSandboxedIfLeavingMainMenu();
-        targetDay = Math.Clamp(targetDay, 1, Constants.MaxCampaignDay);
+        targetDay = Math.Clamp(targetDay, 1, MaxJumpDay);
         if (targetDay < 6)
         {
             _gameState.TerminalHackedUnlocked = false;
@@ -562,17 +784,122 @@ public sealed class DebugOverlay
         }
         if (targetDay <= 2)
         {
-            _gameState.Day3KordaniOvernightRepApplied = false;
-            _gameState.Day3PreShiftHailCompleted = false;
+            _gameState.Day2NixaHailCompleted = false;
         }
-        else if (targetDay == 3)
+        if (targetDay < _config.DayUnlockManualPart1)
         {
-            _gameState.Day3PreShiftHailCompleted = false;
+            _gameState.Day8NixaHailCompleted = false;
+        }
+        else if (targetDay == _config.DayUnlockManualPart1)
+        {
+            _gameState.Day8NixaHailCompleted = false;
+        }
+        if (targetDay < _config.DayUnlockWarpScanner)
+        {
+            _gameState.Day3KordaniOvernightRepApplied = false;
+            _gameState.Day4PreShiftHailCompleted = false;
+        }
+        else if (targetDay == _config.DayUnlockWarpScanner)
+        {
+            _gameState.Day4PreShiftHailCompleted = false;
         }
 
         _gameState.AdvanceToDay(targetDay);
+        if (targetDay == _config.DayUnlockWaferCargo)
+        {
+            _gameState.Day12CargoIntroShown = false;
+        }
+        if (targetDay <= _config.DayUnlockStoker)
+        {
+            _gameState.Day15ForemanHailCompleted = false;
+        }
+        if (targetDay == 6)
+        {
+            Simulation.ShipGenerator.EnsureDay6IntroTargetAssigned(_gameState);
+            _gameState.TerminalHackedUnlocked = true;
+            _gameState.Day6UnsolicitedDropDelivered = true;
+            if (!_gameState.CompletedInterceptMissionIds.Contains(Simulation.EconomyEngine.Day6IntroMissionId, StringComparer.OrdinalIgnoreCase) &&
+                !_gameState.ActiveInterceptMissionIds.Contains(Simulation.EconomyEngine.Day6IntroMissionId, StringComparer.OrdinalIgnoreCase))
+            {
+                _gameState.ActiveInterceptMissionIds.Add(Simulation.EconomyEngine.Day6IntroMissionId);
+            }
+
+            bool hasBlankSlate =
+                _gameState.PocketItems.Any(i => !i.IsBurnt && i.ItemType == ContrabandPocketItem.TypeBlankDataSlate) ||
+                _gameState.VentStashItems.Any(i => !i.IsBurnt && i.ItemType == ContrabandPocketItem.TypeBlankDataSlate) ||
+                _gameState.ServiceChuteItems.Any(i => !i.IsBurnt && i.ItemType == ContrabandPocketItem.TypeBlankDataSlate);
+
+            if (!hasBlankSlate && _gameState.PocketItems.Count < _gameState.PocketCapacity)
+            {
+                _gameState.PocketItems.Add(new ContrabandPocketItem
+                {
+                    ItemId = _gameState.NextUniqueItemId("blankslate"),
+                    ItemType = ContrabandPocketItem.TypeBlankDataSlate,
+                    DisplayName = "BLANK DATA SLATE (UNREG)"
+                });
+            }
+
+            _gameState.SaveToDisk();
+        }
         AudioHooks.Play("terminal_key_confirm");
         _screenManager.SwitchTo(ScreenId.Desk);
+    }
+
+    private void SpawnTestMissionSlateAndChuteDrop()
+    {
+        EnsureSandboxedIfLeavingMainMenu();
+        Data.CovertMissionDatabase db = Data.CovertMissionDatabase.Load();
+        Data.CovertMissionSpec? deliverySpec = db.Missions.FirstOrDefault(m => m.IsDeliveryMission);
+
+        string missionId = deliverySpec?.MissionId ?? "ftc_relay_drop";
+        string targetPfx = deliverySpec?.TargetPrefix ?? "FTC-";
+        string targetReg = deliverySpec?.TargetRegistration ?? "FTC-418-C";
+        string targetName = deliverySpec?.TargetShipName ?? "SOLARIS DRIFT";
+        string label = deliverySpec?.SlatePayloadLabel ?? "SEALED RELAY SLATE #9";
+        string desc = deliverySpec?.PayloadDescription ?? "Pre-loaded single-use subspace navigation override packet.";
+
+        _gameState.TerminalHackedUnlocked = true;
+        _gameState.ActiveCovertMissionId = missionId;
+        _gameState.ActiveCovertTargetPrefix = targetPfx;
+        _gameState.ActiveCovertTargetReg = targetReg;
+        _gameState.ActiveCovertTargetShipName = targetName;
+        _gameState.ActiveCovertDeliveryDay = _gameState.Day;
+        _gameState.DeliveredCovertMissionIds.Remove(missionId);
+
+        ContrabandPocketItem CreateMissionSlate(string tag) => new()
+        {
+            ItemId = _gameState.NextUniqueItemId(tag),
+            ItemType = ContrabandPocketItem.TypeMissionDataSlate,
+            DisplayName = label,
+            TargetShipPrefix = targetPfx,
+            TargetShipRegistration = targetReg,
+            TargetShipName = targetName,
+            IsMissionSlate = true,
+            MissionId = missionId,
+            MissionTargetReg = targetReg,
+            MissionTargetPrefix = targetPfx,
+            MissionDescription = desc
+        };
+
+        if (!_gameState.ServiceChuteItems.Any(i => i.IsMissionSlate && !i.IsBurnt))
+        {
+            _gameState.ServiceChuteItems.Add(CreateMissionSlate("dbg_chute_mission"));
+        }
+
+        if (_screenManager.CurrentScreenId == ScreenId.Desk &&
+            !_gameState.PocketItems.Any(i => i.IsMissionSlate && !i.IsBurnt))
+        {
+            if (_gameState.PocketItems.Count >= _gameState.PocketCapacity && _gameState.PocketCapacity < 3)
+            {
+                _gameState.PocketCapacity = Math.Min(3, _gameState.PocketItems.Count + 1);
+            }
+            if (_gameState.PocketItems.Count < _gameState.PocketCapacity)
+            {
+                _gameState.PocketItems.Add(CreateMissionSlate("dbg_pocket_mission"));
+            }
+        }
+
+        _gameState.SaveToDisk();
     }
 
     public void DrawVirtual(VirtualMouseState mouse)
@@ -586,16 +913,16 @@ public sealed class DebugOverlay
         Raylib.DrawRectangle(PanelX, PanelY, PanelW, PanelH, Palette.OutlineVoid);
         Raylib.DrawRectangleLines(PanelX, PanelY, PanelW, PanelH, Palette.ClearanceTeal);
 
-        Raylib.DrawText(
-            $"DEV DEBUG [F1/`] | SCREEN: {_screenManager.CurrentScreenId} | FPS: {Raylib.GetFPS()} | {Constants.VirtualWidth}x{Constants.VirtualHeight} ({mouse.Scale:0.##}X)",
-            PanelX + 8, PanelY + 8, 10, Palette.ClearanceTeal);
+        UiText.Draw(
+            UiText.TruncateToWidth($"DEV DEBUG [F1/`] | SCREEN: {_screenManager.CurrentScreenId} | FPS: {Raylib.GetFPS()} | {Constants.VirtualWidth}x{Constants.VirtualHeight} ({mouse.Scale:0.##}X)", 10, PanelW - 16, denseRow: true),
+            PanelX + 8, PanelY + 8, 10, Palette.ClearanceTeal, denseRow: true);
 
         int activeShiftSec = _config.GetShiftDurationSeconds(_gameState.Day);
         int selectedShiftSec = _config.GetShiftDurationSeconds(_selectedJumpDay);
 
-        Raylib.DrawText(
-            BuildPrimaryTelemetryLine(mouse),
-            PanelX + 8, PanelY + 24, 10, Palette.CrtAmberPrimary);
+        UiText.Draw(
+            UiText.TruncateToWidth(BuildPrimaryTelemetryLine(mouse), 10, PanelW - 16, denseRow: true),
+            PanelX + 8, PanelY + 24, 10, Palette.CrtAmberPrimary, denseRow: true);
 
         string foodLabel = _gameState.CurrentHungerTier switch
         {
@@ -603,17 +930,17 @@ public sealed class DebugOverlay
             HungerTier.MediumNutrientPaste => "PASTE (MED SWAY)",
             _ => "DRY/UNFED 2D+ (MAX SWAY)"
         };
-        Raylib.DrawText(
-            $"KDF REP: {_gameState.GetRep("KDF-"):+#;-#;0} | SWAY: {foodLabel} | LOGS: {_gameState.UnscrubbedLogCount}",
-            PanelX + 8, PanelY + 40, 10, Palette.CrtAmberPrimary);
+        UiText.Draw(
+            UiText.TruncateToWidth($"KDF REP: {_gameState.GetRep("KDF-"):+#;-#;0} | SWAY: {foodLabel} | LOGS: {_gameState.UnscrubbedLogCount}", 10, PanelW - 16, denseRow: true),
+            PanelX + 8, PanelY + 40, 10, Palette.CrtAmberPrimary, denseRow: true);
 
-        Raylib.DrawText(
-            $"D2 SUSPECT: {_gameState.Day2SuspectRegistration} ({_gameState.Day2SuspectDeclaredOrigin}) | D3 HAIL: {(_gameState.Day2SuspectDetained ? "BRANCH A (DETAINED)" : "BRANCH B (CLEARED)")}",
-            PanelX + 8, PanelY + 56, 10, Palette.ClearanceTeal);
+        UiText.Draw(
+            UiText.TruncateToWidth($"D3 SUSPECT: {_gameState.Day2SuspectRegistration} ({_gameState.Day2SuspectDeclaredOrigin}) | D4 HAIL: {(_gameState.GhostRouteSuspectDetained ? "BRANCH A (DETAINED)" : "BRANCH B (CLEARED)")}", 10, PanelW - 16, denseRow: true),
+            PanelX + 8, PanelY + 56, 10, Palette.ClearanceTeal, denseRow: true);
 
-        Raylib.DrawText(
-            $"SEED:{_gameState.RunSeed} | VRAM TEX:{PixelBuffer.ActiveProceduralTextureCount} | SFX:{AudioHooks.LastPlayedSoundId}",
-            PanelX + 8, PanelY + 72, 10, Palette.CrtAmberDimmed);
+        UiText.Draw(
+            UiText.TruncateToWidth($"SEED:{_gameState.RunSeed} | VRAM TEX:{PixelBuffer.ActiveProceduralTextureCount} | SFX:{AudioHooks.LastPlayedSoundId}", 10, PanelW - 16, denseRow: true),
+            PanelX + 8, PanelY + 72, 10, Palette.CrtAmberDimmed, denseRow: true);
 
         // Row 1: Time Scale & End Shift Now
         DrawDebugButton(mouse, PanelX + 8, PanelY + 90, 222, 20,
@@ -643,22 +970,22 @@ public sealed class DebugOverlay
         DrawDebugButton(mouse, PanelX + 236, PanelY + 162, 224, 20,
             "CYCLE FOOD SWAY TIER", Palette.CrtAmberPrimary);
 
-        // Row 5: Day2SuspectDetained, Reset Strikes/Warn, +50 SC
+        // Row 5: GhostRouteSuspectDetained, Reset Strikes/Warn, +50 SC
         DrawDebugButton(mouse, PanelX + 8, PanelY + 186, 222, 20,
-            $"Day2SuspectDetained: {(_gameState.Day2SuspectDetained ? "TRUE" : "FALSE")}",
-            _gameState.Day2SuspectDetained ? Palette.AlertCrimson : Palette.ClearanceTeal);
+            $"GhostRouteDetained: {(_gameState.GhostRouteSuspectDetained ? "TRUE" : "FALSE")}",
+            _gameState.GhostRouteSuspectDetained ? Palette.AlertCrimson : Palette.ClearanceTeal);
         DrawDebugButton(mouse, PanelX + 236, PanelY + 186, 134, 20,
             "RESET STRIKES", Palette.CrtAmberPrimary);
         DrawDebugButton(mouse, PanelX + 374, PanelY + 186, 86, 20,
             "+50 SC", Palette.ClearanceTeal);
 
-        // Row 6: Day Jump 1..25 + Quick D1/D2/D3
+        // Row 6: Day Jump 1..28 + Quick D1/D3/D4
         DrawDebugButton(mouse, PanelX + 8, PanelY + 214, 58, 20, "< DAY", Palette.CrtAmberPrimary);
         DrawDebugButton(mouse, PanelX + 70, PanelY + 214, 58, 20, "DAY >", Palette.CrtAmberPrimary);
         DrawDebugButton(mouse, PanelX + 132, PanelY + 214, 150, 20, $"LOAD DAY {_selectedJumpDay:D2} ({selectedShiftSec}s)", Palette.ClearanceTeal);
         DrawDebugButton(mouse, PanelX + 288, PanelY + 214, 54, 20, "DAY 1", Palette.CrtAmberDimmed);
-        DrawDebugButton(mouse, PanelX + 346, PanelY + 214, 54, 20, "DAY 2", Palette.CrtAmberDimmed);
-        DrawDebugButton(mouse, PanelX + 404, PanelY + 214, 56, 20, "DAY 3", Palette.CrtAmberDimmed);
+        DrawDebugButton(mouse, PanelX + 346, PanelY + 214, 54, 20, "DAY 3", Palette.CrtAmberDimmed);
+        DrawDebugButton(mouse, PanelX + 404, PanelY + 214, 56, 20, $"DAY {_config.DayUnlockWarpScanner}", Palette.CrtAmberDimmed);
 
         // Row 7: Screen Routing
         DrawDebugButton(mouse, PanelX + 8, PanelY + 242, 86, 20, "MENU", Palette.CrtAmberDimmed);
@@ -721,7 +1048,7 @@ public sealed class DebugOverlay
         DrawDebugButton(mouse, PanelX + 236, PanelY + 392, 224, 20,
             "LOAD DAY 06 AM (HACK DROP)", Palette.CrtAmberPrimary);
 
-        // Row 14: Live Booth 04 Layout Switcher (A / B1 / B2) & Portrait (B) 3x (192px) / 2x (128px) Toggle
+        // Row 14: Live Booth 04 Layout Switcher (A / B1 / B2), Portrait (B) 3x/2x & Ships V1/V2 Toggle
         bool isA = _config.DeskUpperLayoutMode == DeskUpperLayoutMode.OptionA_Classic;
         bool isB1 = _config.DeskUpperLayoutMode == DeskUpperLayoutMode.OptionB1_CommsSwap;
         bool isB2 = _config.DeskUpperLayoutMode == DeskUpperLayoutMode.OptionB2_CommsSwapFlush;
@@ -730,11 +1057,16 @@ public sealed class DebugOverlay
         DrawDebugToggleButton(mouse, PanelX + 158, PanelY + 416, 72, 20, "DESK: B2", isB2, Palette.ClearanceTeal);
 
         string portraitScaleLabel = _devDebug.Use3xPortraitInLayoutB
-            ? "PORTRAIT (B): 3x (192px)"
-            : "PORTRAIT (B): 2x (128px)";
-        DrawDebugButton(mouse, PanelX + 236, PanelY + 416, 224, 20,
+            ? "PORTRAIT: 3x"
+            : "PORTRAIT: 2x";
+        DrawDebugToggleButton(mouse, PanelX + 236, PanelY + 416, 114, 20,
             portraitScaleLabel,
-            !isA ? Palette.ClearanceTeal : Palette.CrtAmberDimmed);
+            !isA, Palette.ClearanceTeal);
+
+        bool isShipV2 = _config.ShipArtVersion == ShipArtVersion.V2_HiBit;
+        DrawDebugToggleButton(mouse, PanelX + 354, PanelY + 416, 106, 20,
+            isShipV2 ? "SHIPS: V2" : "SHIPS: V1",
+            isShipV2, Palette.ClearanceTeal);
 
         // Row 15: Talking-Head Advance Mode Toggle (AUTO / CLICK) & Path E Buyout Target Stepper
         bool clickAdvance = _config.TalkingHeadAdvanceMode == TalkingHeadAdvanceMode.ClickToAdvance;
@@ -746,10 +1078,112 @@ public sealed class DebugOverlay
         DrawStepperReadout(PanelX + 266, PanelY + 440, 164, 20, $"BUYOUT: {_config.IndependentPassageFundTarget} SC", Palette.ClearanceTeal);
         DrawDebugButton(mouse, PanelX + 432, PanelY + 440, 28, 20, " >", Palette.CrtAmberPrimary);
 
-        Raylib.DrawText(
-            $"PAY: 5/8/10/15 SC | COMMS: {_config.DialogueTypewriterCharsPerSec:0} CPS | HAILS: {_config.TalkingHeadCharsPerSec:0} CPS ({_config.TalkingHeadLinePauseSeconds:0.00}s)",
-            PanelX + 8, PanelY + 470, 10, Palette.CrtAmberDimmed);
-        Raylib.DrawText("PRESS [F1] OR [`] TO CLOSE DEV DEBUG OVERLAY", PanelX + 8, PanelY + 492, 10, Palette.WeatheredGunmetalEdge);
+        // Row 16: Live Invalid-Ship Rate Tuners (Days 1-5 & Days 6+)
+        DrawDebugButton(mouse, PanelX + 8, PanelY + 464, 28, 20, " <", Palette.CrtAmberPrimary);
+        DrawStepperReadout(PanelX + 38, PanelY + 464, 162, 20, $"INV D1-5: {(_config.InvalidShipRateEarly * 100f):0}%", Palette.CrtAmberPrimary);
+        DrawDebugButton(mouse, PanelX + 202, PanelY + 464, 28, 20, " >", Palette.CrtAmberPrimary);
+
+        DrawDebugButton(mouse, PanelX + 236, PanelY + 464, 28, 20, " <", Palette.CrtAmberPrimary);
+        DrawStepperReadout(PanelX + 266, PanelY + 464, 164, 20, $"INV D6+: {(_config.InvalidShipRateMid * 100f):0}%", Palette.CrtAmberPrimary);
+        DrawDebugButton(mouse, PanelX + 432, PanelY + 464, 28, 20, " >", Palette.CrtAmberPrimary);
+
+        // Row 17: Live Font Preset Cycler
+        DrawDebugButton(mouse, PanelX + 8, PanelY + 488, 28, 20, " <", Palette.CrtAmberPrimary);
+        DrawStepperReadout(PanelX + 38, PanelY + 488, 392, 20,
+            UiText.TruncateToWidth($"FONT: {FontManager.ActivePresetName} ({FontManager.ActiveScaleMultiplier:0.00}x)", 10, 384), Palette.ClearanceTeal);
+        DrawDebugButton(mouse, PanelX + 432, PanelY + 488, 28, 20, " >", Palette.CrtAmberPrimary);
+
+        // Row 18: Live Font Size Offset (-2 .. +3) & Intro Skip Toggle
+        string offsetText = FontManager.FontSizeOffset > 0 ? $"+{FontManager.FontSizeOffset}" : FontManager.FontSizeOffset.ToString();
+        DrawDebugButton(mouse, PanelX + 8, PanelY + 512, 28, 20, " -", Palette.CrtAmberPrimary);
+        DrawStepperReadout(PanelX + 38, PanelY + 512, 260, 20, $"FONT SIZE: {offsetText} (-2..+3)", Palette.ClearanceTeal);
+        DrawDebugButton(mouse, PanelX + 300, PanelY + 512, 28, 20, " +", Palette.CrtAmberPrimary);
+        DrawDebugToggleButton(mouse, PanelX + 334, PanelY + 512, 126, 20,
+            _devDebug.SkipIntroSequence ? "INTRO: SKIP" : "INTRO: ON",
+            !_devDebug.SkipIntroSequence, Palette.ClearanceTeal);
+
+        // Row 19: Build 5.1 WaferScoopMode Cycler, Force Empty Hopper & Spawn Test Mission Slate / Chute Drop
+        string scoopTxt = $"SCOOP: {DevDebugState.GetWaferScoopShortLabel(_config.WaferScoopMode)}";
+        DrawDebugButton(mouse, PanelX + 8, PanelY + 536, 152, 20, scoopTxt, Palette.ClearanceTeal);
+        DrawDebugButton(mouse, PanelX + 164, PanelY + 536, 136, 20, "EMPTY HOPPER", Palette.AlertCrimson);
+        DrawDebugButton(mouse, PanelX + 304, PanelY + 536, 156, 20, "TEST CHUTE SLATE", Palette.CrtAmberPrimary);
+
+        // Live Stoker Strain Telemetry Banner (y = PanelY + 559, h = 16)
+        string stokerTelemetry = $"STOKER: SAFE {_devDebug.LiveStokerSafeLoad:0}% | SHK {_devDebug.LiveStokerShock:0}% | TOT {_devDebug.LiveStokerTotal:0}%";
+        Color stokerTelCol = _devDebug.LiveStokerTotal > 100f
+            ? Palette.AlertCrimson
+            : (_devDebug.LiveStokerTotal > _config.StokerSafeLoadCap ? Palette.FromHex("#bdb040") : Palette.ClearanceTeal);
+        DrawStepperReadout(PanelX + 8, PanelY + 559, 452, 17, stokerTelemetry, stokerTelCol);
+
+        // Row 20: StokerSafeLoadCap (default 65%) & StokerUncalibratedShock (default 33%) steppers
+        DrawDebugButton(mouse, PanelX + 8, PanelY + 578, 28, 20, " <", Palette.CrtAmberPrimary);
+        DrawStepperReadout(PanelX + 38, PanelY + 578, 162, 20, $"SAFE CAP: {_config.StokerSafeLoadCap:0}%", Palette.ClearanceTeal);
+        DrawDebugButton(mouse, PanelX + 202, PanelY + 578, 28, 20, " >", Palette.CrtAmberPrimary);
+
+        DrawDebugButton(mouse, PanelX + 236, PanelY + 578, 28, 20, " <", Palette.CrtAmberPrimary);
+        DrawStepperReadout(PanelX + 266, PanelY + 578, 164, 20, $"SHK: +{_config.StokerUncalibratedShock:0}%", Palette.FromHex("#bdb040"));
+        DrawDebugButton(mouse, PanelX + 432, PanelY + 578, 28, 20, " >", Palette.CrtAmberPrimary);
+
+        // Row 21: RESET STRAIN (15%) & FORCE STOKER OVL
+        DrawDebugButton(mouse, PanelX + 8, PanelY + 600, 222, 20, $"RESET STRAIN ({_config.StokerIdleBaseline:0}%)", Palette.ClearanceTeal);
+        DrawDebugButton(mouse, PanelX + 236, PanelY + 600, 224, 20, "FORCE STOKER OVL", Palette.AlertCrimson);
+
+        // Row 22: BROWNOUT: AUTO / FORCE ON / FORCE DIM / FORCE OFF
+        DrawDebugToggleButton(mouse, PanelX + 8, PanelY + 622, 98, 20, "BRWN: AUTO",
+            _devDebug.BrownoutForceMode == DebugBrownoutForceMode.Auto, Palette.ClearanceTeal);
+        DrawDebugToggleButton(mouse, PanelX + 110, PanelY + 622, 112, 20, "FORCE ON",
+            _devDebug.BrownoutForceMode == DebugBrownoutForceMode.ForceOn, Palette.ClearanceTeal);
+        DrawDebugToggleButton(mouse, PanelX + 226, PanelY + 622, 116, 20, "FORCE DIM",
+            _devDebug.BrownoutForceMode == DebugBrownoutForceMode.ForceDim, Palette.CrtAmberPrimary);
+        DrawDebugToggleButton(mouse, PanelX + 346, PanelY + 622, 114, 20, "FORCE OFF",
+            _devDebug.BrownoutForceMode == DebugBrownoutForceMode.ForceOff, Palette.AlertCrimson);
+
+        // Row 23: Live EnableStokerDial toggle & POCKET CAP (1 / 2 / 3) stepper
+        DrawDebugToggleButton(mouse, PanelX + 8, PanelY + 644, 222, 20,
+            _config.EnableStokerDial ? "STOKER DIAL: ON" : "STOKER DIAL: OFF",
+            _config.EnableStokerDial, Palette.FromHex("#bdb040"));
+        DrawDebugButton(mouse, PanelX + 236, PanelY + 644, 28, 20, " <", Palette.CrtAmberPrimary);
+        DrawStepperReadout(PanelX + 266, PanelY + 644, 164, 20, $"POCKET CAP: {_gameState.PocketCapacity}/3", Palette.ClearanceTeal);
+        DrawDebugButton(mouse, PanelX + 432, PanelY + 644, 28, 20, " >", Palette.CrtAmberPrimary);
+
+        // Right-Hand Telemetry Sidebar (x = PanelX + 468 .. PanelX + PanelW - 8)
+        int sideX = PanelX + 468;
+        int sideW = PanelW - 476;
+        Raylib.DrawLine(PanelX + 464, PanelY + 88, PanelX + 464, PanelY + PanelH - 8, Palette.WeatheredGunmetalEdge);
+
+        UiText.Draw("LIVE TELEMETRY", sideX, PanelY + 92, 10, Palette.ClearanceTeal, denseRow: true);
+        UiText.Draw(UiText.TruncateToWidth($"SAFE: {_devDebug.LiveStokerSafeLoad:0.0}%", 10, sideW, denseRow: true), sideX, PanelY + 110, 10, Palette.ClearanceTeal, denseRow: true);
+        UiText.Draw(UiText.TruncateToWidth($"SHK:  {_devDebug.LiveStokerShock:0.0}% (+{_devDebug.LiveStokerPreviewShock:0}%)", 10, sideW, denseRow: true), sideX, PanelY + 125, 10, Palette.CrtAmberPrimary, denseRow: true);
+        UiText.Draw(UiText.TruncateToWidth($"TOT:  {_devDebug.LiveStokerTotal:0.0}%", 10, sideW, denseRow: true), sideX, PanelY + 140, 10, stokerTelCol, denseRow: true);
+        UiText.Draw(UiText.TruncateToWidth($"BRWN: {_devDebug.BrownoutForceMode}", 10, sideW, denseRow: true), sideX, PanelY + 155, 10, Palette.CrtAmberDimmed, denseRow: true);
+        UiText.Draw(UiText.TruncateToWidth($"NEXT BRWN: {(_gameState.NextDayPowerBrownout ? "YES" : "NO")}", 10, sideW, denseRow: true), sideX, PanelY + 170, 10,
+            _gameState.NextDayPowerBrownout ? Palette.AlertCrimson : Palette.CrtAmberDimmed, denseRow: true);
+
+        string voiceReadout = $"VOICE: {AudioHooks.ActivePresentedSpecies}";
+        UiText.Draw(UiText.TruncateToWidth(voiceReadout, 10, sideW, denseRow: true), sideX, PanelY + 196, 10, Palette.ClearanceTeal, denseRow: true);
+        UiText.Draw(UiText.TruncateToWidth($"BANK: {AudioHooks.ActiveVoiceBank} ({AudioHooks.ActiveEncounterBasePitch:0.00})", 10, sideW, denseRow: true), sideX, PanelY + 211, 10, Palette.CrtAmberDimmed, denseRow: true);
+
+        int histCount = _gameState.EncounterHistory.Count;
+        UiText.Draw($"HISTORY: {histCount}", sideX, PanelY + 236, 10, Palette.CrtAmberPrimary, denseRow: true);
+        if (histCount == 0)
+        {
+            UiText.Draw("(none yet)", sideX, PanelY + 251, 10, Palette.CrtAmberDimmed, denseRow: true);
+        }
+        else
+        {
+            int startIdx = Math.Max(0, histCount - 5);
+            int lineIdx = 0;
+            for (int i = histCount - 1; i >= startIdx; i--)
+            {
+                EncounterRecord r = _gameState.EncounterHistory[i];
+                string histLine = $"D{r.Day:D2} {r.Faction} {r.Verdict}";
+                UiText.Draw(UiText.TruncateToWidth(histLine, 10, sideW, denseRow: true), sideX, PanelY + 251 + lineIdx * 14, 10, Palette.CrtAmberDimmed, denseRow: true);
+                lineIdx++;
+            }
+        }
+
+        UiText.Draw(UiText.TruncateToWidth($"CPS: {_config.DialogueTypewriterCharsPerSec:0}/{_config.TalkingHeadCharsPerSec:0}", 10, sideW, denseRow: true), sideX, PanelY + 628, 10, Palette.CrtAmberDimmed, denseRow: true);
+        UiText.Draw(UiText.TruncateToWidth("[F1/`] CLOSE DEBUG", 10, sideW, denseRow: true), sideX, PanelY + 646, 10, Palette.WeatheredGunmetalEdge, denseRow: true);
     }
 
     private static void DrawDebugToggleButton(VirtualMouseState mouse, int x, int y, int w, int h, string label, bool active, Color activeCol)
@@ -757,16 +1191,18 @@ public sealed class DebugOverlay
         bool hovered = mouse.IsHit(x, y, w, h);
         Raylib.DrawRectangle(x, y, w, h, active || hovered ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, w, h, active ? activeCol : (hovered ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge));
-        int tw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, x + Math.Max(4, (w - tw) / 2), y + 5, 10, active ? activeCol : Palette.CrtAmberDimmed);
+        string clipped = UiText.TruncateToWidth(label, 10, Math.Max(8, w - 8), denseRow: true);
+        int tw = UiText.MeasureWidth(clipped, 10, denseRow: true);
+        UiText.Draw(clipped, x + Math.Max(4, (w - tw) / 2), y + 5, 10, active ? activeCol : Palette.CrtAmberDimmed, denseRow: true);
     }
 
     private static void DrawStepperReadout(int x, int y, int w, int h, string label, Color textCol)
     {
         Raylib.DrawRectangle(x, y, w, h, Palette.DeepSpaceVoid);
         Raylib.DrawRectangleLines(x, y, w, h, Palette.WeatheredGunmetalEdge);
-        int tw = Raylib.MeasureText(label, 10);
-        Raylib.DrawText(label, x + Math.Max(4, (w - tw) / 2), y + 5, 10, textCol);
+        string clipped = UiText.TruncateToWidth(label, 10, Math.Max(8, w - 8), denseRow: true);
+        int tw = UiText.MeasureWidth(clipped, 10, denseRow: true);
+        UiText.Draw(clipped, x + Math.Max(4, (w - tw) / 2), y + 5, 10, textCol, denseRow: true);
     }
 
     private static void DrawDebugButton(VirtualMouseState mouse, int x, int y, int w, int h, string label, Color textCol)
@@ -774,6 +1210,7 @@ public sealed class DebugOverlay
         bool hovered = mouse.IsHit(x, y, w, h);
         Raylib.DrawRectangle(x, y, w, h, hovered ? Palette.OxidizedBronzeShadow : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(x, y, w, h, hovered ? Palette.CrtAmberPrimary : Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText(label, x + 6, y + 5, 10, textCol);
+        string clipped = UiText.TruncateToWidth(label, 10, Math.Max(8, w - 10), denseRow: true);
+        UiText.Draw(clipped, x + 5, y + 5, 10, textCol, denseRow: true);
     }
 }

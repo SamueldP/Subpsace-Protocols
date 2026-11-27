@@ -318,13 +318,13 @@ public sealed class StarChartModal
         // 3. Top Header Bar (80, 48, 1120, 32)
         Raylib.DrawRectangle(ModalX + 2, ModalY + 2, ModalW - 4, HeaderH - 2, new Color(16, 28, 34, 255));
         Raylib.DrawLine(ModalX + 2, ModalY + HeaderH, ModalX + ModalW - 2, ModalY + HeaderH, Palette.WeatheredGunmetalEdge);
-        Raylib.DrawText("VOID GATE 3 // SECTOR ASTROGATION & TRADE CORRIDOR CHART", ModalX + 14, ModalY + 11, 10, Palette.ClearanceTeal);
-        Raylib.DrawText("CLICK INNER SYSTEM OR TRADE ROUTE FOR TELEMETRY  |  [ESC] CLOSE", ModalX + 684, ModalY + 11, 10, Palette.CrtAmberDimmed);
+        UiText.Draw("VOID GATE 3 // SECTOR ASTROGATION & TRADE CORRIDOR CHART", ModalX + 14, ModalY + 11, 10, Palette.ClearanceTeal);
+        UiText.Draw("CLICK INNER SYSTEM OR TRADE ROUTE FOR TELEMETRY  |  [ESC] CLOSE", ModalX + 684, ModalY + 11, 10, Palette.CrtAmberDimmed);
 
         bool closeHov = mouse.IsHit(CloseBtnX, CloseBtnY, CloseBtnW, CloseBtnH);
         Raylib.DrawRectangle(CloseBtnX, CloseBtnY, CloseBtnW, CloseBtnH, closeHov ? Palette.AlertCrimson : Palette.WeatheredGunmetalMid);
         Raylib.DrawRectangleLines(CloseBtnX, CloseBtnY, CloseBtnW, CloseBtnH, Palette.AlertCrimson);
-        Raylib.DrawText("X", CloseBtnX + 10, CloseBtnY + 7, 10, closeHov ? Palette.OutlineVoid : Palette.AlertCrimson);
+        UiText.Draw("X", CloseBtnX + 10, CloseBtnY + 7, 10, closeHov ? Palette.OutlineVoid : Palette.AlertCrimson);
 
         // 4. Side Astrogation Frame Trim flanking the 16:9 Map Viewport
         DrawSideAstrogationTrim();
@@ -358,35 +358,35 @@ public sealed class StarChartModal
 
         Raylib.DrawRectangle(leftRailX, MapY, railW, MapH, new Color(9, 13, 18, 255));
         Raylib.DrawRectangleLines(leftRailX, MapY, railW, MapH, Palette.WeatheredGunmetalMid);
-        Raylib.DrawText("LAT", leftRailX + 8, MapY + 8, 10, Palette.WeatheredGunmetalEdge);
+        UiText.Draw("LAT", leftRailX + 8, MapY + 8, 10, Palette.WeatheredGunmetalEdge);
 
         Raylib.DrawRectangle(rightRailX, MapY, railW, MapH, new Color(9, 13, 18, 255));
         Raylib.DrawRectangleLines(rightRailX, MapY, railW, MapH, Palette.WeatheredGunmetalMid);
-        Raylib.DrawText("KEY", rightRailX + 8, MapY + 8, 10, Palette.WeatheredGunmetalEdge);
+        UiText.Draw("KEY", rightRailX + 8, MapY + 8, 10, Palette.WeatheredGunmetalEdge);
 
         for (int i = 1; i <= 9; i++)
         {
             int ty = MapY + (MapH * i) / 10;
             Raylib.DrawLine(leftRailX + 6, ty, leftRailX + railW - 6, ty, new Color(22, 30, 38, 255));
-            Raylib.DrawText($"0.{i}", leftRailX + 20, ty - 12, 10, new Color(56, 74, 86, 255));
+            UiText.Draw($"0.{i}", leftRailX + 20, ty - 12, 10, new Color(56, 74, 86, 255));
         }
 
         // Compact legend inside right rail
         int ky = MapY + 36;
         Raylib.DrawCircle(rightRailX + 14, ky + 4, 4, Palette.ClearanceTeal);
-        Raylib.DrawText("GATE", rightRailX + 24, ky, 10, Palette.ClearanceTeal);
+        UiText.Draw("GATE", rightRailX + 24, ky, 10, Palette.ClearanceTeal);
         ky += 28;
         Raylib.DrawCircle(rightRailX + 14, ky + 4, 4, Palette.FromHex("#22c55e"));
-        Raylib.DrawText("CORE", rightRailX + 24, ky, 10, Palette.FromHex("#22c55e"));
+        UiText.Draw("CORE", rightRailX + 24, ky, 10, Palette.FromHex("#22c55e"));
         ky += 28;
         Raylib.DrawCircle(rightRailX + 14, ky + 4, 4, Palette.AlertCrimson);
-        Raylib.DrawText("RIFT", rightRailX + 24, ky, 10, Palette.AlertCrimson);
+        UiText.Draw("RIFT", rightRailX + 24, ky, 10, Palette.AlertCrimson);
         ky += 28;
         Raylib.DrawLine(rightRailX + 8, ky + 5, rightRailX + 20, ky + 5, Palette.FromHex("#d4a052"));
-        Raylib.DrawText("LANE", rightRailX + 24, ky, 10, Palette.CrtAmberPrimary);
+        UiText.Draw("LANE", rightRailX + 24, ky, 10, Palette.CrtAmberPrimary);
         ky += 28;
         Raylib.DrawCircle(rightRailX + 14, ky + 4, 3, new Color(180, 134, 62, 150));
-        Raylib.DrawText("OUTER", rightRailX + 24, ky, 10, Palette.WeatheredGunmetalEdge);
+        UiText.Draw("OUTER", rightRailX + 24, ky, 10, Palette.WeatheredGunmetalEdge);
     }
 
     private static void DrawMapCoordinateGrid()
@@ -673,8 +673,8 @@ public sealed class StarChartModal
                 Raylib.DrawCircleLines(nx, ny, 7, whCol);
                 Raylib.DrawCircleLines(nx, ny, 4, Palette.AlertCrimson);
                 Raylib.DrawPixel(nx, ny, whCol);
-                int ww = Raylib.MeasureText("WORMHOLE", 10);
-                Raylib.DrawText("WORMHOLE", nx - ww / 2, ny + 10, 10, whCol);
+                int ww = UiText.MeasureWidth("WORMHOLE", 10);
+                UiText.Draw("WORMHOLE", nx - ww / 2, ny + 10, 10, whCol);
                 continue;
             }
 
@@ -684,8 +684,8 @@ public sealed class StarChartModal
 
             if (!string.IsNullOrWhiteSpace(node.Name))
             {
-                int tw = Raylib.MeasureText(node.Name, 10);
-                Raylib.DrawText(node.Name, nx - tw / 2, ny + 6, 10, new Color(baseCol.R, baseCol.G, baseCol.B, (byte)125));
+                int tw = UiText.MeasureWidth(node.Name, 10);
+                UiText.Draw(node.Name, nx - tw / 2, ny + 6, 10, new Color(baseCol.R, baseCol.G, baseCol.B, (byte)125));
             }
         }
 
@@ -738,14 +738,14 @@ public sealed class StarChartModal
 
             // Crisp system name plate below node
             string label = node.Name;
-            int tw = Raylib.MeasureText(label, 10);
+            int tw = UiText.MeasureWidth(label, 10);
             int lx = nx - tw / 2;
             int ly = ny + 12;
             Raylib.DrawRectangle(lx - 3, ly - 1, tw + 6, 12, new Color(7, 11, 16, 220));
             Color textCol = isSelected
                 ? Palette.CrtAmberPrimary
                 : (isHovered ? Palette.ClearanceTeal : nodeCol);
-            Raylib.DrawText(label, lx, ly, 10, textCol);
+            UiText.Draw(label, lx, ly, 10, textCol);
         }
     }
 
@@ -777,22 +777,22 @@ public sealed class StarChartModal
         Raylib.DrawRectangleLines(ReadoutX, ReadoutY, ReadoutW, ReadoutH, Palette.ClearanceTeal);
         Raylib.DrawRectangleLines(ReadoutX + 2, ReadoutY + 2, ReadoutW - 4, ReadoutH - 4, Palette.OutlineVoid);
 
-        Raylib.DrawText("ASTROGATION TELEMETRY READOUT", ReadoutX + 14, ReadoutY + 9, 10, Palette.WeatheredGunmetalEdge);
+        UiText.Draw("ASTROGATION TELEMETRY READOUT", ReadoutX + 14, ReadoutY + 9, 10, Palette.WeatheredGunmetalEdge);
 
         if (!string.IsNullOrEmpty(_selectedNodeId))
         {
-            Raylib.DrawText(ReadoutPrimaryText, ReadoutX + 14, ReadoutY + 27, 10, Palette.ClearanceTeal);
-            Raylib.DrawText(ReadoutSecondaryText, ReadoutX + 284, ReadoutY + 27, 10, Palette.CrtAmberPrimary);
-            Raylib.DrawText(ReadoutTertiaryText, ReadoutX + 684, ReadoutY + 27, 10, Palette.CrtAmberDimmed);
+            UiText.Draw(ReadoutPrimaryText, ReadoutX + 14, ReadoutY + 27, 10, Palette.ClearanceTeal);
+            UiText.Draw(ReadoutSecondaryText, ReadoutX + 284, ReadoutY + 27, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(ReadoutTertiaryText, ReadoutX + 684, ReadoutY + 27, 10, Palette.CrtAmberDimmed);
         }
         else if (!string.IsNullOrEmpty(_selectedRouteId))
         {
-            Raylib.DrawText(ReadoutPrimaryText, ReadoutX + 14, ReadoutY + 27, 10, Palette.CrtAmberPrimary);
-            Raylib.DrawText(ReadoutSecondaryText, ReadoutX + 448, ReadoutY + 27, 10, Palette.ClearanceTeal);
+            UiText.Draw(ReadoutPrimaryText, ReadoutX + 14, ReadoutY + 27, 10, Palette.CrtAmberPrimary);
+            UiText.Draw(ReadoutSecondaryText, ReadoutX + 448, ReadoutY + 27, 10, Palette.ClearanceTeal);
         }
         else
         {
-            Raylib.DrawText("SELECT AN INNER SECTOR SYSTEM (VG-3 + 6 NEIGHBORS) OR TRADE CORRIDOR LINE.", ReadoutX + 14, ReadoutY + 27, 10, Palette.CrtAmberDimmed);
+            UiText.Draw("SELECT AN INNER SECTOR SYSTEM (VG-3 + 6 NEIGHBORS) OR TRADE CORRIDOR LINE.", ReadoutX + 14, ReadoutY + 27, 10, Palette.CrtAmberDimmed);
         }
     }
 
@@ -805,7 +805,7 @@ public sealed class StarChartModal
         for (int i = 0; i < text.Length; i++)
         {
             string ch = text[i].ToString();
-            total += Raylib.MeasureText(ch, fontSize);
+            total += UiText.MeasureWidth(ch, fontSize);
             if (i + 1 < text.Length)
                 total += extraSpacing;
         }
@@ -818,8 +818,8 @@ public sealed class StarChartModal
         for (int i = 0; i < text.Length; i++)
         {
             string ch = text[i].ToString();
-            Raylib.DrawText(ch, cx, y, fontSize, col);
-            cx += Raylib.MeasureText(ch, fontSize) + extraSpacing;
+            UiText.Draw(ch, cx, y, fontSize, col);
+            cx += UiText.MeasureWidth(ch, fontSize) + extraSpacing;
         }
     }
 

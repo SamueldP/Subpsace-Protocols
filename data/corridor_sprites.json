@@ -1,0 +1,32 @@
+{
+  "lockedPlayerCharacter": {
+    "seed": 4041,
+    "species": "Human",
+    "role": "PlayerDeck4Worker",
+    "facingDefault": "Right",
+    "notes": "Deck 4 Officer 884-D locked default candidate; pick/override via F5 Art Test [CORRIDOR] tab."
+  },
+  "npcProceduralConfig": {
+    "proceduralEnabled": true,
+    "roleWeights": {
+      "Deck4Laborer": 35,
+      "KordaniSentry": 20,
+      "BrengopClerk": 20,
+      "OffDutyCaptain": 25
+    },
+    "allowedSpecies": [
+      "Human",
+      "Helani",
+      "Klaasari",
+      "Thane",
+      "Veldor",
+      "Brengop",
+      "Kordani",
+      "Krushvak",
+      "Hun-Borian",
+      "Prunjun",
+      "Tolvak",
+      "Orun"
+    ]
+  }
+}
